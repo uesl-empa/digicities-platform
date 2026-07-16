@@ -1,0 +1,85 @@
+# Alpine Village — energy-system optimisation service
+# ----------------------------------------------------
+# Maps the village's components and attributes into the input
+# shape expected by a hypothetical optimisation service.
+#
+# How to read this:
+#   - Each top-level key under `scenario_data` is a class drawn
+#     from the platform ontology. The value can be either:
+#       * a literal-style mapping `Field: ClassName.attribute`
+#         pulled directly from the Scenario / EnergyCarrier /
+#         component instance, or
+#       * a nested dict with `link:` (a connectivity-link query
+#         name) + `template:` (the per-instance shape).
+#   - The Service Requirements Builder fills these in by walking
+#     the workspace's scenario graph and pulling the matching
+#     attribute values.
+#
+# This particular service is small enough to read in one screen.
+
+service_name: Alpine Village Optimiser
+
+scenario_data:
+  uri: Scenario.URI
+  name: Scenario.label
+
+  EnergyCarrier:
+    name: EnergyCarrier.label
+    uri: EnergyCarrier.URI
+    EnergyCost: EnergyCarrier.ImportPrice
+
+  Region:
+    name: Region.label
+    uri: Region.URI
+
+    # Generators — PV system per building
+    EnergyGenerator:
+      link: CL.Region.EnergyGenerator
+      template:
+        uri: EnergyGenerator.URI
+        PeakPower: EnergyGenerator.RatedElectricalPower
+        PanelTilt: EnergyGenerator.PanelTilt
+        PanelAzimuth: EnergyGenerator.PanelAzimuth
+        GenerationProfile: EnergyGenerator.generationProfile.hasHistoricTimeSeriesReference
+      EnergyCarrier:
+        link: CL.EnergyGenerator.EnergyCarrier
+        template:
+          uri: EnergyCarrier.URI
+
+    # Consumers — buildings
+    EnergyConsumer:
+      link: CL.Region.EnergyConsumer
+      template:
+        uri: EnergyConsumer.URI
+        FloorArea: EnergyConsumer.FloorArea
+        AnnualElectricityDemand: EnergyConsumer.AnnualElectricityDemand
+        AnnualHeatDemand: EnergyConsumer.AnnualHeatDemand
+        ElectricityDemandProfile: EnergyConsumer.electricityDemandProfile.hasHistoricTimeSeriesReference
+      EnergyCarrier:
+        link: CL.EnergyConsumer.EnergyCarrier
+        template:
+          uri: EnergyCarrier.URI
+
+    # Storage — batteries
+    EnergyStorage:
+      link: CL.Region.EnergyStorage
+      template:
+        uri: EnergyStorage.URI
+        StorageCapacity: EnergyStorage.StorageCapacity
+        Efficiency: EnergyStorage.Efficiency
+      EnergyCarrier:
+        link: CL.EnergyStorage.EnergyCarrier
+        template:
+          uri: EnergyCarrier.URI
+
+    # Converters — heat pumps
+    EnergyConverter:
+      link: CL.Region.EnergyConverter
+      template:
+        uri: EnergyConverter.URI
+        RatedThermalPower: EnergyConverter.RatedThermalPower
+        Efficiency: EnergyConverter.Efficiency
+      EnergyCarrier:
+        link: CL.EnergyConverter.EnergyCarrier
+        template:
+          uri: EnergyCarrier.URI

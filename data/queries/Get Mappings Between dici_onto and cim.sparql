@@ -1,0 +1,21 @@
+PREFIX dici_onto: <https://digicities.info/ontology#>
+PREFIX cim: <http://iec.ch/TC57/2013/CIM-schema-cim16#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+# Query for all equivalences between dici_onto and cim
+SELECT ?dici_entity ?cim_entity WHERE {
+  {
+    # Class equivalences
+    ?dici_entity owl:equivalentClass ?cim_entity .
+    FILTER(STRSTARTS(STR(?dici_entity), STR(dici_onto:)))
+    FILTER(STRSTARTS(STR(?cim_entity), STR(cim:)))
+  }
+  UNION
+  {
+    # Property equivalences
+    ?dici_entity owl:equivalentProperty ?cim_entity .
+    FILTER(STRSTARTS(STR(?dici_entity), STR(dici_onto:)))
+    FILTER(STRSTARTS(STR(?cim_entity), STR(cim:)))
+  }
+}

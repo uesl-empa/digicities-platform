@@ -1,0 +1,47 @@
+name: compose-config
+
+# Validates that every shipped docker compose overlay combination parses into a
+# valid project. Catches the class of bug where an overlay disables a service
+# that another service still `depends_on` — which made the GraphDB overlay
+# impossible to start (streamlit depends_on the profile-disabled fuseki). Pure
+# `docker compose config` — no images pulled, seconds to run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker-compose*.yml"
+      - ".github/workflows/compose-config.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docker-compose*.yml"
+      - ".github/workflows/compose-config.yml"
+
+jobs:
+  validate:
+    name: docker compose config (all overlays)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show compose version
+        run: docker compose version
+      - name: Validate every shipped overlay combination
+        run: |
+          set -euo pipefail
+          check() {
+            echo "::group::docker compose $* config"
+            docker compose "$@" config -q
+            echo "OK: $*"
+            echo "::endgroup::"
+          }
+          # Default dev stack (Fuseki).
+          check -f docker-compose.yml
+          check -f docker-compose.yml -f docker-compose.override.yml
+          # GraphDB overlay — both the documented (base+graphdb) and dev
+          # (base+override+graphdb) invocations. This is the combo that used to
+          # fail with "depends on undefined service fuseki".
+          check -f docker-compose.yml -f docker-compose.graphdb.yml
+          check -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.graphdb.yml
+          # NextCloud overlay.
+          check -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.nextcloud.yml

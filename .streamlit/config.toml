@@ -1,0 +1,23 @@
+# Streamlit configuration. Read from the working dir where `streamlit run` is
+# executed — the container runs from /app (repo root), so this file applies.
+
+[theme]
+# Pin a self-consistent LIGHT theme. Without this, Streamlit follows the
+# viewer's OS light/dark preference, and the app's custom CSS (which forces a
+# light background but not the text colour) renders light-on-light / unreadable
+# for macOS users in dark mode. Pinning base = "light" fixes both background AND
+# text, so the UI looks the same and stays readable on every OS.
+base = "light"
+primaryColor = "#1f77b4"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+
+[client]
+# Minimal toolbar. Streamlit 1.59 no longer exposes a theme toggle in its menu,
+# so the app provides its own Light/Dark control in the sidebar (see
+# styles.render_appearance_toggle). The header is hidden via CSS for a clean look.
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

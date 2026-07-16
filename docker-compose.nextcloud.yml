@@ -1,0 +1,89 @@
+# docker-compose.nextcloud.yml
+# ---------------------------------------------------------------------
+# Overlay that enables the local NextCloud blob storage stack AND points
+# the Streamlit app at it. Merge on top of docker-compose.yml:
+#
+#     docker compose \
+#       -f docker-compose.yml \
+#       -f docker-compose.override.yml \
+#       -f docker-compose.nextcloud.yml \
+#       up -d
+#
+# Or add this to your .env so `docker compose up -d` picks it up
+# automatically:
+#
+#     COMPOSE_FILE=docker-compose.yml:docker-compose.override.yml:docker-compose.nextcloud.yml
+#
+# With this overlay active, every module that writes to workspace storage
+# (Ontology Manager, Replica Builder, Data Viewer and Uploader, Scenario
+# Builder, Assumptions) uses NextCloud instead of the local filesystem.
+# Browse what the app writes at http://localhost:8080 (admin / admin).
+#
+# The admin / admin credentials are LOCAL-STACK DEFAULTS, not production
+# secrets. Change NEXTCLOUD_BASIC_USERNAME / NEXTCLOUD_BASIC_PASSWORD in
+# .env before exposing port 8080 beyond localhost.
+# ---------------------------------------------------------------------
+
+services:
+
+  nextcloud:
+    image: nextcloud:29-apache
+    container_name: digicities-nextcloud
+    ports:
+      - "8080:80"
+    volumes:
+      - nextcloud_data:/var/www/html
+    environment:
+      NEXTCLOUD_ADMIN_USER: "${NEXTCLOUD_BASIC_USERNAME:-admin}"
+      NEXTCLOUD_ADMIN_PASSWORD: "${NEXTCLOUD_BASIC_PASSWORD:-admin}"
+      # Must list every Host header NextCloud will see:
+      #   - localhost: browser traffic via the host port mapping
+      #   - nextcloud: compose service name used by sibling containers
+      #   - digicities-nextcloud: explicit container name (belt-and-suspenders)
+      NEXTCLOUD_TRUSTED_DOMAINS: "localhost nextcloud digicities-nextcloud"
+      SQLITE_DATABASE: nextcloud
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/status.php"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+
+  nextcloud-init:
+    image: curlimages/curl:latest
+    container_name: digicities-nextcloud-init
+    depends_on:
+      nextcloud:
+        condition: service_healthy
+    volumes:
+      - ./services/nextcloud:/init
+    environment:
+      NEXTCLOUD_URL: "http://nextcloud:80"
+      NEXTCLOUD_USER: "${NEXTCLOUD_BASIC_USERNAME:-admin}"
+      NEXTCLOUD_PASS: "${NEXTCLOUD_BASIC_PASSWORD:-admin}"
+      WORKSPACE_ID: "${LOCAL_WORKSPACE:-workspace_demo}"
+    entrypoint: ["/bin/sh", "/init/init.sh"]
+    restart: "no"
+
+  # Env overrides on the Streamlit service — these are merged on top of
+  # whatever's already in docker-compose.yml. The result: the Data Viewer,
+  # Ontology Manager, and other modules auto-discover NextCloud without
+  # the user having to edit .env by hand.
+  streamlit:
+    environment:
+      PYTHONPATH: /app
+      ONTOLOGY_DIR: /app/data/ontology
+      STORAGE_BACKEND: nextcloud
+      NEXTCLOUD_BASE_URL: "http://nextcloud:80"
+      NEXTCLOUD_BASIC_USERNAME: "${NEXTCLOUD_BASIC_USERNAME:-admin}"
+      NEXTCLOUD_BASIC_PASSWORD: "${NEXTCLOUD_BASIC_PASSWORD:-admin}"
+    depends_on:
+      # Triplestore dependency comes from docker-compose.yml (fuseki by
+      # default; graphdb when docker-compose.graphdb.yml overlay is added).
+      # This overlay only adds the NextCloud dependency.
+      nextcloud:
+        condition: service_healthy
+
+volumes:
+  nextcloud_data:

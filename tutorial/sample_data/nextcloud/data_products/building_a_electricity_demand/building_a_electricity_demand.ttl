@@ -1,0 +1,49 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms:   <http://purl.org/dc/terms/> .
+@prefix qudt:      <http://qudt.org/schema/qudt/> .
+@prefix unit:      <http://qudt.org/vocab/unit/> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix dp:        <https://digicities.info/tutorial/alpine_village/data_products/> .
+@prefix av:        <https://digicities.info/tutorial/alpine_village/> .
+
+# ==============================================================
+# Data product: Building A — hourly electricity demand
+#
+# One full week (168 h) of synthetic hourly electricity demand
+# for the SFH in Alpine Village. The time-series resource hangs
+# off the consumer instance via a path-style attribute URI:
+#   <https://digicities.info/tutorial/alpine_village/BuildingA/electricityDemandProfile>
+# typed as dici_onto:ElectricityDemandProfile (a concrete class
+# from the core ontology, subclass of DynamicAttribute).
+# ==============================================================
+
+dp:building_a_electricity_demand
+    a dici_onto:DataProduct ;
+    rdfs:label "Building A — hourly electricity demand"^^xsd:string ;
+    rdfs:comment "Synthetic hourly electricity demand (168 h) for Building A."^^xsd:string ;
+    dcterms:created "2026-04-23"^^xsd:date ;
+    dcterms:publisher "Digicities tutorial"^^xsd:string ;
+    dici_onto:describesComponent av:BuildingA ;
+    dici_onto:hasResource <https://digicities.info/tutorial/alpine_village/data_products/building_a_electricity_demand/resource> ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/BuildingA/electricityDemandProfile> .
+
+<https://digicities.info/tutorial/alpine_village/data_products/building_a_electricity_demand/resource>
+    a dici_onto:FileResource ;
+    rdfs:label "hourly_demand.csv"^^xsd:string ;
+    dici_onto:hasRelativePath "resources/hourly_demand.csv"^^xsd:string ;
+    dici_onto:hasMimeType "text/csv"^^xsd:string ;
+    dici_onto:hasRowCount "168"^^xsd:integer .
+
+# The actual time-series attribute on the building instance.
+# Note: this is the SAME URI the building's hasAttribute would
+# point to — the data product extends the instance graph by
+# adding a profile to BuildingA.
+<https://digicities.info/tutorial/alpine_village/BuildingA/electricityDemandProfile>
+    a dici_onto:ElectricityDemandProfile, dici_onto:DynamicAttribute ;
+    rdfs:label "Hourly electricity demand"^^xsd:string ;
+    qudt:unit unit:KiloW ;
+    dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+    dici_onto:hasResolution "PT1H"^^xsd:duration ;
+    dici_onto:hasDataFile "resources/hourly_demand.csv"^^xsd:string .

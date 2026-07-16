@@ -1,0 +1,10 @@
+id,powerRating,annualMaintenance,investmentCost,assetTier,yearBuilt,locatedIn,assetId,label,comment,partLoadCurve,energyPrice,geometryFile,tag,demandHistoric,demandLive,demandFuture,powerRating_datasource
+,Physical,SimpleCost,UnitBasedCost,Categorical,Event,ClassObject,Identifier,Annotation,Annotation,Curve,CustomPhysicalRatio,Resource,SimpleValue,Historic,Live,Future,
+,KiloW,,KiloW,,,,,,,PERCENT,CHF,,,KiloW-HR,KiloW-HR,KiloW-HR,
+,,,,,,,,,,PERCENT,KiloW-HR,,,,,,
+,,CHF,CHF,,,,,,,,,,,,,,
+,,,,,,locatedIn,,,,,,,,,,,
+LinkedClassObjectType,,,,,,https://example.org/locations/,,,,,,,,,,,
+DemoYear,12.5,250,1800,Tier1Asset,1985,AlpineValley,ASSET-001,Demo (year-precision Event),Carries one example of every attribute type the importer supports.,"[(0.0,0.0);(50.0,80.0);(100.0,95.0)]",0.25,resources/demo.geojson,hello,resources/demand_historic.csv,https://api.example.org/live/demand,resources/demand_forecast.csv,swiss_energy_atlas_2024
+DemoDate,8,180,1500,Tier2Asset,15-06-20,AlpineValley,ASSET-002,Demo (date-precision Event),Same shape; yearBuilt parsed as xsd:date.,,0.18,,world,,,,
+DemoDateTime,4.5,120,1100,Tier3Asset,2024-03-15T08:30:00,AlpineValley,ASSET-003,Demo (datetime Event),yearBuilt parsed as xsd:dateTime with full timestamp.,,,,,,,,

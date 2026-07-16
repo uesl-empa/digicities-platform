@@ -1,0 +1,5 @@
+PREFIX dici_onto: <https://digicities.info/ontology#>
+SELECT * WHERE {
+  # Enter your workspace-specific query here
+  ?s ?p ?o .
+} LIMIT 100

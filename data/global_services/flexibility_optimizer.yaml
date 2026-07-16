@@ -1,0 +1,50 @@
+# Flexibility Optimizer — Digicities service template (REFORMERS RDP).
+#
+# Defines which scenario/ontology attributes Digicities pulls into the payload it
+# sends to the flexibility optimizer. Submit it via the HTTP transport to the
+# flexibility-adapter (POST /run, default http://<host>:8090/run), which maps these
+# building attributes to the optimizer's parameters and enqueues to Redis.
+#
+# Attribute names use the ontology where it already has the concept (e.g.
+# Building.GroundFloorArea); the adapter accepts a range of aliases and fills sane
+# defaults for anything missing, so a partial building still optimizes.
+service_name: FlexibilityOptimizer
+description: Single-building flexibility optimization (REFORMERS RDP). Returns cost, energy and temperature results per building.
+# Where the service listens. Read by the Digicities API Configuration tab to
+# register the service automatically when this workspace is opened. Defaults to
+# the flexibility-prototype app (POST /api/digicities/run): it runs the optimizer
+# on live RDP weather (falling back to static) and returns a results dashboard URL.
+# Override FLEX_SERVICE_URL to point at the RDP flexibility-adapter
+# (http://host.docker.internal:8090/run) for the pure Redis-stream path instead.
+connection:
+  transport: http
+  url: ${FLEX_SERVICE_URL:-http://host.docker.internal:8001/api/digicities/run}
+  method: POST
+  auth_type: none
+  timeout: 300
+scenario_data:
+  uri: Scenario.URI
+  name: Scenario.label
+  location:
+    link: CL.Scenario.Location
+    template:
+      uri: Location.URI
+      weather_location: Location.WeatherEPW
+      # Optional address of a live weather feed (a Redis stream the RDP
+      # data-crawler publishes, e.g. forecasts.met-no.VIENNA). When present the
+      # optimizer reads live temperature from it; weather_location still selects
+      # the static file used for solar irradiance.
+      weather_stream: Location.WeatherEPW.LiveTimeSeriesReference
+      buildings:
+        link: CL.Location.Building
+        template:
+          uri: Building.URI
+          GrossFloorArea: Building.GroundFloorArea
+          FootprintArea: Building.FootprintArea
+          PeakSpaceHeatingPower: Building.PeakSpaceHeatingPower
+          LumpedHeatCapacity: Building.LumpedHeatCapacity
+          LumpedHeatResistance: Building.LumpedHeatResistance
+          PVRoofCoverageRatio: Building.PVRoofCoverageRatio
+          EVCount: Building.EVCount
+          ElectricityTariff: Building.ElectricityTariff
+          Months: Building.OptimizationMonths

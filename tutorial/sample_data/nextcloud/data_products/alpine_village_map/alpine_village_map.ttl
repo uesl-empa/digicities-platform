@@ -1,0 +1,37 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms:   <http://purl.org/dc/terms/> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix dp:        <https://digicities.info/tutorial/alpine_village/data_products/> .
+@prefix av:        <https://digicities.info/tutorial/alpine_village/> .
+
+# ==============================================================
+# Data product: Alpine Village — site locations (GeoJSON)
+#
+# Point geometry for every component. Each feature carries the
+# component's instance URI in its properties so the renderer
+# can join the geometry back to the digital-twin graph.
+# ==============================================================
+
+dp:alpine_village_map
+    a dici_onto:DataProduct ;
+    rdfs:label "Alpine Village — site map"^^xsd:string ;
+    rdfs:comment "Point locations for every component, in GeoJSON. Opens in the geospatial renderer."^^xsd:string ;
+    dcterms:created "2026-04-23"^^xsd:date ;
+    dcterms:publisher "Digicities tutorial"^^xsd:string ;
+    dici_onto:describesComponent av:AlpineValley ;
+    dici_onto:hasResource <https://digicities.info/tutorial/alpine_village/data_products/alpine_village_map/resource> ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/AlpineValley/componentLocations> .
+
+<https://digicities.info/tutorial/alpine_village/data_products/alpine_village_map/resource>
+    a dici_onto:FileResource ;
+    rdfs:label "locations.geojson"^^xsd:string ;
+    dici_onto:hasRelativePath "resources/locations.geojson"^^xsd:string ;
+    dici_onto:hasMimeType "application/geo+json"^^xsd:string .
+
+<https://digicities.info/tutorial/alpine_village/AlpineValley/componentLocations>
+    a dici_onto:LocationAttribute, dici_onto:GeospatialAttribute ;
+    rdfs:label "Component locations"^^xsd:string ;
+    dici_onto:hasUnitLabel "WGS84 lat/lon"^^xsd:string ;
+    dici_onto:hasDataFile "resources/locations.geojson"^^xsd:string .

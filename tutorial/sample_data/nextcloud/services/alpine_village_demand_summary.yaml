@@ -1,0 +1,19 @@
+# Alpine Village — demand summary service
+# -----------------------------------------
+# Minimal example of the service-mapping format. Pulls just the
+# floor area and annual energy demands per building, with no
+# generator/storage/converter side. Useful for a quick sanity
+# report of the village's load profile.
+
+service_name: Alpine Village Demand Summary
+
+scenario_data:
+  uri: Scenario.URI
+  label: Scenario.label
+
+  Building:
+    name: EnergyConsumer.label
+    uri: EnergyConsumer.URI
+    FloorArea: EnergyConsumer.FloorArea
+    AnnualElectricityDemand: EnergyConsumer.AnnualElectricityDemand
+    AnnualHeatDemand: EnergyConsumer.AnnualHeatDemand

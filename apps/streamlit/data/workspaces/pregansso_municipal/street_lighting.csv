@@ -1,0 +1,6 @@
+street_id,led_count,energy_usage_kWh,maintenance_cost
+ST001,45,120,450
+ST002,32,85,320
+ST003,28,75,280
+ST004,56,150,560
+ST005,41,110,410

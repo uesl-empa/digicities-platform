@@ -1,0 +1,4 @@
+PREFIX dici_onto: <https://digicities.info/ontology#>
+SELECT * WHERE {
+  ?s a dici_onto:WindTurbine .
+} LIMIT 100

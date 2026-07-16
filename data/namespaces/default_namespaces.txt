@@ -1,0 +1,4 @@
+dici_onto: https://digicities.info/ontology#
+prj: https://digicities.info/proj/REFORMERS/wind_forecasting/
+unit: http://qudt.org/vocab/unit/
+cim: http://iec.ch/TC57/2013/CIM-schema-cim16#

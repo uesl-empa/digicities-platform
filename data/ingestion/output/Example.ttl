@@ -1,0 +1,226 @@
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix cur: <http://qudt.org/vocab/currency/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix : <https://digicities.info/proj/Example#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix schema: <https://schema.org/> .
+
+
+<https://digicities.info/proj/Example/Component/instance1> a dici_onto:Component ;
+	rdfs:label "Demo (year-precision Event)" ;
+	rdfs:comment "Carries one example of every attribute type the importer supports." ;
+	:tag "hello" ;
+	dici_onto:locatedIn <https://example.org/locations/AlpineValley> ;
+	dici_onto:hasIdentifier <https://digicities.info/proj/Example/Component/instance1/AssetId> ;
+	dici_onto:hasAttribute <https://digicities.info/proj/Example/Component/instance1/PowerRating>,
+	<https://digicities.info/proj/Example/Component/instance1/AnnualMaintenance>,
+	<https://digicities.info/proj/Example/Component/instance1/InvestmentCost>,
+	<https://digicities.info/proj/Example/Component/instance1/Function>,
+	<https://digicities.info/proj/Example/Component/instance1/BuildDate>,
+	<https://digicities.info/proj/Example/Component/instance1/FractionalLoadCurve>,
+	<https://digicities.info/proj/Example/Component/instance1/EnergyPrice>,
+	<https://digicities.info/proj/Example/Component/instance1/Geometry>,
+	<https://digicities.info/proj/Example/Component/instance1/Demand> .
+
+<https://digicities.info/proj/Example/Component/instance1> dici_onto:hasComponentPowerRatingAttribute <https://digicities.info/proj/Example/Component/instance1/PowerRating>;
+	dici_onto:hasComponentAnnualMaintenanceAttribute <https://digicities.info/proj/Example/Component/instance1/AnnualMaintenance>;
+	dici_onto:hasComponentInvestmentCostAttribute <https://digicities.info/proj/Example/Component/instance1/InvestmentCost>;
+	dici_onto:hasComponentFunctionAttribute <https://digicities.info/proj/Example/Component/instance1/Function>;
+	dici_onto:hasComponentBuildDateAttribute <https://digicities.info/proj/Example/Component/instance1/BuildDate>;
+	dici_onto:hasComponentFractionalLoadCurveAttribute <https://digicities.info/proj/Example/Component/instance1/FractionalLoadCurve>;
+	dici_onto:hasComponentEnergyPriceAttribute <https://digicities.info/proj/Example/Component/instance1/EnergyPrice>;
+	dici_onto:hasComponentGeometryAttribute <https://digicities.info/proj/Example/Component/instance1/Geometry>;
+	dici_onto:hasComponentDemandAttribute <https://digicities.info/proj/Example/Component/instance1/Demand>.
+
+<https://digicities.info/proj/Example/Component/instance2> a dici_onto:Component ;
+	rdfs:label "Demo (date-precision Event)" ;
+	rdfs:comment "Same shape; yearBuilt parsed as xsd:date." ;
+	:tag "world" ;
+	dici_onto:locatedIn <https://example.org/locations/AlpineValley> ;
+	dici_onto:hasIdentifier <https://digicities.info/proj/Example/Component/instance2/AssetId> ;
+	dici_onto:hasAttribute <https://digicities.info/proj/Example/Component/instance2/PowerRating>,
+	<https://digicities.info/proj/Example/Component/instance2/AnnualMaintenance>,
+	<https://digicities.info/proj/Example/Component/instance2/InvestmentCost>,
+	<https://digicities.info/proj/Example/Component/instance2/Function>,
+	<https://digicities.info/proj/Example/Component/instance2/BuildDate>,
+	<https://digicities.info/proj/Example/Component/instance2/EnergyPrice>,
+	<https://digicities.info/proj/Example/Component/instance2/Demand> .
+
+<https://digicities.info/proj/Example/Component/instance2> dici_onto:hasComponentPowerRatingAttribute <https://digicities.info/proj/Example/Component/instance2/PowerRating>;
+	dici_onto:hasComponentAnnualMaintenanceAttribute <https://digicities.info/proj/Example/Component/instance2/AnnualMaintenance>;
+	dici_onto:hasComponentInvestmentCostAttribute <https://digicities.info/proj/Example/Component/instance2/InvestmentCost>;
+	dici_onto:hasComponentFunctionAttribute <https://digicities.info/proj/Example/Component/instance2/Function>;
+	dici_onto:hasComponentBuildDateAttribute <https://digicities.info/proj/Example/Component/instance2/BuildDate>;
+	dici_onto:hasComponentEnergyPriceAttribute <https://digicities.info/proj/Example/Component/instance2/EnergyPrice>;
+	dici_onto:hasComponentDemandAttribute <https://digicities.info/proj/Example/Component/instance2/Demand>.
+
+<https://digicities.info/proj/Example/Component/instance3> a dici_onto:Component ;
+	rdfs:label "Demo (datetime Event)" ;
+	rdfs:comment "yearBuilt parsed as xsd:dateTime with full timestamp." ;
+	dici_onto:locatedIn <https://example.org/locations/AlpineValley> ;
+	dici_onto:hasIdentifier <https://digicities.info/proj/Example/Component/instance3/AssetId> ;
+	dici_onto:hasAttribute <https://digicities.info/proj/Example/Component/instance3/PowerRating>,
+	<https://digicities.info/proj/Example/Component/instance3/AnnualMaintenance>,
+	<https://digicities.info/proj/Example/Component/instance3/InvestmentCost>,
+	<https://digicities.info/proj/Example/Component/instance3/Function>,
+	<https://digicities.info/proj/Example/Component/instance3/BuildDate>,
+	<https://digicities.info/proj/Example/Component/instance3/Demand> .
+
+<https://digicities.info/proj/Example/Component/instance3> dici_onto:hasComponentPowerRatingAttribute <https://digicities.info/proj/Example/Component/instance3/PowerRating>;
+	dici_onto:hasComponentAnnualMaintenanceAttribute <https://digicities.info/proj/Example/Component/instance3/AnnualMaintenance>;
+	dici_onto:hasComponentInvestmentCostAttribute <https://digicities.info/proj/Example/Component/instance3/InvestmentCost>;
+	dici_onto:hasComponentFunctionAttribute <https://digicities.info/proj/Example/Component/instance3/Function>;
+	dici_onto:hasComponentBuildDateAttribute <https://digicities.info/proj/Example/Component/instance3/BuildDate>;
+	dici_onto:hasComponentDemandAttribute <https://digicities.info/proj/Example/Component/instance3/Demand>.
+
+<https://digicities.info/proj/Example/Component/instance1/PowerRating> a dici_onto:PowerRating ;
+	a dici_onto:PhysicalAttribute ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW> ;
+	dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+	dcterms:source "swiss_energy_atlas_2024"^^xsd:string ;
+	qudt:value "12.5"^^xsd:decimal .
+
+<https://digicities.info/proj/Example/Component/instance1/AnnualMaintenance> a dici_onto:AnnualMaintenance ;
+	a dici_onto:SimpleCostAttribute ;
+	qudt:value "250.0"^^xsd:decimal ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance1/InvestmentCost> a dici_onto:InvestmentCost ;
+	a dici_onto:UnitBasedCostAttribute ;
+	qudt:value "1800.0"^^xsd:decimal ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance1/Function> a dici_onto:Function ;
+	a dici_onto:CategoricalAttribute ;
+	a dici_onto:Tier1Asset ;	dici_onto:hasCategoricalValue dici_onto:Tier1Asset .
+
+<https://digicities.info/proj/Example/Component/instance1/BuildDate> a dici_onto:BuildDate ;
+	a dici_onto:EventAttribute ;
+	dici_onto:hasTemporalPrecision dici_onto:Year ;
+	dici_onto:hasTemporalValue "1985"^^xsd:gYear .
+
+<https://digicities.info/proj/Example/Component/instance1/FractionalLoadCurve> a dici_onto:FractionalLoadCurve ;
+	a dici_onto:CurveAttribute ;
+	dici_onto:xUnit unit:PERCENT ;
+	dici_onto:xUnitLabel "PERCENT"^^xsd:string ;
+	dici_onto:yUnit unit:PERCENT ;
+	dici_onto:yUnitLabel "PERCENT"^^xsd:string ;
+	dici_onto:hasDataPoints """[
+    [     0.0,        0.0]
+    [    50.0,       80.0]
+    [   100.0,       95.0]
+    ]""" .
+
+<https://digicities.info/proj/Example/Component/instance1/EnergyPrice> a dici_onto:EnergyPrice ;
+	a dici_onto:UnitBasedCostAttribute ;
+	qudt:value "0.25"^^xsd:decimal ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW-HR> ;
+	dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance1/Geometry> a dici_onto:Geometry ;
+	a dici_onto:GeospatialAttribute ;
+	qudt:value "resources/demo.geojson"^^xsd:string .
+
+<https://digicities.info/proj/Example/Component/instance1/Demand> a dici_onto:Demand ;
+	a dici_onto:DynamicAttribute ;
+	dici_onto:hasHistoricTimeSeries <https://digicities.info/proj/Example/Component/instance1/Demand_historic/ts> ;
+	dici_onto:hasHistoricTimeSeriesReference "resources/demand_historic.csv"^^xsd:string ;
+	dici_onto:hasLiveTimeSeries <https://digicities.info/proj/Example/Component/instance1/Demand_live/ts> ;
+	dici_onto:hasLiveTimeSeriesReference "https://api.example.org/live/demand"^^xsd:string ;
+	dici_onto:hasFutureTimeSeries <https://digicities.info/proj/Example/Component/instance1/Demand_future/ts> ;
+	dici_onto:hasFutureTimeSeriesReference "resources/demand_forecast.csv"^^xsd:string .
+
+<https://digicities.info/proj/Example/Component/instance1/Demand_historic/ts> a dici_onto:TimeSeries ;
+	dici_onto:storedAt "resources/demand_historic.csv"^^xsd:string ;
+	dici_onto:hasFileName "resources/demand_historic.csv"^^xsd:string ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW-HR> ;
+	dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string .
+
+<https://digicities.info/proj/Example/Component/instance1/Demand_live/ts> a dici_onto:TimeSeries ;
+	dici_onto:realTimeSource "https://api.example.org/live/demand"^^xsd:string ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW-HR> ;
+	dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string .
+
+<https://digicities.info/proj/Example/Component/instance1/Demand_future/ts> a dici_onto:TimeSeries ;
+	dici_onto:storedAt "resources/demand_forecast.csv"^^xsd:string ;
+	dici_onto:hasFileName "resources/demand_forecast.csv"^^xsd:string ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW-HR> ;
+	dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string .
+
+<https://digicities.info/proj/Example/Component/instance2/PowerRating> a dici_onto:PowerRating ;
+	a dici_onto:PhysicalAttribute ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW> ;
+	dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+	qudt:value "8.0"^^xsd:decimal .
+
+<https://digicities.info/proj/Example/Component/instance2/AnnualMaintenance> a dici_onto:AnnualMaintenance ;
+	a dici_onto:SimpleCostAttribute ;
+	qudt:value "180.0"^^xsd:decimal ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance2/InvestmentCost> a dici_onto:InvestmentCost ;
+	a dici_onto:UnitBasedCostAttribute ;
+	qudt:value "1500.0"^^xsd:decimal ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance2/Function> a dici_onto:Function ;
+	a dici_onto:CategoricalAttribute ;
+	a dici_onto:Tier2Asset ;	dici_onto:hasCategoricalValue dici_onto:Tier2Asset .
+
+<https://digicities.info/proj/Example/Component/instance2/BuildDate> a dici_onto:BuildDate ;
+	a dici_onto:EventAttribute ;
+	dici_onto:hasTemporalPrecision dici_onto:DateTime ;
+	dici_onto:hasTemporalValue "2020-06-15T00:00:00"^^xsd:dateTime .
+
+<https://digicities.info/proj/Example/Component/instance2/EnergyPrice> a dici_onto:EnergyPrice ;
+	a dici_onto:UnitBasedCostAttribute ;
+	qudt:value "0.18"^^xsd:decimal ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW-HR> ;
+	dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance2/Demand> a dici_onto:Demand ;
+	a dici_onto:DynamicAttribute .
+
+<https://digicities.info/proj/Example/Component/instance3/PowerRating> a dici_onto:PowerRating ;
+	a dici_onto:PhysicalAttribute ;
+	qudt:unit <http://qudt.org/vocab/unit/KiloW> ;
+	dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+	qudt:value "4.5"^^xsd:decimal .
+
+<https://digicities.info/proj/Example/Component/instance3/AnnualMaintenance> a dici_onto:AnnualMaintenance ;
+	a dici_onto:SimpleCostAttribute ;
+	qudt:value "120.0"^^xsd:decimal ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance3/InvestmentCost> a dici_onto:InvestmentCost ;
+	a dici_onto:UnitBasedCostAttribute ;
+	qudt:value "1100.0"^^xsd:decimal ;
+	dici_onto:currency cur:CHF .
+
+<https://digicities.info/proj/Example/Component/instance3/Function> a dici_onto:Function ;
+	a dici_onto:CategoricalAttribute ;
+	a dici_onto:Tier3Asset ;	dici_onto:hasCategoricalValue dici_onto:Tier3Asset .
+
+<https://digicities.info/proj/Example/Component/instance3/BuildDate> a dici_onto:BuildDate ;
+	a dici_onto:EventAttribute ;
+	dici_onto:hasTemporalPrecision dici_onto:DateTime ;
+	dici_onto:hasTemporalValue "2024-03-15T08:30:00"^^xsd:dateTime .
+
+<https://digicities.info/proj/Example/Component/instance3/Demand> a dici_onto:Demand ;
+	a dici_onto:DynamicAttribute .
+
+<https://digicities.info/proj/Example/Component/instance1/AssetId> a dici_onto:AssetId ;
+	dici_onto:identifierValue "ASSET-001" .
+
+<https://digicities.info/proj/Example/Component/instance2/AssetId> a dici_onto:AssetId ;
+	dici_onto:identifierValue "ASSET-002" .
+
+<https://digicities.info/proj/Example/Component/instance3/AssetId> a dici_onto:AssetId ;
+	dici_onto:identifierValue "ASSET-003" .

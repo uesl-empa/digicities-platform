@@ -1,0 +1,4 @@
+PREFIX dici_onto: <https://digicities.info/ontology#>
+select * where { 
+	?Service a dici_onto:Service .
+} limit 100 

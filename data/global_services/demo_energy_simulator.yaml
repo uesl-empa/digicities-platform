@@ -1,0 +1,37 @@
+# Demo Energy Simulator — Digicities service template.
+#
+# The bundled example service. Defines which scenario/ontology attributes
+# Digicities pulls into the payload it POSTs to the demo_energy_simulator
+# container (default http://demo_energy_simulator:5000/api/energy_simulation).
+# The service estimates annual building energy demand and uses synthetic weather,
+# so it needs no external data.
+service_name: demo_energy_simulator
+description: Bundled example. Estimates annual building energy demand (heating, hot water, electricity) per building.
+# Where the service listens. Read by the API Configuration tab to register the
+# service automatically when this workspace is opened (no manual setup).
+connection:
+  transport: http
+  url: ${DEMO_ENERGY_SIMULATOR_URL:-http://demo_energy_simulator:5000/api/energy_simulation}
+  method: POST
+  auth_type: none
+  timeout: 120
+scenario_data:
+  uri: Scenario.URI
+  name: Scenario.label
+  location:
+    link: CL.Scenario.Location
+    template:
+      uri: Location.URI
+      # EPW weather file the simulator uses (resolved against its bundled weather
+      # files; falls back to synthetic weather if absent).
+      weather_data: Location.WeatherEPW
+      buildings:
+        link: CL.Location.Building
+        template:
+          uri: Building.URI
+          SIA2024BuildingType: Building.SIA2024BuildingType
+          BuildingAge: Building.BuildingAge
+          GroundFloorArea: Building.GroundFloorArea
+          NumberOfFloors: Building.NumberOfFloors
+          HeatingSupply: Building.HeatingSupply
+          DHWSupply: Building.DHWSupply

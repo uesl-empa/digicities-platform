@@ -1,0 +1,9 @@
+*.ipynb filter=nbstripout
+*.zpln filter=nbstripout
+*.ipynb diff=ipynb
+
+# Force LF line endings on shell scripts and other Linux-container-bound text.
+# Without this, Windows checkouts get CRLF and the container shells refuse to
+# run the scripts (e.g. services/graphdb/init.sh).
+*.sh text eol=lf
+Dockerfile text eol=lf

@@ -1,0 +1,231 @@
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix alpine:    <https://digicities.info/tutorial/alpine_village/ontology#> .
+@prefix av:        <https://digicities.info/tutorial/alpine_village/> .
+@prefix qudt:      <http://qudt.org/schema/qudt/> .
+@prefix unit:      <http://qudt.org/vocab/unit/> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+
+# =============================================================
+# Alpine Village — fictional Swiss district used for tutorials
+#
+# 3 residential buildings in an alpine valley, connected to an
+# electricity grid and sharing a small district-heat loop.
+#
+#   Building A    — single-family house, PV + battery
+#   Building B    — apartment block, heat pump
+#   Building C    — single-family house, passive consumer
+#
+#   Grid          — connection to the regional electricity network
+#   Sun           — solar resource (input to PV)
+#
+# URI convention (matching backend/replica_builder/utils/
+# create_class_and_attribute_graph.py):
+#   - components       : <av:BuildingA>             (instance under namespace)
+#   - attributes       : <https://digicities.info/tutorial/alpine_village/BuildingA/floorArea>   (path under instance)
+#   - flows            : <https://digicities.info/tutorial/alpine_village/flow/Grid_to_A>        (flows are first-class)
+# Attribute classes pull from `alpine:` extension where a
+# specific concept exists, otherwise from dici_onto: directly.
+# Each attribute carries TWO types: its concrete-domain class
+# AND its data-shape class — the latter is what tells the UI
+# how to render the value.
+# =============================================================
+
+# -------------------------------------------------------------
+# Energy carriers
+# -------------------------------------------------------------
+
+av:Electricity a dici_onto:ElectricityCarrier ;
+    rdfs:label "Electricity"^^xsd:string .
+
+av:Heat a dici_onto:HeatCarrier ;
+    rdfs:label "Heat (LT, 50 °C)"^^xsd:string .
+
+# -------------------------------------------------------------
+# Location
+# -------------------------------------------------------------
+
+av:AlpineValley a dici_onto:Location ;
+    rdfs:label "Alpine Valley"^^xsd:string .
+
+# -------------------------------------------------------------
+# Grid connection
+# -------------------------------------------------------------
+
+av:Grid a dici_onto:Network ;
+    rdfs:label "Regional electricity grid"^^xsd:string ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/Grid/exportLimit> , <https://digicities.info/tutorial/alpine_village/Grid/importPrice> .
+
+<https://digicities.info/tutorial/alpine_village/Grid/exportLimit> a alpine:ExportLimit ;
+    rdfs:label "Export limit"^^xsd:string ;
+    qudt:unit unit:KiloW ;
+    dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+    qudt:value "50.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/Grid/importPrice> a alpine:ImportPrice ;
+    rdfs:label "Import price"^^xsd:string ;
+    dici_onto:hasUnitLabel "CHF/kWh"^^xsd:string ;
+    qudt:value "0.25"^^xsd:decimal .
+
+# -------------------------------------------------------------
+# Building A  — single-family house with PV + battery
+# -------------------------------------------------------------
+
+av:BuildingA a dici_onto:EnergyConsumer ;
+    rdfs:label "Building A (SFH with PV)"^^xsd:string ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/BuildingA/electricityDemand> , <https://digicities.info/tutorial/alpine_village/BuildingA/floorArea> .
+
+<https://digicities.info/tutorial/alpine_village/BuildingA/electricityDemand> a alpine:AnnualElectricityDemand ;
+    rdfs:label "Annual electricity demand"^^xsd:string ;
+    qudt:unit unit:KiloW-HR ;
+    dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+    qudt:value "4800.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/BuildingA/floorArea> a alpine:FloorArea ;
+    rdfs:label "Floor area"^^xsd:string ;
+    qudt:unit unit:M2 ;
+    dici_onto:hasUnitLabel "M2"^^xsd:string ;
+    qudt:value "180.0"^^xsd:decimal .
+
+av:PV_A a alpine:RooftopPhotovoltaicSystem ;
+    rdfs:label "PV system on Building A"^^xsd:string ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/PV_A/peakPower> , <https://digicities.info/tutorial/alpine_village/PV_A/capEx> ,
+                           <https://digicities.info/tutorial/alpine_village/PV_A/panelTilt> , <https://digicities.info/tutorial/alpine_village/PV_A/panelAzimuth> .
+
+<https://digicities.info/tutorial/alpine_village/PV_A/peakPower> a alpine:RatedElectricalPower ;
+    rdfs:label "Peak power"^^xsd:string ;
+    qudt:unit unit:KiloW ;
+    dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+    qudt:value "8.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/PV_A/capEx> a dici_onto:UnitBasedCostAttribute ;
+    rdfs:label "Installed capex"^^xsd:string ;
+    dici_onto:hasUnitLabel "CHF/kW"^^xsd:string ;
+    qudt:value "1600.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/PV_A/panelTilt> a alpine:PanelTilt ;
+    rdfs:label "Panel tilt"^^xsd:string ;
+    qudt:unit unit:DEG ;
+    dici_onto:hasUnitLabel "DEG"^^xsd:string ;
+    qudt:value "30.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/PV_A/panelAzimuth> a alpine:PanelAzimuth ;
+    rdfs:label "Panel azimuth"^^xsd:string ;
+    qudt:unit unit:DEG ;
+    dici_onto:hasUnitLabel "DEG"^^xsd:string ;
+    qudt:value "180.0"^^xsd:decimal .
+
+av:Battery_A a dici_onto:EnergyStorage ;
+    rdfs:label "Battery at Building A"^^xsd:string ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/Battery_A/storageCapacity> , <https://digicities.info/tutorial/alpine_village/Battery_A/efficiency> .
+
+<https://digicities.info/tutorial/alpine_village/Battery_A/storageCapacity> a dici_onto:StorageCapacity, dici_onto:PhysicalAttribute ;
+    rdfs:label "Usable capacity"^^xsd:string ;
+    qudt:unit unit:KiloW-HR ;
+    dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+    qudt:value "13.5"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/Battery_A/efficiency> a dici_onto:Efficiency, dici_onto:PhysicalAttribute ;
+    rdfs:label "Round-trip efficiency"^^xsd:string ;
+    dici_onto:hasUnitLabel "fraction"^^xsd:string ;
+    qudt:value "0.92"^^xsd:decimal .
+
+# -------------------------------------------------------------
+# Building B  — apartment block with heat pump
+# -------------------------------------------------------------
+
+av:BuildingB a dici_onto:EnergyConsumer ;
+    rdfs:label "Building B (apartments)"^^xsd:string ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/BuildingB/electricityDemand> ,
+                           <https://digicities.info/tutorial/alpine_village/BuildingB/heatDemand> ,
+                           <https://digicities.info/tutorial/alpine_village/BuildingB/floorArea> .
+
+<https://digicities.info/tutorial/alpine_village/BuildingB/electricityDemand> a alpine:AnnualElectricityDemand ;
+    rdfs:label "Annual electricity demand"^^xsd:string ;
+    qudt:unit unit:KiloW-HR ;
+    dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+    qudt:value "22000.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/BuildingB/heatDemand> a alpine:AnnualHeatDemand ;
+    rdfs:label "Annual heat demand"^^xsd:string ;
+    qudt:unit unit:KiloW-HR ;
+    dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+    qudt:value "58000.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/BuildingB/floorArea> a alpine:FloorArea ;
+    rdfs:label "Floor area"^^xsd:string ;
+    qudt:unit unit:M2 ;
+    dici_onto:hasUnitLabel "M2"^^xsd:string ;
+    qudt:value "720.0"^^xsd:decimal .
+
+av:HeatPump_B a dici_onto:EnergyConverter ;
+    rdfs:label "Air-source heat pump at Building B"^^xsd:string ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/HeatPump_B/thermalPower> , <https://digicities.info/tutorial/alpine_village/HeatPump_B/cop> .
+
+<https://digicities.info/tutorial/alpine_village/HeatPump_B/thermalPower> a alpine:RatedThermalPower ;
+    rdfs:label "Rated thermal output"^^xsd:string ;
+    qudt:unit unit:KiloW ;
+    dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+    qudt:value "25.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/HeatPump_B/cop> a dici_onto:Efficiency, dici_onto:PhysicalAttribute ;
+    rdfs:label "Seasonal COP"^^xsd:string ;
+    dici_onto:hasUnitLabel "ratio"^^xsd:string ;
+    qudt:value "3.2"^^xsd:decimal .
+
+# -------------------------------------------------------------
+# Building C  — passive consumer
+# -------------------------------------------------------------
+
+av:BuildingC a dici_onto:EnergyConsumer ;
+    rdfs:label "Building C (SFH)"^^xsd:string ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/BuildingC/electricityDemand> ,
+                           <https://digicities.info/tutorial/alpine_village/BuildingC/heatDemand> ,
+                           <https://digicities.info/tutorial/alpine_village/BuildingC/floorArea> .
+
+<https://digicities.info/tutorial/alpine_village/BuildingC/electricityDemand> a alpine:AnnualElectricityDemand ;
+    rdfs:label "Annual electricity demand"^^xsd:string ;
+    qudt:unit unit:KiloW-HR ;
+    dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+    qudt:value "5200.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/BuildingC/heatDemand> a alpine:AnnualHeatDemand ;
+    rdfs:label "Annual heat demand"^^xsd:string ;
+    qudt:unit unit:KiloW-HR ;
+    dici_onto:hasUnitLabel "KiloW-HR"^^xsd:string ;
+    qudt:value "14000.0"^^xsd:decimal .
+
+<https://digicities.info/tutorial/alpine_village/BuildingC/floorArea> a alpine:FloorArea ;
+    rdfs:label "Floor area"^^xsd:string ;
+    qudt:unit unit:M2 ;
+    dici_onto:hasUnitLabel "M2"^^xsd:string ;
+    qudt:value "160.0"^^xsd:decimal .
+
+# -------------------------------------------------------------
+# Flows
+# -------------------------------------------------------------
+
+av:Flow_Grid_to_A a dici_onto:ElectricityFlow ;
+    rdfs:label "Grid → Building A (electricity)"^^xsd:string ;
+    dici_onto:carriesEnergyCarrier av:Electricity .
+
+av:Flow_Grid_to_B a dici_onto:ElectricityFlow ;
+    rdfs:label "Grid → Building B (electricity)"^^xsd:string ;
+    dici_onto:carriesEnergyCarrier av:Electricity .
+
+av:Flow_Grid_to_C a dici_onto:ElectricityFlow ;
+    rdfs:label "Grid → Building C (electricity)"^^xsd:string ;
+    dici_onto:carriesEnergyCarrier av:Electricity .
+
+av:Flow_PV_to_A a dici_onto:ElectricityFlow ;
+    rdfs:label "PV → Building A (electricity)"^^xsd:string ;
+    dici_onto:carriesEnergyCarrier av:Electricity .
+
+av:Flow_HP_to_B a dici_onto:HeatFlow ;
+    rdfs:label "Heat pump → Building B (heat)"^^xsd:string ;
+    dici_onto:carriesEnergyCarrier av:Heat .
+
+# Wire flows into their components
+av:BuildingA dici_onto:hasInputFlow av:Flow_Grid_to_A , av:Flow_PV_to_A .
+av:BuildingB dici_onto:hasInputFlow av:Flow_Grid_to_B , av:Flow_HP_to_B .
+av:BuildingC dici_onto:hasInputFlow av:Flow_Grid_to_C .

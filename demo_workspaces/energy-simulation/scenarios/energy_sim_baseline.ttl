@@ -1,0 +1,29 @@
+# Energy Simulation tutorial — Energy Sim - Baseline (MFH).
+# References the canonical replica buildings (continuity); what-ifs are overrides.
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+<https://digicities.info/proj/energy-simulation/EnergySimBaseline> a dici_onto:Scenario ;
+    rdfs:label "Energy Sim - Baseline (MFH)" ;
+    dcterms:description "The 1985 gas-heated multi-family house, as it stands in the replica." ;
+    dici_onto:builtForService "demo_energy_simulator" ;
+    dici_onto:createdInWorkspace "energy-simulation" .
+
+<https://digicities.info/proj/energy-simulation/Location/TownCentre> dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimBaseline> .
+<https://digicities.info/proj/energy-simulation/Building/MFH_1> dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimBaseline> .
+
+<https://digicities.info/proj/energy-simulation/EnergySimBaseline/ComponentLink_1> a dici_onto:ComponentLink ;
+    dici_onto:linkType "scenario_automatic" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimBaseline> ;
+    dici_onto:hasInputEntity <https://digicities.info/proj/energy-simulation/EnergySimBaseline> ;
+    dici_onto:linksInputyEntityTo <https://digicities.info/proj/energy-simulation/Location/TownCentre> .
+<https://digicities.info/proj/energy-simulation/EnergySimBaseline/ComponentLink_2> a dici_onto:ComponentLink ;
+    dici_onto:linkType "scenario_automatic" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimBaseline> ;
+    dici_onto:hasInputEntity <https://digicities.info/proj/energy-simulation/Location/TownCentre> ;
+    dici_onto:linksInputyEntityTo <https://digicities.info/proj/energy-simulation/Building/MFH_1> .
+

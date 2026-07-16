@@ -1,0 +1,6 @@
+{
+  "name": "Energy Simulation (demo)",
+  "description": "Bundled example workspace. Build a building scenario and submit it to the demo_energy_simulator service from the API submission tab.",
+  "type": "Demo",
+  "tags": ["demo", "energy", "example"]
+}

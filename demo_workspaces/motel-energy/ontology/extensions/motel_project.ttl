@@ -1,0 +1,1239 @@
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+dici_onto:GrossFootprintArea a owl:Class ;
+    rdfs:label "GrossFootprintArea" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M2> .
+
+dici_onto:fixed a owl:NamedIndividual,
+        dici_onto:ElectricityTariff ;
+    rdfs:label "fixed" .
+
+dici_onto:hasActorEnergyConsumption a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Actor ;
+    rdfs:range dici_onto:EnergyConsumption ;
+    rdfs:subPropertyOf dici_onto:hasActorAttribute .
+
+dici_onto:hasBuildingEVCount a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:EVCount ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingElectricityTariff a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:ElectricityTariff ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingEnergyReferenceArea a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:EnergyReferenceArea ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingGrossFloorArea a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:GrossFloorArea ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingGrossInternalArea a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:GrossInternalArea ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingLumpedHeatCapacity a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:LumpedHeatCapacity ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingLumpedHeatResistance a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:LumpedHeatResistance ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingMonth a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:Month ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingPVRoofCoverageRatio a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:PVRoofCoverageRatio ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingPeakSpaceHeatingPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:PeakSpaceHeatingPower ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasElectricEnergyConsumerPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricEnergyConsumer ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasElectricEnergyConsumerAttribute .
+
+dici_onto:hasElectricEnergyGeneratorPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricEnergyGenerator ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasElectricEnergyGeneratorAttribute .
+
+dici_onto:hasElectricityGridElectricityDemandProfile a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricityGrid ;
+    rdfs:subPropertyOf dici_onto:hasElectricityGridAttribute .
+
+dici_onto:hasElectricityGridInstalledPVCapacity a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricityGrid ;
+    rdfs:range dici_onto:InstalledPVCapacity ;
+    rdfs:subPropertyOf dici_onto:hasElectricityGridAttribute .
+
+dici_onto:hasElectricityGridPowerSimulated a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricityGrid ;
+    rdfs:range dici_onto:PowerSimulated ;
+    rdfs:subPropertyOf dici_onto:hasElectricityGridAttribute .
+
+dici_onto:hasEnergyCarrierEnergyCost a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyCarrier ;
+    rdfs:range dici_onto:EnergyCost ;
+    rdfs:subPropertyOf dici_onto:hasEnergyCarrierAttribute .
+
+dici_onto:hasEnergyCarrierEnergyCostAttribute a owl:ObjectProperty ;
+    rdfs:subPropertyOf dici_onto:hasEnergyCarrierAttribute .
+
+dici_onto:hasEnergyCarrierFlowEnergy a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyCarrierFlow ;
+    rdfs:range dici_onto:Energy ;
+    rdfs:subPropertyOf dici_onto:hasEnergyCarrierFlowAttribute .
+
+dici_onto:hasEnergyConsumerElectricityDemandProfile a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConsumer ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConsumerAttribute .
+
+dici_onto:hasEnergyConsumerPowerAttribute a owl:ObjectProperty ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConsumerAttribute .
+
+dici_onto:hasEnergyConverterCAPEX a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:CAPEX ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterCAPEXPerKWp a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterCAPEXperRatedPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:CAPEXperRatedPower ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterCO2_CAP a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:CO2_CAP ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterEfficiency a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:Efficiency ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterInterestRate a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:InterestRate ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterLifetime a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:Lifetime ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterOPEX a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:OPEX ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterOPEX_CAP a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:OPEX_CAP ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterOPEX_ENERGY a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:OPEX_ENERGY ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyConverterTRL a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:TRL ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConverterAttribute .
+
+dici_onto:hasEnergyGeneratorPowerAttribute a owl:ObjectProperty ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasEnergyGeneratorAttribute .
+
+dici_onto:hasEnergyGeneratorSolarPotentialProfile a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyGenerator ;
+    rdfs:range dici_onto:SolarPotentialProfile ;
+    rdfs:subPropertyOf dici_onto:hasEnergyGeneratorAttribute .
+
+dici_onto:hasEnergyStorageCAPEX a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:CAPEX ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageCO2_CAP a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:CO2_CAP ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageCharge_MAX a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:Charge_MAX ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageChargingEfficiency a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:ChargingEfficiency ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageDischarge_MAX a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:Discharge_MAX ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageDischargingEfficiency a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:DischargingEfficiency ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageEfficiency a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:Efficiency ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageInterestRate a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:InterestRate ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageLifetime a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:Lifetime ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageOPEX a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:OPEX ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageOPEX_CAP a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:OPEX_CAP ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageSOC_MAX a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:SOC_MAX ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageSOC_MIN a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:SOC_MIN ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageStandbyLosses a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:StandbyLosses ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasEnergyStorageTRL a owl:ObjectProperty ;
+    rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:TRL ;
+    rdfs:subPropertyOf dici_onto:hasEnergyStorageAttribute .
+
+dici_onto:hasHydroReservoirFlowPredictions a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:FlowPredictions ;
+    rdfs:subPropertyOf dici_onto:hasHydroReservoirAttribute .
+
+dici_onto:hasHydroReservoirInflow a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:Inflow ;
+    rdfs:subPropertyOf dici_onto:hasHydroReservoirAttribute .
+
+dici_onto:hasHydroReservoirMaxRatedPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:MaxRatedPower ;
+    rdfs:subPropertyOf dici_onto:hasHydroReservoirAttribute .
+
+dici_onto:hasHydroReservoirMaximumVolume a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:MaximumVolume ;
+    rdfs:subPropertyOf dici_onto:hasHydroReservoirAttribute .
+
+dici_onto:hasHydroReservoirMinimumVolume a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:MinimumVolume ;
+    rdfs:subPropertyOf dici_onto:hasHydroReservoirAttribute .
+
+dici_onto:hasHydroReservoirPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasHydroReservoirAttribute .
+
+dici_onto:hasHydroReservoirVolume a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:Volume ;
+    rdfs:subPropertyOf dici_onto:hasHydroReservoirAttribute .
+
+dici_onto:hasHydroTurbineMaxRatedPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroTurbine ;
+    rdfs:range dici_onto:MaxRatedPower ;
+    rdfs:subPropertyOf dici_onto:hasHydroTurbineAttribute .
+
+dici_onto:hasHydroTurbinePower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroTurbine ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasHydroTurbineAttribute .
+
+dici_onto:hasHydroTurbinePowerDecisions a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroTurbine ;
+    rdfs:range dici_onto:PowerDecisions ;
+    rdfs:subPropertyOf dici_onto:hasHydroTurbineAttribute .
+
+dici_onto:hasMLModelMLModelAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:MLModel ;
+    rdfs:range dici_onto:MLModelAttribute ;
+    rdfs:subPropertyOf dici_onto:hasMLModelAttribute .
+
+dici_onto:hasMLModelNumberOfPredictions a owl:ObjectProperty ;
+    rdfs:domain dici_onto:MLModel ;
+    rdfs:range dici_onto:NumberOfPredictions ;
+    rdfs:subPropertyOf dici_onto:hasMLModelAttribute .
+
+dici_onto:hasMLModelStep a owl:ObjectProperty ;
+    rdfs:domain dici_onto:MLModel ;
+    rdfs:range dici_onto:Step ;
+    rdfs:subPropertyOf dici_onto:hasMLModelAttribute .
+
+dici_onto:hasMaterialFlowWeight a owl:ObjectProperty ;
+    rdfs:domain dici_onto:MaterialFlow ;
+    rdfs:range dici_onto:Weight ;
+    rdfs:subPropertyOf dici_onto:hasMaterialFlowAttribute .
+
+dici_onto:hasRegionEVPenetration a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:EVPenetration ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionElectricityDemandProfileAttribute a owl:ObjectProperty ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionEnergyCostAttribute a owl:ObjectProperty ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionLargeChargerPercentage a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:LargeChargerPercentage ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionMediumChargerPercentage a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:MediumChargerPercentage ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionPolygonCoordinates a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:PolygonCoordinates ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionPolygonGeoJson a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:PolygonGeoJson ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionSmallChargerPercentage a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:SmallChargerPercentage ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionSolarPotentialProfile a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:SolarPotentialProfile ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasRegionSolarPotentialProfileAttribute a owl:ObjectProperty ;
+    rdfs:range dici_onto:SolarPotentialProfile ;
+    rdfs:subPropertyOf dici_onto:hasRegionAttribute .
+
+dici_onto:hasThermalEnergyConsumerPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ThermalEnergyConsumer ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasThermalEnergyConsumerAttribute .
+
+dici_onto:hasThermalEnergyGeneratorPower a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ThermalEnergyGenerator ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasThermalEnergyGeneratorAttribute .
+
+dici_onto:hasWeatherOpenMeteoWeather a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Weather ;
+    rdfs:range dici_onto:OpenMeteoWeather ;
+    rdfs:subPropertyOf dici_onto:hasWeatherAttribute .
+
+dici_onto:variable a owl:NamedIndividual,
+        dici_onto:ElectricityTariff ;
+    rdfs:label "variable" .
+
+dici_onto:ElectricEnergyConsumerAttribute a owl:Class ;
+    rdfs:label "ElectricEnergyConsumer Attribute" ;
+    rdfs:subClassOf dici_onto:EnergyConsumerAttribute .
+
+dici_onto:ElectricEnergyGeneratorAttribute a owl:Class ;
+    rdfs:label "ElectricEnergyGenerator Attribute" ;
+    rdfs:subClassOf dici_onto:EnergyGeneratorAttribute .
+
+dici_onto:HydroResourceAttribute a owl:Class ;
+    rdfs:label "HydroResource Attribute" ;
+    rdfs:subClassOf dici_onto:RenewableResourceAttribute .
+
+dici_onto:NetworkAttribute a owl:Class ;
+    rdfs:label "Network Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+dici_onto:RenewableResourceAttribute a owl:Class ;
+    rdfs:label "RenewableResource Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+dici_onto:ThermalEnergyConsumerAttribute a owl:Class ;
+    rdfs:label "ThermalEnergyConsumer Attribute" ;
+    rdfs:subClassOf dici_onto:EnergyConsumerAttribute .
+
+dici_onto:ThermalEnergyGeneratorAttribute a owl:Class ;
+    rdfs:label "ThermalEnergyGenerator Attribute" ;
+    rdfs:subClassOf dici_onto:EnergyGeneratorAttribute .
+
+dici_onto:TurbineAttribute a owl:Class ;
+    rdfs:label "Turbine Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+dici_onto:WeatherAttribute a owl:Class ;
+    rdfs:label "Weather Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+dici_onto:hasActorAttribute rdfs:domain dici_onto:Actor ;
+    rdfs:range dici_onto:EnergyConsumption .
+
+dici_onto:hasElectricEnergyConsumerAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricEnergyConsumer ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConsumerAttribute .
+
+dici_onto:hasElectricEnergyGeneratorAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricEnergyGenerator ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasEnergyGeneratorAttribute .
+
+dici_onto:hasEnergyCarrierFlowAttribute rdfs:domain dici_onto:EnergyCarrierFlow ;
+    rdfs:range dici_onto:Energy .
+
+dici_onto:hasHydroResourceAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroResource ;
+    rdfs:subPropertyOf dici_onto:hasRenewableResourceAttribute .
+
+dici_onto:hasMaterialFlowAttribute rdfs:domain dici_onto:MaterialFlow ;
+    rdfs:range dici_onto:Weight .
+
+dici_onto:hasThermalEnergyConsumerAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ThermalEnergyConsumer ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasEnergyConsumerAttribute .
+
+dici_onto:hasThermalEnergyGeneratorAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ThermalEnergyGenerator ;
+    rdfs:range dici_onto:Power ;
+    rdfs:subPropertyOf dici_onto:hasEnergyGeneratorAttribute .
+
+dici_onto:hasWeatherAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Weather ;
+    rdfs:range dici_onto:OpenMeteoWeather ;
+    rdfs:subPropertyOf dici_onto:hasComponentAttribute .
+
+dici_onto:CAPEXperRatedPower a owl:Class ;
+    rdfs:label "CAPEX per Rated Power" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+            owl:onProperty <http://qudt.org/schema/qudt/unit> ],
+        dici_onto:EnergyConverterAttribute,
+        dici_onto:UnitBasedCostAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW> .
+
+dici_onto:Charge_MAX a owl:Class ;
+    rdfs:label "Charge_MAX" ;
+    rdfs:subClassOf dici_onto:CustomPhysicalRatioAttribute,
+        dici_onto:EnergyStorageAttribute ;
+    dici_onto:hasRatioUnits [ dici_onto:denominatorUnit <http://qudt.org/vocab/unit/hour> ;
+            dici_onto:numeratorUnit <http://qudt.org/vocab/unit/ONE> ] .
+
+dici_onto:ChargingEfficiency a owl:Class ;
+    rdfs:label "ChargingEfficiency" ;
+    rdfs:subClassOf dici_onto:EnergyStorageAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:Discharge_MAX a owl:Class ;
+    rdfs:label "Discharge_MAX" ;
+    rdfs:subClassOf dici_onto:CustomPhysicalRatioAttribute,
+        dici_onto:EnergyStorageAttribute ;
+    dici_onto:hasRatioUnits [ dici_onto:denominatorUnit <http://qudt.org/vocab/unit/hour> ;
+            dici_onto:numeratorUnit <http://qudt.org/vocab/unit/ONE> ] .
+
+dici_onto:DischargingEfficiency a owl:Class ;
+    rdfs:label "Discharging Efficiency" ;
+    rdfs:subClassOf dici_onto:EnergyStorageAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:EVCount a owl:Class ;
+    rdfs:label "EVCount" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:SimpleValueAttribute .
+
+dici_onto:EVPenetration a owl:Class ;
+    rdfs:label "EVPenetration" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute,
+        dici_onto:RegionAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:ElectricEnergyConsumer a owl:Class ;
+    rdfs:label "Electric Energy Consumer" ;
+    rdfs:subClassOf dici_onto:EnergyConsumer .
+
+dici_onto:ElectricEnergyGenerator a owl:Class ;
+    rdfs:label "Electric Energy Generator" ;
+    rdfs:subClassOf dici_onto:EnergyGenerator .
+
+dici_onto:ElectricityDemandProfile rdfs:subClassOf dici_onto:ElectricityGridAttribute,
+        dici_onto:EnergyConsumerAttribute .
+
+dici_onto:Energy a owl:Class ;
+    rdfs:label "Energy" ;
+    rdfs:subClassOf dici_onto:EnergyCarrierFlowAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW-HR> .
+
+dici_onto:EnergyConsumption a owl:Class ;
+    rdfs:label "EnergyConsumption" ;
+    rdfs:subClassOf dici_onto:ActorAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW-HR> .
+
+dici_onto:EnergyCost a owl:Class ;
+    rdfs:label "Energy Cost" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:hasValue <http://qudt.org/vocab/unit/KiloW-HR> ;
+            owl:onProperty <http://qudt.org/schema/qudt/unit> ],
+        dici_onto:EnergyCarrierAttribute,
+        dici_onto:UnitBasedCostAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW-HR> .
+
+dici_onto:EnergyReferenceArea a owl:Class ;
+    rdfs:label "Energy Reference Area" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M2> .
+
+dici_onto:FlowPredictions a owl:Class ;
+    rdfs:label "FlowPredictions" ;
+    rdfs:subClassOf dici_onto:HydroReservoirAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M3-PER-SEC> .
+
+dici_onto:GrossFloorArea a owl:Class ;
+    rdfs:label "Gross Floor Area" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M2> .
+
+dici_onto:GrossInternalArea a owl:Class ;
+    rdfs:label "Gross Internal Area" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M2> .
+
+dici_onto:HydroResource a owl:Class ;
+    rdfs:label "Hydro Resource" ;
+    rdfs:subClassOf dici_onto:RenewableResource .
+
+dici_onto:Inflow a owl:Class ;
+    rdfs:label "Inflow" ;
+    rdfs:subClassOf dici_onto:HydroReservoirAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M3-PER-SEC> .
+
+dici_onto:InstalledPVCapacity a owl:Class ;
+    rdfs:label "InstalledPVCapacity" ;
+    rdfs:subClassOf dici_onto:ElectricityGridAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW> .
+
+dici_onto:LargeChargerPercentage a owl:Class ;
+    rdfs:label "Large Charger Percentage" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute,
+        dici_onto:RegionAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:LocationAttribute a owl:Class ;
+    rdfs:label "Location Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+dici_onto:LumpedHeatCapacity a owl:Class ;
+    rdfs:label "LumpedHeatCapacity" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:CustomPhysicalRatioAttribute ;
+    dici_onto:hasRatioUnits [ dici_onto:denominatorUnit <http://qudt.org/vocab/unit/kelvin> ;
+            dici_onto:numeratorUnit <http://qudt.org/vocab/unit/KiloW-HR> ] .
+
+dici_onto:LumpedHeatResistance a owl:Class ;
+    rdfs:label "LumpedHeatResistance" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:CustomPhysicalRatioAttribute ;
+    dici_onto:hasRatioUnits [ dici_onto:denominatorUnit <http://qudt.org/vocab/unit/kelvin> ;
+            dici_onto:numeratorUnit <http://qudt.org/vocab/unit/KiloW> ] .
+
+dici_onto:MaximumVolume a owl:Class ;
+    rdfs:label "MaximumVolume" ;
+    rdfs:subClassOf dici_onto:HydroReservoirAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M3> .
+
+dici_onto:MediumChargerPercentage a owl:Class ;
+    rdfs:label "Medium Charger Percentage" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute,
+        dici_onto:RegionAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:MinimumVolume a owl:Class ;
+    rdfs:label "MinimumVolume" ;
+    rdfs:subClassOf dici_onto:HydroReservoirAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M3> .
+
+dici_onto:Month a owl:Class ;
+    rdfs:label "Month" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:SimpleValueAttribute .
+
+dici_onto:NumberOfPredictions a owl:Class ;
+    rdfs:label "NumberOfPredictions" ;
+    rdfs:subClassOf dici_onto:MLModelAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/UNITLESS> .
+
+dici_onto:OPEX_ENERGY a owl:Class ;
+    rdfs:label "OPEX_ENERGY" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:hasValue <http://qudt.org/vocab/unit/KiloW-HR> ;
+            owl:onProperty <http://qudt.org/schema/qudt/unit> ],
+        dici_onto:EnergyConverterAttribute,
+        dici_onto:StaticAttribute,
+        dici_onto:UnitBasedCost ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW-HR> .
+
+dici_onto:OpenMeteoWeather a owl:Class ;
+    rdfs:label "Open Meteo Weather" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute,
+        dici_onto:WeatherAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/UNITLESS> .
+
+dici_onto:PVRoofCoverageRatio a owl:Class ;
+    rdfs:label "PVRoofCoverageRatio" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:PeakSpaceHeatingPower a owl:Class ;
+    rdfs:label "PeakSpaceHeatingPower" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW> .
+
+dici_onto:PolygonCoordinates a owl:Class ;
+    rdfs:label "PolygonCoordinates" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute,
+        dici_onto:RegionAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/DEG> .
+
+dici_onto:PolygonGeoJson a owl:Class ;
+    rdfs:label "PolygonGeoJson" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute,
+        dici_onto:RegionAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/DEG> .
+
+dici_onto:PowerDecisions a owl:Class ;
+    rdfs:label "PowerDecisions" ;
+    rdfs:subClassOf dici_onto:HydroTurbineAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW> .
+
+dici_onto:PowerSimulated a owl:Class ;
+    rdfs:label "PowerSimulated" ;
+    rdfs:subClassOf dici_onto:ElectricityGridAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW> .
+
+dici_onto:SOC_MAX a owl:Class ;
+    rdfs:label "SOC_MAX" ;
+    rdfs:subClassOf dici_onto:EnergyStorageAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:SOC_MIN a owl:Class ;
+    rdfs:label "SOC_MIN" ;
+    rdfs:subClassOf dici_onto:EnergyStorageAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:SmallChargerPercentage a owl:Class ;
+    rdfs:label "Small Charger Percentage" ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute,
+        dici_onto:RegionAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:StandbyLosses a owl:Class ;
+    rdfs:label "StandbyLosses" ;
+    rdfs:subClassOf dici_onto:CustomPhysicalRatioAttribute,
+        dici_onto:EnergyStorageAttribute ;
+    dici_onto:hasRatioUnits [ dici_onto:denominatorUnit <http://qudt.org/vocab/unit/hour> ;
+            dici_onto:numeratorUnit <http://qudt.org/vocab/unit/ONE> ] .
+
+dici_onto:Step a owl:Class ;
+    rdfs:label "Step" ;
+    rdfs:subClassOf dici_onto:MLModelAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/minute> .
+
+dici_onto:ThermalEnergyConsumer a owl:Class ;
+    rdfs:label "Thermal Energy Consumer" ;
+    rdfs:subClassOf dici_onto:EnergyConsumer .
+
+dici_onto:ThermalEnergyGenerator a owl:Class ;
+    rdfs:label "ThermalEnergyGenerator" ;
+    rdfs:subClassOf dici_onto:EnergyGenerator .
+
+dici_onto:Volume a owl:Class ;
+    rdfs:label "Volume" ;
+    rdfs:subClassOf dici_onto:HydroReservoirAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M3> .
+
+dici_onto:Weather a owl:Class ;
+    rdfs:label "Weather" ;
+    rdfs:subClassOf dici_onto:Component .
+
+dici_onto:Weight a owl:Class ;
+    rdfs:label "Weight" ;
+    rdfs:subClassOf dici_onto:MaterialFlowAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloGM> .
+
+dici_onto:hasEnergyCarrierAttribute rdfs:domain dici_onto:EnergyCarrier ;
+    rdfs:range dici_onto:EnergyCost .
+
+dici_onto:ElectricityGridAttribute a owl:Class ;
+    rdfs:label "ElectricityGrid Attribute" ;
+    rdfs:subClassOf dici_onto:NetworkAttribute .
+
+dici_onto:HydroTurbineAttribute a owl:Class ;
+    rdfs:label "HydroTurbine Attribute" ;
+    rdfs:subClassOf dici_onto:TurbineAttribute .
+
+dici_onto:MaxRatedPower a owl:Class ;
+    rdfs:label "Max Rated Power" ;
+    rdfs:subClassOf dici_onto:HydroReservoirAttribute,
+        dici_onto:HydroTurbineAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/MegaW> .
+
+dici_onto:hasElectricityGridAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:ElectricityGrid ;
+    rdfs:range dici_onto:ElectricityDemandProfile,
+        dici_onto:InstalledPVCapacity,
+        dici_onto:PowerSimulated ;
+    rdfs:subPropertyOf dici_onto:hasNetworkAttribute .
+
+dici_onto:hasHydroTurbineAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroTurbine ;
+    rdfs:range dici_onto:MaxRatedPower,
+        dici_onto:Power,
+        dici_onto:PowerDecisions ;
+    rdfs:subPropertyOf dici_onto:hasTurbineAttribute .
+
+dici_onto:hasMLModelAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:MLModel ;
+    rdfs:range dici_onto:NumberOfPredictions,
+        dici_onto:Step ;
+    rdfs:subPropertyOf dici_onto:hasComponentAttribute .
+
+dici_onto:CAPEX a owl:Class ;
+    rdfs:label "CAPEX" ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute,
+        dici_onto:SimpleCost,
+        dici_onto:SimpleCostAttribute .
+
+dici_onto:CO2_CAP a owl:Class ;
+    rdfs:label "CO2_CAP" ;
+    rdfs:subClassOf dici_onto:CustomPhysicalRatioAttribute,
+        dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute ;
+    dici_onto:hasRatioUnits [ dici_onto:denominatorUnit <http://qudt.org/vocab/unit/KiloW> ;
+            dici_onto:numeratorUnit <http://qudt.org/vocab/unit/KiloGM> ] .
+
+dici_onto:Efficiency a owl:Class ;
+    rdfs:label "Efficiency" ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:ElectricityGrid a owl:Class ;
+    rdfs:label "ElectricityGrid" ;
+    rdfs:subClassOf dici_onto:Network .
+
+dici_onto:ElectricityTariff a owl:Class ;
+    rdfs:label "Electricity Tariff" ;
+    rdfs:subClassOf dici_onto:BuildingAttribute,
+        dici_onto:CategoricalAttribute .
+
+dici_onto:EnergyConsumerAttribute a owl:Class ;
+    rdfs:label "EnergyConsumer Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+dici_onto:EnergyGeneratorAttribute a owl:Class ;
+    rdfs:label "EnergyGenerator Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+dici_onto:HydroTurbine a owl:Class ;
+    rdfs:label "HydroTurbine" ;
+    rdfs:subClassOf dici_onto:Turbine .
+
+dici_onto:InterestRate a owl:Class ;
+    rdfs:label "Interest Rate" ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/ONE> .
+
+dici_onto:Lifetime a owl:Class ;
+    rdfs:label "Lifetime" ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute,
+        dici_onto:PhysicalAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/YR> .
+
+dici_onto:MLModel a owl:Class ;
+    rdfs:label "MLModel" ;
+    rdfs:subClassOf dici_onto:Component .
+
+dici_onto:MLModelAttribute a owl:Class ;
+    rdfs:label "MLModel Attribute" ;
+    rdfs:subClassOf dici_onto:ComponentAttribute,
+        dici_onto:MLModelAttribute .
+
+dici_onto:OPEX a owl:Class ;
+    rdfs:label "OPEX" ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute,
+        dici_onto:SimpleCost,
+        dici_onto:StaticAttribute .
+
+dici_onto:OPEX_CAP a owl:Class ;
+    rdfs:label "OPEX_CAP" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+            owl:onProperty <http://qudt.org/schema/qudt/unit> ],
+        [ a owl:Restriction ;
+            owl:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+            owl:onProperty <http://qudt.org/schema/qudt/unit> ],
+        dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute,
+        dici_onto:UnitBasedCost,
+        dici_onto:UnitBasedCostAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW> .
+
+dici_onto:TRL a owl:Class ;
+    rdfs:label "TRL" ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute,
+        dici_onto:EnergyStorageAttribute,
+        dici_onto:SimpleValueAttribute .
+
+dici_onto:hasEnergyConsumerAttribute rdfs:domain dici_onto:EnergyConsumer ;
+    rdfs:range dici_onto:ElectricityDemandProfile,
+        dici_onto:Power .
+
+dici_onto:hasEnergyGeneratorAttribute rdfs:domain dici_onto:EnergyGenerator ;
+    rdfs:range dici_onto:Power,
+        dici_onto:SolarPotentialProfile .
+
+dici_onto:SolarPotentialProfile a owl:Class ;
+    rdfs:label "Solar Potential Profile" ;
+    rdfs:subClassOf dici_onto:DynamicAttribute,
+        dici_onto:EnergyGeneratorAttribute,
+        dici_onto:RegionAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/KiloW> .
+
+dici_onto:HydroReservoirAttribute a owl:Class ;
+    rdfs:label "HydroReservoir Attribute" ;
+    rdfs:subClassOf dici_onto:HydroResourceAttribute .
+
+dici_onto:RegionAttribute a owl:Class ;
+    rdfs:label "Region Attribute" ;
+    rdfs:subClassOf dici_onto:LocationAttribute .
+
+dici_onto:hasHydroReservoirAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:HydroReservoir ;
+    rdfs:range dici_onto:FlowPredictions,
+        dici_onto:Inflow,
+        dici_onto:MaximumVolume,
+        dici_onto:MinimumVolume,
+        dici_onto:Volume ;
+    rdfs:subPropertyOf dici_onto:hasHydroResourceAttribute .
+
+dici_onto:HydroReservoir a owl:Class ;
+    rdfs:label "HydroReservoir" ;
+    rdfs:subClassOf dici_onto:HydroResource .
+
+dici_onto:Region a owl:Class ;
+    rdfs:label "Region" ;
+    rdfs:subClassOf dici_onto:Location .
+
+dici_onto:BuildingAttribute a owl:Class ;
+    rdfs:label "Building Attribute" ;
+    rdfs:subClassOf dici_onto:LocationAttribute .
+
+dici_onto:hasBuildingAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:EVCount,
+        dici_onto:ElectricityTariff,
+        dici_onto:EnergyReferenceArea,
+        dici_onto:GrossFloorArea,
+        dici_onto:GrossInternalArea,
+        dici_onto:LumpedHeatCapacity,
+        dici_onto:LumpedHeatResistance,
+        dici_onto:Month,
+        dici_onto:PVRoofCoverageRatio,
+        dici_onto:PeakSpaceHeatingPower ;
+    rdfs:subPropertyOf dici_onto:hasLocationAttribute .
+
+dici_onto:hasRegionAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Region ;
+    rdfs:range dici_onto:EVPenetration,
+        dici_onto:LargeChargerPercentage,
+        dici_onto:MediumChargerPercentage,
+        dici_onto:PolygonCoordinates,
+        dici_onto:PolygonGeoJson,
+        dici_onto:SmallChargerPercentage,
+        dici_onto:SolarPotentialProfile ;
+    rdfs:subPropertyOf dici_onto:hasLocationAttribute .
+
+dici_onto:Building a owl:Class ;
+    rdfs:label "Building" ;
+    rdfs:subClassOf dici_onto:Location .
+
+dici_onto:hasEnergyConverterAttribute rdfs:domain dici_onto:EnergyConverter ;
+    rdfs:range dici_onto:CAPEX,
+        dici_onto:CAPEXperRatedPower,
+        dici_onto:CO2_CAP,
+        dici_onto:Efficiency,
+        dici_onto:InterestRate,
+        dici_onto:Lifetime,
+        dici_onto:OPEX,
+        dici_onto:OPEX_CAP,
+        dici_onto:OPEX_ENERGY,
+        dici_onto:TRL .
+
+dici_onto:Power a owl:Class ;
+    rdfs:label "Power" ;
+    rdfs:subClassOf dici_onto:DynamicAttribute,
+        dici_onto:ElectricEnergyConsumerAttribute,
+        dici_onto:ElectricEnergyGeneratorAttribute,
+        dici_onto:EnergyConsumerAttribute,
+        dici_onto:EnergyGeneratorAttribute,
+        dici_onto:HydroReservoirAttribute,
+        dici_onto:HydroTurbineAttribute,
+        dici_onto:ThermalEnergyConsumerAttribute,
+        dici_onto:ThermalEnergyGeneratorAttribute ;
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/W> .
+
+dici_onto:hasEnergyStorageAttribute rdfs:domain dici_onto:EnergyStorage ;
+    rdfs:range dici_onto:CAPEX,
+        dici_onto:CO2_CAP,
+        dici_onto:Charge_MAX,
+        dici_onto:ChargingEfficiency,
+        dici_onto:Discharge_MAX,
+        dici_onto:DischargingEfficiency,
+        dici_onto:Efficiency,
+        dici_onto:InterestRate,
+        dici_onto:Lifetime,
+        dici_onto:OPEX,
+        dici_onto:OPEX_CAP,
+        dici_onto:SOC_MAX,
+        dici_onto:SOC_MIN,
+        dici_onto:StandbyLosses,
+        dici_onto:TRL .
+
+[] a owl:Restriction ;
+    owl:hasValue <http://qudt.org/vocab/unit/KiloW-HR> ;
+    owl:onProperty <http://qudt.org/schema/qudt/unit> .
+
+[] dici_onto:denominatorUnit <http://qudt.org/vocab/unit/KiloW> ;
+    dici_onto:numeratorUnit <http://qudt.org/vocab/unit/KiloGM> .
+
+[] a owl:Restriction ;
+    owl:hasValue <http://qudt.org/vocab/unit/KiloW> ;
+    owl:onProperty <http://qudt.org/schema/qudt/unit> .
+
+
+
+#################################################################
+#    Hierarchy classes (auto-generated from Excel)
+#################################################################
+
+dici_onto:AirConditioningUnit a owl:Class ;
+    rdfs:label "AirConditioningUnit" ;
+    rdfs:subClassOf dici_onto:HeatPump .
+
+dici_onto:AirSourceHeatPump a owl:Class ;
+    rdfs:label "AirSourceHeatPump" ;
+    rdfs:subClassOf dici_onto:HeatPump .
+
+dici_onto:AlkalineElectrolyser a owl:Class ;
+    rdfs:label "AlkalineElectrolyser" ;
+    rdfs:subClassOf dici_onto:Electrolysis .
+
+dici_onto:AmineAbsorber a owl:Class ;
+    rdfs:label "AmineAbsorber" ;
+    rdfs:subClassOf dici_onto:CarbonCapture .
+
+dici_onto:AnaerobicDigester a owl:Class ;
+    rdfs:label "AnaerobicDigester" ;
+    rdfs:subClassOf dici_onto:AnaerobicDigestion .
+
+dici_onto:AnaerobicDigestion a owl:Class ;
+    rdfs:label "AnaerobicDigestion" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:BiomassCHPPlant a owl:Class ;
+    rdfs:label "BiomassCHPPlant" ;
+    rdfs:subClassOf dici_onto:CombinedHeatPower .
+
+dici_onto:BiomassFurnace a owl:Class ;
+    rdfs:label "BiomassFurnace" ;
+    rdfs:subClassOf dici_onto:Boiler .
+
+dici_onto:Boiler a owl:Class ;
+    rdfs:label "Boiler" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:CCGT a owl:Class ;
+    rdfs:label "CCGT" ;
+    rdfs:subClassOf dici_onto:GasTurbine .
+
+dici_onto:CHPPlant a owl:Class ;
+    rdfs:label "CHPPlant" ;
+    rdfs:subClassOf dici_onto:CombinedHeatPower .
+
+dici_onto:CarbonCapture a owl:Class ;
+    rdfs:label "CarbonCapture" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:CatalyticConversion a owl:Class ;
+    rdfs:label "CatalyticConversion" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:CatalyticHydrogenation a owl:Class ;
+    rdfs:label "CatalyticHydrogenation" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:ChemicalSynthesis a owl:Class ;
+    rdfs:label "ChemicalSynthesis" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:CombinedHeatPower a owl:Class ;
+    rdfs:label "CombinedHeatPower" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:DACSorbentBased a owl:Class ;
+    rdfs:label "DACSorbentBased" ;
+    rdfs:subClassOf dici_onto:CarbonCapture .
+
+dici_onto:ElectricHeater a owl:Class ;
+    rdfs:label "ElectricHeater" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:Electrolysis a owl:Class ;
+    rdfs:label "Electrolysis" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:FTReactor a owl:Class ;
+    rdfs:label "FTReactor" ;
+    rdfs:subClassOf dici_onto:FischerTropschSynthesis .
+
+dici_onto:FischerTropschSynthesis a owl:Class ;
+    rdfs:label "FischerTropschSynthesis" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:FluidisedBedGasifier a owl:Class ;
+    rdfs:label "FluidisedBedGasifier" ;
+    rdfs:subClassOf dici_onto:Gasification .
+
+dici_onto:FuelCell a owl:Class ;
+    rdfs:label "FuelCell" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:GasFiredBoiler a owl:Class ;
+    rdfs:label "GasFiredBoiler" ;
+    rdfs:subClassOf dici_onto:Boiler .
+
+dici_onto:GasTurbine a owl:Class ;
+    rdfs:label "GasTurbine" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:Gasification a owl:Class ;
+    rdfs:label "Gasification" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:GeothermalPowerPlant a owl:Class ;
+    rdfs:label "GeothermalPowerPlant" ;
+    rdfs:subClassOf dici_onto:CombinedHeatPower .
+
+dici_onto:GroundMountedPVAlpine a owl:Class ;
+    rdfs:label "GroundMountedPVAlpine" ;
+    rdfs:subClassOf dici_onto:Photovoltaic .
+
+dici_onto:HEFAReactor a owl:Class ;
+    rdfs:label "HEFAReactor" ;
+    rdfs:subClassOf dici_onto:Hydrotreatment .
+
+dici_onto:HaberBoschReactor a owl:Class ;
+    rdfs:label "HaberBoschReactor" ;
+    rdfs:subClassOf dici_onto:ChemicalSynthesis .
+
+dici_onto:HeatPump a owl:Class ;
+    rdfs:label "HeatPump" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:HydrogenBurner a owl:Class ;
+    rdfs:label "HydrogenBurner" ;
+    rdfs:subClassOf dici_onto:Boiler .
+
+dici_onto:Hydropower a owl:Class ;
+    rdfs:label "Hydropower" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:Hydrotreatment a owl:Class ;
+    rdfs:label "Hydrotreatment" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:IncinerationPlant a owl:Class ;
+    rdfs:label "IncinerationPlant" ;
+    rdfs:subClassOf dici_onto:WasteIncineration .
+
+dici_onto:IndustrialHeatPump a owl:Class ;
+    rdfs:label "IndustrialHeatPump" ;
+    rdfs:subClassOf dici_onto:HeatPump .
+
+dici_onto:MethanePyrolysisReactor a owl:Class ;
+    rdfs:label "MethanePyrolysisReactor" ;
+    rdfs:subClassOf dici_onto:Pyrolysis .
+
+dici_onto:MethanolSynthesisReactor a owl:Class ;
+    rdfs:label "MethanolSynthesisReactor" ;
+    rdfs:subClassOf dici_onto:CatalyticHydrogenation .
+
+dici_onto:MtOOligomerisationReactor a owl:Class ;
+    rdfs:label "MtOOligomerisationReactor" ;
+    rdfs:subClassOf dici_onto:Hydrotreatment .
+
+dici_onto:NuclearFission a owl:Class ;
+    rdfs:label "NuclearFission" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:OCGT a owl:Class ;
+    rdfs:label "OCGT" ;
+    rdfs:subClassOf dici_onto:GasTurbine .
+
+dici_onto:OilFiredBoiler a owl:Class ;
+    rdfs:label "OilFiredBoiler" ;
+    rdfs:subClassOf dici_onto:Boiler .
+
+dici_onto:OnshoreWindTurbine a owl:Class ;
+    rdfs:label "OnshoreWindTurbine" ;
+    rdfs:subClassOf dici_onto:WindPower .
+
+dici_onto:Photovoltaic a owl:Class ;
+    rdfs:label "Photovoltaic" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:PressureSwingAdsorption a owl:Class ;
+    rdfs:label "PressureSwingAdsorption" ;
+    rdfs:subClassOf dici_onto:CarbonCapture .
+
+dici_onto:PressurisedWaterReactor a owl:Class ;
+    rdfs:label "PressurisedWaterReactor" ;
+    rdfs:subClassOf dici_onto:NuclearFission .
+
+dici_onto:PumpedHydroPumpMode a owl:Class ;
+    rdfs:label "PumpedHydroPumpMode" ;
+    rdfs:subClassOf dici_onto:Hydropower .
+
+dici_onto:PumpedHydroTurbineMode a owl:Class ;
+    rdfs:label "PumpedHydroTurbineMode" ;
+    rdfs:subClassOf dici_onto:Hydropower .
+
+dici_onto:Pyrolysis a owl:Class ;
+    rdfs:label "Pyrolysis" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:PyrolysisReactor a owl:Class ;
+    rdfs:label "PyrolysisReactor" ;
+    rdfs:subClassOf dici_onto:Pyrolysis .
+
+dici_onto:RWGSReactor a owl:Class ;
+    rdfs:label "RWGSReactor" ;
+    rdfs:subClassOf dici_onto:CatalyticConversion .
+
+dici_onto:ReservoirPlant a owl:Class ;
+    rdfs:label "ReservoirPlant" ;
+    rdfs:subClassOf dici_onto:Hydropower .
+
+dici_onto:ResistanceHeater a owl:Class ;
+    rdfs:label "ResistanceHeater" ;
+    rdfs:subClassOf dici_onto:ElectricHeater .
+
+dici_onto:RooftopPV a owl:Class ;
+    rdfs:label "RooftopPV" ;
+    rdfs:subClassOf dici_onto:Photovoltaic .
+
+dici_onto:RunOfRiverPlant a owl:Class ;
+    rdfs:label "RunOfRiverPlant" ;
+    rdfs:subClassOf dici_onto:Hydropower .
+
+dici_onto:SOECCoElectrolyser a owl:Class ;
+    rdfs:label "SOECCoElectrolyser" ;
+    rdfs:subClassOf dici_onto:Electrolysis .
+
+dici_onto:SOFC a owl:Class ;
+    rdfs:label "SOFC" ;
+    rdfs:subClassOf dici_onto:FuelCell .
+
+dici_onto:SabatierReactor a owl:Class ;
+    rdfs:label "SabatierReactor" ;
+    rdfs:subClassOf dici_onto:CatalyticHydrogenation .
+
+dici_onto:WasteIncineration a owl:Class ;
+    rdfs:label "WasteIncineration" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .
+
+dici_onto:WindPower a owl:Class ;
+    rdfs:label "WindPower" ;
+    rdfs:subClassOf dici_onto:EnergyConverter .

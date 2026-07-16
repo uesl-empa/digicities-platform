@@ -1,0 +1,41 @@
+{
+  "type": "FeatureCollection",
+  "name": "Alpine Village components",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"id": "BuildingA", "label": "Building A (SFH with PV)", "kind": "EnergyConsumer"},
+      "geometry": {"type": "Point", "coordinates": [9.8458, 46.4984]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": "BuildingB", "label": "Building B (apartments)", "kind": "EnergyConsumer"},
+      "geometry": {"type": "Point", "coordinates": [9.8462, 46.4989]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": "BuildingC", "label": "Building C (SFH)", "kind": "EnergyConsumer"},
+      "geometry": {"type": "Point", "coordinates": [9.8471, 46.4981]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": "PV_A", "label": "Rooftop PV on Building A", "kind": "EnergyGenerator"},
+      "geometry": {"type": "Point", "coordinates": [9.8458, 46.4984]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": "Battery_A", "label": "Battery at Building A", "kind": "EnergyStorage"},
+      "geometry": {"type": "Point", "coordinates": [9.8458, 46.4984]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": "HeatPump_B", "label": "Heat pump at Building B", "kind": "EnergyConverter"},
+      "geometry": {"type": "Point", "coordinates": [9.8462, 46.4989]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"id": "Grid", "label": "Regional grid connection", "kind": "Network"},
+      "geometry": {"type": "Point", "coordinates": [9.8448, 46.4977]}
+    }
+  ]
+}

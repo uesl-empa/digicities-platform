@@ -1,0 +1,61 @@
+# Energy Simulation tutorial — ontology extension.
+#
+# The building attributes the bundled demo_energy_simulator service consumes.
+# Use-case vocabulary, so it lives in this workspace extension (not core).
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+# Building is the component this use-case models.
+dici_onto:Building a owl:Class ;
+    rdfs:subClassOf dici_onto:Component ;
+    rdfs:label "Building" .
+
+# Category for attributes that describe a Building.
+dici_onto:BuildingAttribute a owl:Class ;
+    rdfs:subClassOf dici_onto:Attribute ;
+    rdfs:label "Building Attribute" .
+
+# Weather file (EPW) the Location's energy simulation uses. Value is the EPW
+# filename; the demo_energy_simulator resolves it against its bundled weather files.
+dici_onto:WeatherEPW a owl:Class ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute ;
+    rdfs:label "Weather EPW file" .
+
+# --- Physical / numeric attributes ---
+dici_onto:GroundFloorArea a owl:Class ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute, dici_onto:BuildingAttribute ;
+    rdfs:label "Ground Floor Area" .
+
+dici_onto:NumberOfFloors a owl:Class ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute, dici_onto:BuildingAttribute ;
+    rdfs:label "Number of Floors" .
+
+# Construction year, carried as a plain year value (e.g. "1985").
+dici_onto:BuildingAge a owl:Class ;
+    rdfs:subClassOf dici_onto:PhysicalAttribute, dici_onto:BuildingAttribute ;
+    rdfs:label "Building Age (construction year)" .
+
+# --- Categorical attributes (value = the rdf:type that names the category) ---
+dici_onto:SIA2024BuildingType a owl:Class ;
+    rdfs:subClassOf dici_onto:CategoricalAttribute, dici_onto:BuildingAttribute ;
+    rdfs:label "SIA 2024 Building Type" .
+dici_onto:SFH rdfs:subClassOf dici_onto:SIA2024BuildingType ; rdfs:label "Single-family house" .
+dici_onto:MFH rdfs:subClassOf dici_onto:SIA2024BuildingType ; rdfs:label "Multi-family house" .
+dici_onto:Office rdfs:subClassOf dici_onto:SIA2024BuildingType ; rdfs:label "Office" .
+dici_onto:Retail rdfs:subClassOf dici_onto:SIA2024BuildingType ; rdfs:label "Retail" .
+
+dici_onto:HeatingSupply a owl:Class ;
+    rdfs:subClassOf dici_onto:CategoricalAttribute, dici_onto:BuildingAttribute ;
+    rdfs:label "Space Heating Supply" .
+
+dici_onto:DHWSupply a owl:Class ;
+    rdfs:subClassOf dici_onto:CategoricalAttribute, dici_onto:BuildingAttribute ;
+    rdfs:label "Domestic Hot Water Supply" .
+
+# Energy carriers used by both HeatingSupply and DHWSupply.
+dici_onto:GasHeated rdfs:subClassOf dici_onto:HeatingSupply, dici_onto:DHWSupply ; rdfs:label "Gas heated" .
+dici_onto:OilHeated rdfs:subClassOf dici_onto:HeatingSupply, dici_onto:DHWSupply ; rdfs:label "Oil heated" .
+dici_onto:ElectricallyHeated rdfs:subClassOf dici_onto:HeatingSupply, dici_onto:DHWSupply ; rdfs:label "Electrically heated" .
+dici_onto:AirHeated rdfs:subClassOf dici_onto:HeatingSupply, dici_onto:DHWSupply ; rdfs:label "Air / heat pump" .
+dici_onto:DistrictHeated rdfs:subClassOf dici_onto:HeatingSupply, dici_onto:DHWSupply ; rdfs:label "District heated" .

@@ -1,0 +1,36 @@
+# Energy Simulation tutorial — Energy Sim - Heat pump retrofit.
+# References the canonical replica buildings (continuity); what-ifs are overrides.
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+<https://digicities.info/proj/energy-simulation/EnergySimRetrofit> a dici_onto:Scenario ;
+    rdfs:label "Energy Sim - Heat pump retrofit" ;
+    dcterms:description "The same MFH retrofitted to a heat pump and electric hot water (overrides the replica)." ;
+    dici_onto:builtForService "demo_energy_simulator" ;
+    dici_onto:basedOn <https://digicities.info/proj/energy-simulation/EnergySimBaseline> ;
+    dici_onto:createdInWorkspace "energy-simulation" .
+
+<https://digicities.info/proj/energy-simulation/Location/TownCentre> dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimRetrofit> .
+<https://digicities.info/proj/energy-simulation/Building/MFH_1> dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimRetrofit> .
+
+<https://digicities.info/proj/energy-simulation/EnergySimRetrofit/ComponentLink_1> a dici_onto:ComponentLink ;
+    dici_onto:linkType "scenario_automatic" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimRetrofit> ;
+    dici_onto:hasInputEntity <https://digicities.info/proj/energy-simulation/EnergySimRetrofit> ;
+    dici_onto:linksInputyEntityTo <https://digicities.info/proj/energy-simulation/Location/TownCentre> .
+<https://digicities.info/proj/energy-simulation/EnergySimRetrofit/ComponentLink_2> a dici_onto:ComponentLink ;
+    dici_onto:linkType "scenario_automatic" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimRetrofit> ;
+    dici_onto:hasInputEntity <https://digicities.info/proj/energy-simulation/Location/TownCentre> ;
+    dici_onto:linksInputyEntityTo <https://digicities.info/proj/energy-simulation/Building/MFH_1> .
+
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/HeatingSupply_retrofit> a dici_onto:HeatingSupply, dici_onto:CategoricalAttribute, dici_onto:AirHeated ;
+    dici_onto:supersedesAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/HeatingSupply> ;
+    dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimRetrofit> .
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply_retrofit> a dici_onto:DHWSupply, dici_onto:CategoricalAttribute, dici_onto:ElectricallyHeated ;
+    dici_onto:supersedesAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply> ;
+    dici_onto:usedInScenario <https://digicities.info/proj/energy-simulation/EnergySimRetrofit> .

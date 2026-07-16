@@ -1,0 +1,236 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:       <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms:   <http://purl.org/dc/terms/> .
+@prefix qudt:      <http://qudt.org/schema/qudt/> .
+@prefix unit:      <http://qudt.org/vocab/unit/> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix demo:      <https://digicities.info/tutorial/attribute_types_demo/ontology#> .
+@prefix d:         <https://digicities.info/tutorial/attribute_types_demo/> .
+
+# ==============================================================
+# Attribute-types demo
+#
+# A single component instance — a hypothetical industrial heat
+# pump — carrying one attribute of EVERY shape supported by the
+# platform. Use this when you need to verify that a parser /
+# renderer / migration handles the full type system, or as a
+# copy-paste reference for your own data.
+#
+# Coverage (one each):
+#   1. PhysicalAttribute             ratedThermalPower
+#   2. SimpleCostAttribute           installationCost
+#   3. UnitBasedCostAttribute        maintenanceCost
+#   4. DynamicAttribute              partLoadProfile (24-h CSV)
+#   5. CurveAttribute                efficiencyCurve (load → COP)
+#   6. CategoricalAttribute          operationalState
+#   7. EventAttribute                commissioningDate
+#   8. AnnotationAttribute           engineerNotes
+#   9. GeospatialAttribute           installationLocation
+#  10. CustomPhysicalRatioAttribute  co2Intensity
+#  11. IdentifierAttribute           serialNumber
+#
+# Each attribute carries TWO rdf:type triples: a concrete domain
+# class (defined in this file's `demo:` namespace) and the
+# data-shape class (PhysicalAttribute, CurveAttribute, …) that
+# tells the UI how to render the value.
+# ==============================================================
+
+# --------------------------------------------------------------
+# Demo-specific classes (would normally live in an extension TTL,
+# inlined here so the demo is single-file)
+# --------------------------------------------------------------
+
+demo:RatedThermalPower
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Rated thermal power"^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:KiloW .
+
+demo:InstallationCost
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:ComponentAttribute, dici_onto:SimpleCostAttribute ;
+    rdfs:label "Installation cost"^^xsd:string .
+
+demo:MaintenanceCost
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:ComponentAttribute, dici_onto:UnitBasedCostAttribute ;
+    rdfs:label "Maintenance cost"^^xsd:string .
+
+demo:PartLoadProfile
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute, dici_onto:DynamicAttribute ;
+    rdfs:label "Part-load profile"^^xsd:string ;
+    rdfs:comment "Time series of normalised load (0..1) over a representative day."^^xsd:string .
+
+demo:EfficiencyCurve
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute, dici_onto:CurveAttribute ;
+    rdfs:label "Part-load efficiency curve"^^xsd:string ;
+    rdfs:comment "COP as a function of normalised thermal load."^^xsd:string .
+
+demo:OperationalState
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:ComponentAttribute, dici_onto:CategoricalAttribute ;
+    rdfs:label "Operational state"^^xsd:string .
+
+# Categorical-value classes (the actual category labels)
+demo:Operational         a owl:Class ; rdfs:label "Operational"^^xsd:string .
+demo:MaintenanceMode     a owl:Class ; rdfs:label "Maintenance"^^xsd:string .
+demo:Decommissioned      a owl:Class ; rdfs:label "Decommissioned"^^xsd:string .
+
+demo:CommissioningDate
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:ComponentAttribute, dici_onto:EventAttribute ;
+    rdfs:label "Commissioning date"^^xsd:string .
+
+demo:EngineerNotes
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:ComponentAttribute, dici_onto:AnnotationAttribute ;
+    rdfs:label "Engineer notes"^^xsd:string .
+
+demo:InstallationLocation
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:LocationAttribute, dici_onto:GeospatialAttribute ;
+    rdfs:label "Installation location"^^xsd:string .
+
+demo:CO2Intensity
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:ComponentAttribute, dici_onto:CustomPhysicalRatioAttribute ;
+    rdfs:label "CO₂ intensity"^^xsd:string ;
+    rdfs:comment "Specific CO₂ emissions per unit thermal energy delivered."^^xsd:string .
+
+demo:SerialNumber
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:ComponentAttribute, dici_onto:IdentifierAttribute ;
+    rdfs:label "Serial number"^^xsd:string .
+
+# --------------------------------------------------------------
+# Data product manifest
+# --------------------------------------------------------------
+
+d:attribute_types_demo
+    a dici_onto:DataProduct ;
+    rdfs:label "Attribute types demo — industrial heat pump"^^xsd:string ;
+    rdfs:comment "One component instance carrying one attribute of every shape supported by the ontology."^^xsd:string ;
+    dcterms:created "2026-04-29"^^xsd:date ;
+    dcterms:publisher "Digicities tutorial"^^xsd:string ;
+    dici_onto:describesComponent d:HeatPump_Demo_Unit ;
+    dici_onto:hasResource <https://digicities.info/tutorial/attribute_types_demo/data_products/part_load_profile> .
+
+<https://digicities.info/tutorial/attribute_types_demo/data_products/part_load_profile>
+    a dici_onto:FileResource ;
+    rdfs:label "part_load_profile.csv"^^xsd:string ;
+    dici_onto:hasRelativePath "resources/part_load_profile.csv"^^xsd:string ;
+    dici_onto:hasMimeType "text/csv"^^xsd:string ;
+    dici_onto:hasRowCount "24"^^xsd:integer .
+
+# --------------------------------------------------------------
+# Component instance + every attribute type
+# --------------------------------------------------------------
+
+d:HeatPump_Demo_Unit
+    a dici_onto:EnergyConverter ;
+    rdfs:label "Demo industrial heat pump"^^xsd:string ;
+    rdfs:comment "A 50 kW air-source heat pump used as the host instance for the attribute-types demo."^^xsd:string ;
+    dici_onto:hasAttribute
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/ratedThermalPower> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/installationCost> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/maintenanceCost> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/partLoadProfile> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/efficiencyCurve> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/operationalState> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/commissioningDate> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/engineerNotes> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/installationLocation> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/co2Intensity> ,
+        <https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/serialNumber> .
+
+# 1. Physical -----------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/ratedThermalPower>
+    a demo:RatedThermalPower ;
+    rdfs:label "Rated thermal power"^^xsd:string ;
+    qudt:unit unit:KiloW ;
+    dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+    qudt:value "50.0"^^xsd:decimal .
+
+# 2. SimpleCost ---------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/installationCost>
+    a demo:InstallationCost ;
+    rdfs:label "Installation cost"^^xsd:string ;
+    dici_onto:hasUnitLabel "CHF"^^xsd:string ;
+    qudt:value "35000.0"^^xsd:decimal .
+
+# 3. UnitBasedCost ------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/maintenanceCost>
+    a demo:MaintenanceCost ;
+    rdfs:label "Annual maintenance"^^xsd:string ;
+    dici_onto:hasUnitLabel "CHF/yr"^^xsd:string ;
+    qudt:value "180.0"^^xsd:decimal .
+
+# 4. Dynamic (time series, CSV-backed) ----------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/partLoadProfile>
+    a demo:PartLoadProfile ;
+    rdfs:label "Daily part-load profile"^^xsd:string ;
+    qudt:unit unit:UNITLESS ;
+    dici_onto:hasUnitLabel "fraction"^^xsd:string ;
+    dici_onto:hasResolution "PT1H"^^xsd:duration ;
+    dici_onto:hasDataFile "resources/part_load_profile.csv"^^xsd:string .
+
+# 5. Curve --------------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/efficiencyCurve>
+    a demo:EfficiencyCurve ;
+    rdfs:label "Part-load efficiency curve (COP vs load)"^^xsd:string ;
+    dici_onto:xUnit unit:UNITLESS ;
+    dici_onto:xUnitLabel "fraction"^^xsd:string ;
+    dici_onto:yUnit unit:UNITLESS ;
+    dici_onto:yUnitLabel "ratio"^^xsd:string ;
+    dici_onto:hasDataPoints """[
+        (0.10, 2.5),
+        (0.25, 3.0),
+        (0.50, 3.4),
+        (0.75, 3.6),
+        (1.00, 3.5)
+    ]""" .
+
+# 6. Categorical --------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/operationalState>
+    a demo:OperationalState ;
+    a demo:Operational ;
+    rdfs:label "Operational state"^^xsd:string ;
+    dici_onto:hasCategoricalValue demo:Operational .
+
+# 7. Event --------------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/commissioningDate>
+    a demo:CommissioningDate ;
+    rdfs:label "Commissioning date"^^xsd:string ;
+    dici_onto:hasTemporalPrecision dici_onto:Date ;
+    dici_onto:hasTemporalValue "2024-09-15"^^xsd:date .
+
+# 8. Annotation ---------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/engineerNotes>
+    a demo:EngineerNotes ;
+    rdfs:label "Engineer notes"^^xsd:string ;
+    rdfs:comment "Replace gasket on next service interval. COP curve calibrated against test bench, August 2025."^^xsd:string .
+
+# 9. Geospatial (single point, inline coordinates) ----------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/installationLocation>
+    a demo:InstallationLocation ;
+    rdfs:label "Installation location"^^xsd:string ;
+    dici_onto:hasUnitLabel "WGS84 lat/lon"^^xsd:string ;
+    dici_onto:hasLatitude "46.4989"^^xsd:decimal ;
+    dici_onto:hasLongitude "9.8462"^^xsd:decimal .
+
+# 10. CustomPhysicalRatio (CO₂ per kWh thermal) -------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/co2Intensity>
+    a demo:CO2Intensity ;
+    rdfs:label "CO₂ intensity"^^xsd:string ;
+    qudt:value "12.5"^^xsd:decimal ;
+    dici_onto:hasUnitLabel "GM/KiloW-HR"^^xsd:string .
+
+# 11. Identifier --------------------------------------------------
+<https://digicities.info/tutorial/attribute_types_demo/HeatPump_Demo_Unit/serialNumber>
+    a demo:SerialNumber ;
+    rdfs:label "Serial number"^^xsd:string ;
+    dici_onto:hasIdentifierValue "HP-DEMO-A0042"^^xsd:string .

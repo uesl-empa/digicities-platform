@@ -1,0 +1,48 @@
+PREFIX dici_onto: <https://digicities.info/ontology#>
+PREFIX cim: <http://iec.ch/TC57/2013/CIM-schema-cim16#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+SELECT ?turbine ?cim_property ?attribute_type ?attribute ?value ?unit 
+WHERE {
+  # Find CIM properties of interest and their DICI equivalents
+  VALUES ?cim_property {
+    cim:GeneratingUnit.initialP
+    cim:GeneratingUnit.maxOperatingP
+    cim:GeneratingUnit.minOperatingP
+  }
+  
+  ?dici_property owl:equivalentProperty ?cim_property .
+  
+  # Find all WindTurbine instances (equivalent to cim:WindGeneratingUnit)
+  ?turbine a dici_onto:WindTurbine .
+  
+  # Find any property in the hierarchy that could connect to our attribute values
+  # This includes direct properties and subproperties if the reasoner supports it
+  ?connecting_property rdfs:subPropertyOf* ?dici_property .
+  
+  # Connect the turbine to its attributes through any valid property path
+  ?turbine ?any_property ?attribute .
+  
+  # Ensure the property used is related to our target property
+  # Either it's the same property or it's a subproperty somewhere in the chain
+  {
+    # Case 1: Direct match to the equivalent property
+    FILTER(?any_property = ?dici_property)
+  } UNION {
+    # Case 2: Subproperty of the equivalent property
+    ?any_property rdfs:subPropertyOf+ ?dici_property .
+  } UNION {
+    # Case 3: More specific property like hasWindTurbineDefaultInitialActivePowerAttribute
+    # that might not be directly declared as a subproperty
+    FILTER(CONTAINS(STR(?any_property), REPLACE(STR(?dici_property), "hasEnergyConversionTechnology", "hasWindTurbine")))
+  }
+  
+  # Get attribute type, value and unit
+  ?attribute a ?attribute_type ;
+            qudt:value ?value .
+  
+  OPTIONAL { ?attribute qudt:unit ?unit }
+}

@@ -1,0 +1,6 @@
+PREFIX dici_onto: <https://digicities.info/ontology#>
+SELECT ?type (COUNT(?component) as ?count) WHERE {
+  ?component a ?type .
+  FILTER(STRSTARTS(STR(?type), STR(dici_onto:)))
+} GROUP BY ?type
+ORDER BY DESC(?count)

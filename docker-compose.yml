@@ -1,0 +1,115 @@
+# Digicities platform — default stack.
+# Triplestore: Apache Jena Fuseki (Apache-2.0).
+#
+# To use Ontotext GraphDB Free instead (richer Workbench + inference, but
+# proprietary EULA — see NOTICE), add docker-compose.graphdb.yml as an
+# overlay:
+#
+#     COMPOSE_FILE=docker-compose.yml;docker-compose.graphdb.yml
+#     COMPOSE_PATH_SEPARATOR=;
+#     TRIPLESTORE_BACKEND=graphdb
+
+services:
+
+  fuseki:
+    # stain/jena-fuseki community image of Apache Jena Fuseki (Apache-2.0).
+    # Pinned to a digest for reproducible builds. To bump, run:
+    #   docker pull stain/jena-fuseki:latest && docker image ls --digests stain/jena-fuseki
+    # and replace the @sha256:... below.
+    image: stain/jena-fuseki:latest@sha256:b1d0c96f19adddef417520184471ac816cf36c6e72936a88ea02b29f4305929a
+    container_name: digicities-fuseki
+    ports:
+      - "3030:3030"
+    volumes:
+      - fuseki_data:/fuseki
+    environment:
+      ADMIN_PASSWORD: "${FUSEKI_ADMIN_PASSWORD:-admin}"
+      # Persist on TDB2 disk-backed storage. Datasets are created lazily by
+      # backend/workspace/graphdb_provisioning.py on first workspace open.
+      JVM_ARGS: "-Xmx2g"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3030/$$/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
+  fuseki-init:
+    # No-op init container — kept symmetric with the GraphDB stack so that
+    # docker compose ps lists the same shape. The actual per-workspace
+    # dataset provisioning is lazy, done by the Streamlit app on workspace
+    # open. This container just waits for fuseki to be healthy then exits.
+    image: curlimages/curl:latest
+    container_name: digicities-fuseki-init
+    depends_on:
+      fuseki:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - >
+        echo "==> Fuseki is healthy on http://fuseki:3030 — datasets are
+        provisioned lazily per workspace by the Streamlit app on open."
+    restart: "no"
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: digicities-streamlit
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      ONTOLOGY_DIR: /app/data/ontology
+      # Triplestore selection. Default 'fuseki' here; override to 'graphdb'
+      # in .env when running with docker-compose.graphdb.yml overlay.
+      TRIPLESTORE_BACKEND: "${TRIPLESTORE_BACKEND:-fuseki}"
+      # SPARQL endpoint base URL. Resolves inside the Docker network — point
+      # at fuseki:3030 by default; graphdb:7200 when using the GraphDB overlay.
+      GRAPHDB_URL: "${GRAPHDB_URL:-http://fuseki:3030}"
+      FUSEKI_URL: "${FUSEKI_URL:-http://fuseki:3030}"
+      # Admin credentials for Fuseki's /$/datasets API. The fuseki container
+      # above runs with ADMIN_PASSWORD=${FUSEKI_ADMIN_PASSWORD:-admin}; Streamlit
+      # has to send the same creds when provisioning per-workspace datasets,
+      # otherwise the admin API 401s and workspaces never get a Fuseki dataset.
+      FUSEKI_ADMIN_USER: "${FUSEKI_ADMIN_USER:-admin}"
+      FUSEKI_ADMIN_PASSWORD: "${FUSEKI_ADMIN_PASSWORD:-admin}"
+      # Endpoint the API submission tab's "Connect" button registers for the
+      # bundled demo energy simulator. Defaults to the compose service name.
+      DEMO_ENERGY_SIMULATOR_URL: "${DEMO_ENERGY_SIMULATOR_URL:-http://demo_energy_simulator:5000/api/energy_simulation}"
+    depends_on:
+      fuseki:
+        condition: service_healthy
+    restart: unless-stopped
+
+  demo_energy_simulator:
+    # Bundled example service for the API submission tab: a small, self-contained
+    # building energy simulator (heuristic, synthetic-weather fallback, no external
+    # data). Register its endpoint in the API submission tab as
+    #   http://demo_energy_simulator:5000/api/energy_simulation
+    # (from the host it's on http://localhost:5001). Auth is off for the demo.
+    build:
+      context: ./examples/demo_energy_simulator
+      dockerfile: Dockerfile
+    container_name: digicities-demo-energy-simulator
+    ports:
+      - "5001:5000"
+    environment:
+      AUTH_ENABLED: "false"
+      # Browser-reachable base URL for result dashboard links (the published host
+      # port). The submission tab is told to open results here, not the internal
+      # docker network name.
+      PUBLIC_BASE_URL: "${DEMO_ENERGY_SIMULATOR_PUBLIC_URL:-http://localhost:5001}"
+      # Persist results (and their dashboards) across container restarts.
+      RESULTS_DIR: /data/results
+    volumes:
+      - demo_energy_results:/data/results
+    restart: unless-stopped
+
+volumes:
+  fuseki_data:
+  demo_energy_results:

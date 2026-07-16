@@ -1,0 +1,45 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms:   <http://purl.org/dc/terms/> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix av:        <https://digicities.info/tutorial/alpine_village/> .
+@prefix sc:        <https://digicities.info/tutorial/alpine_village/scenarios/> .
+
+# ==============================================================
+# Scenario: Alpine Village — baseline (2026-04-29)
+#
+# A snapshot of the workspace at a point in time. References
+# every component instance via dici_onto:usedInScenario so that
+# downstream tooling (the Assumptions module, optimisers) can pin
+# which version of the data it ran against.
+#
+# This file does NOT redeclare component attributes — it just
+# anchors the existing instance graph as belonging to a named
+# scenario. Use alpine_village_doubled_pv.ttl as the template
+# for an assumption-modified variant.
+# ==============================================================
+
+sc:baseline_2026_04_29
+    a dici_onto:Scenario ;
+    rdfs:label "Alpine Village baseline (2026-04-29)"^^xsd:string ;
+    rdfs:comment "Snapshot of the village's components and attributes as initially loaded into the workspace."^^xsd:string ;
+    dcterms:created "2026-04-29"^^xsd:date ;
+    dcterms:publisher "Digicities tutorial"^^xsd:string ;
+    dici_onto:modifiedComponents "0"^^xsd:integer .
+
+# Anchor every village component to this scenario
+av:Grid       dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:BuildingA  dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:BuildingB  dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:BuildingC  dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:PV_A       dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:Battery_A  dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:HeatPump_B dici_onto:usedInScenario sc:baseline_2026_04_29 .
+
+# Flows are also part of the scenario
+av:Flow_Grid_to_A dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:Flow_Grid_to_B dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:Flow_Grid_to_C dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:Flow_PV_to_A   dici_onto:usedInScenario sc:baseline_2026_04_29 .
+av:Flow_HP_to_B   dici_onto:usedInScenario sc:baseline_2026_04_29 .

@@ -1,0 +1,80 @@
+Digicities platform
+Copyright © 2026, Empa, James Allan, Reto Fricker
+
+This product is licensed under the Apache License, Version 2.0
+(see LICENSE for the full text).
+
+================================================================================
+Bundled third-party content
+================================================================================
+
+This distribution bundles or pulls the following third-party components.
+Their licenses apply to the respective files / images and are reproduced or
+linked below. See THIRD_PARTY_LICENSES.md for the full per-dependency list.
+
+  Digicities ontology — services/graphdb/ontology/ and data/ontology/
+    Source:  https://github.com/uesl-empa/digicities-ontology
+    License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+             https://creativecommons.org/licenses/by/4.0/
+    The pinned version is recorded in services/graphdb/ontology/VERSION.
+
+  QUDT unit list — data/ontology/imports/qudt_units.txt and
+                   services/graphdb/ontology/qudt_units.txt
+    Source:  https://www.qudt.org/ (QUDT Project, by Topquadrant Inc.)
+    License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+             https://creativecommons.org/licenses/by/4.0/
+
+  ERA-Net programme logo — data/logo/eranet logo.png
+    Used solely as an acknowledgement of the European Research Area Network
+    funding that supported the Digicities project. The logo is a trademark
+    of the ERA-Net programme; use is subject to ERA-Net's visual-identity
+    guidelines. See https://www.era-learn.eu/ .
+
+    Required acknowledgement strapline (also shown in the Streamlit UI footer
+    and in the README's "Funding & acknowledgements" section):
+
+      Digicities was an international three-year project funded through the
+      SFOE P+D program under the framework of the joint programming
+      initiative ERA-Net Smart Energy Systems' focus initiative
+      "Digital Transformation for the Energy Transition" under grant
+      agreement No 88397.
+
+================================================================================
+Runtime dependencies pulled but not redistributed
+================================================================================
+
+The docker-compose stack pulls the following container images at runtime.
+They are NOT redistributed by this project; users obtain them directly from
+their upstream registries and accept their respective licenses on first run.
+
+  Apache Jena Fuseki (stain/jena-fuseki:4.10.0)  [DEFAULT TRIPLESTORE]
+    License: Apache License 2.0
+             https://www.apache.org/licenses/LICENSE-2.0
+    Source:  https://jena.apache.org/documentation/fuseki2/
+    The default triplestore Digicities ships with as of v0.3. Fully
+    OSI-approved. Datasets are provisioned lazily per workspace via Fuseki's
+    admin REST API.
+
+  Ontotext GraphDB Free (ontotext/graphdb:10.7.3)  [OPT-IN OVERLAY]
+    License: GraphDB Free License Agreement (proprietary, gratis)
+             https://www.ontotext.com/products/graphdb/license/
+    NOTE: GraphDB Free is NOT open-source software. Use only enabled when
+    the user adds docker-compose.graphdb.yml to COMPOSE_FILE in .env and
+    sets TRIPLESTORE_BACKEND=graphdb. Use of the container is governed by
+    Ontotext's End User License Agreement, accepted on first launch. The
+    Digicities platform itself remains Apache 2.0; setting up this overlay
+    is the user's deliberate choice. Use it if you want GraphDB's richer
+    Workbench UI or inference; stick with the Fuseki default if you need a
+    100% OSI-approved stack (e.g. strict procurement rules).
+
+  Nextcloud (nextcloud:29-apache)
+    License: GNU Affero General Public License v3.0 (AGPLv3)
+             https://github.com/nextcloud/server/blob/master/COPYING
+
+  Python (python:3.11-slim)
+    License: Python Software Foundation License (PSF, BSD-style)
+             https://docs.python.org/3/license.html
+
+  curl (curlimages/curl:latest)
+    License: curl license (MIT/X derivate)
+             https://curl.se/docs/copyright.html

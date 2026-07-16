@@ -1,0 +1,39 @@
+# Core framework
+streamlit>=1.28.0
+
+# Data
+pandas>=2.0.0
+numpy>=1.24.0
+openpyxl>=3.1.0     # Excel read/write via pandas
+
+# HTTP / env config
+requests==2.32.3
+python-dotenv==1.1.1
+
+# RDF / knowledge graph
+rdflib>=6.0.0
+# RDFS-Plus / OWL-RL closure for write-time inference materialization in
+# the workspace provisioning step. Keeps queries portable across triplestores
+# — see backend/workspace/inference.py and docs/INFERENCE.md.
+owlrl>=6.0.2
+
+# Visualisation
+matplotlib==3.9.2
+plotly>=5.0.0
+folium==0.20.0
+streamlit-folium==0.25.0
+
+# Workspace storage abstraction (filesystem + WebDAV/NextCloud + S3/GCS/...)
+fsspec>=2024.1.0
+webdav4>=0.10.0       # adds 'webdav' protocol to fsspec for NextCloud workspaces
+
+# Other
+filetype==1.2.0
+pyyaml==6.0.2
+
+# API submission — optional Redis transport (publish scenarios to a service's
+# request stream). The HTTP transport needs no extra deps; this enables Redis.
+redis>=4.0.0
+
+# Notebook UI helpers (used by tutorial/* and data/ingestion/ingest.ipynb)
+ipywidgets>=8.0.0

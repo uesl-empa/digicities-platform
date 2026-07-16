@@ -1,0 +1,122 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:       <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix qudt:      <http://qudt.org/schema/qudt/> .
+@prefix unit:      <http://qudt.org/vocab/unit/> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix alpine:    <https://digicities.info/tutorial/alpine_village/ontology#> .
+
+# ==============================================================
+# Alpine Village ontology extension
+#
+# Concrete classes used by the Alpine Village instance data.
+# Each attribute class is double-typed: as a domain-specific
+# subclass of dici_onto:Attribute (so it slots into the right
+# part of the schema) AND, where appropriate, as a data-shape
+# class (PhysicalAttribute / SimpleCostAttribute) so the
+# Streamlit UI knows how to render the value.
+#
+# Pattern: rdfs:subClassOf for every concrete attribute class
+# uses the closest existing dici_onto:* parent. New components
+# (AlpineDistrictHeating, RooftopPhotovoltaicSystem) plug into
+# the corresponding component hierarchy.
+# ==============================================================
+
+# ----- Component classes ----------------------------------------------------
+
+alpine:AlpineDistrictHeating
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:Network ;
+    rdfs:label "Alpine district heating loop"^^xsd:string ;
+    rdfs:comment "Small low-temperature district heat network serving an alpine village."^^xsd:string .
+
+alpine:RooftopPhotovoltaicSystem
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyGenerator ;
+    rdfs:label "Rooftop photovoltaic system"^^xsd:string ;
+    rdfs:comment "A building-mounted PV array."^^xsd:string .
+
+# ----- Concrete consumer attributes ----------------------------------------
+
+alpine:FloorArea
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyConsumerAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Floor area"^^xsd:string ;
+    rdfs:comment "Conditioned floor area of a building."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:M2 .
+
+alpine:AnnualElectricityDemand
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyConsumerAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Annual electricity demand"^^xsd:string ;
+    rdfs:comment "Annualised electricity consumption of a consumer (kWh/yr)."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:KiloW-HR .
+
+alpine:AnnualHeatDemand
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyConsumerAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Annual heat demand"^^xsd:string ;
+    rdfs:comment "Annualised useful-heat demand of a consumer (kWh/yr)."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:KiloW-HR .
+
+# ----- Concrete generator / converter attributes ---------------------------
+
+alpine:RatedElectricalPower
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyGeneratorAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Rated electrical power"^^xsd:string ;
+    rdfs:comment "Nameplate AC electrical power of a generator."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:KiloW .
+
+alpine:RatedThermalPower
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyConverterAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Rated thermal power"^^xsd:string ;
+    rdfs:comment "Nameplate thermal output of a heat-producing converter."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:KiloW .
+
+# PV-specific orientation attributes
+alpine:PanelTilt
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyGeneratorAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Panel tilt angle"^^xsd:string ;
+    rdfs:comment "Tilt of a PV panel from horizontal, in degrees."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:DEG .
+
+alpine:PanelAzimuth
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:EnergyGeneratorAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Panel azimuth"^^xsd:string ;
+    rdfs:comment "Compass bearing the PV panel faces, 0 = North, 180 = South."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:DEG .
+
+# ----- Network attributes ---------------------------------------------------
+
+alpine:ExportLimit
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:NetworkAttribute, dici_onto:PhysicalAttribute ;
+    rdfs:label "Export limit"^^xsd:string ;
+    rdfs:comment "Maximum power that can be exported to the upstream network."^^xsd:string ;
+    dici_onto:hasDefaultUnit unit:KiloW .
+
+alpine:ImportPrice
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:NetworkAttribute, dici_onto:SimpleCostAttribute ;
+    rdfs:label "Import price"^^xsd:string ;
+    rdfs:comment "Tariff charged per unit of energy imported from the network."^^xsd:string .
+
+# ----- Annotations / object properties --------------------------------------
+
+alpine:SeasonalHeatDemandNote
+    a owl:Class ;
+    rdfs:subClassOf dici_onto:AnnotationAttribute ;
+    rdfs:label "Seasonal heat-demand note"^^xsd:string ;
+    rdfs:comment "Free-text annotation explaining why heat demand varies across the year."^^xsd:string .
+
+alpine:servesDistrict
+    a owl:ObjectProperty ;
+    rdfs:domain alpine:AlpineDistrictHeating ;
+    rdfs:range dici_onto:EnergyConsumer ;
+    rdfs:label "serves district"^^xsd:string ;
+    rdfs:comment "Relates a district heating loop to the buildings it supplies."^^xsd:string .

@@ -1,0 +1,70 @@
+# Overlay: replace the default Apache Jena Fuseki triplestore with Ontotext
+# GraphDB Free.
+#
+# Why use it? GraphDB Free has a richer Workbench UI, optional inference,
+# and Sesame-style features the Streamlit app's GraphDB-flavoured panels
+# expect. The trade-off: proprietary EULA (see NOTICE) — not OSI-approved.
+#
+# To enable, add to .env:
+#
+#     COMPOSE_FILE=docker-compose.yml;docker-compose.graphdb.yml
+#     COMPOSE_PATH_SEPARATOR=;
+#     TRIPLESTORE_BACKEND=graphdb
+#
+# Then `docker compose up -d` brings up GraphDB on :7201 alongside (and
+# instead of) Fuseki.
+
+services:
+
+  # Disable the default Fuseki service when this overlay is active.
+  fuseki:
+    profiles: ["disabled"]
+  fuseki-init:
+    profiles: ["disabled"]
+
+  graphdb:
+    # Ontotext GraphDB Free 10.7.3 (proprietary EULA — see NOTICE). Pinned
+    # to a digest for reproducible builds. To bump, pull the new tag and
+    # replace the @sha256:... below.
+    image: ontotext/graphdb:10.7.3@sha256:49bf6e5ccae15abe53605cc81b9618e9cca4984fa9d4f393c5b20efa36f94f8f
+    container_name: digicities-graphdb
+    ports:
+      - "7201:7200"
+    volumes:
+      - graphdb_data:/opt/graphdb/home
+      - ./services/graphdb/graphdb.properties:/opt/graphdb/conf/graphdb.properties:ro
+    environment:
+      GDB_HEAP_SIZE: "2g"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7200/rest/repositories"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  graphdb-init:
+    image: curlimages/curl:latest
+    container_name: digicities-graphdb-init
+    depends_on:
+      graphdb:
+        condition: service_healthy
+    volumes:
+      - ./services/graphdb:/init
+    entrypoint: ["/bin/sh", "/init/init.sh"]
+    restart: "no"
+
+  streamlit:
+    environment:
+      TRIPLESTORE_BACKEND: graphdb
+      GRAPHDB_URL: http://graphdb:7200
+    # Replace (not merge) the base streamlit depends_on. The base file makes
+    # streamlit depend on `fuseki`, but fuseki is profile-disabled above — a
+    # merged depends_on would then reference an undefined service and Compose
+    # rejects the project. `!override` swaps the whole map for graphdb only.
+    depends_on: !override
+      graphdb:
+        condition: service_healthy
+
+volumes:
+  graphdb_data:

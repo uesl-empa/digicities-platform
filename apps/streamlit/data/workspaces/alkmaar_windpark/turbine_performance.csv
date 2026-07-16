@@ -1,0 +1,6 @@
+turbine_id,rated_power_MW,capacity_factor,maintenance_status
+WT001,2.5,0.34,OK
+WT002,2.5,0.31,SCHEDULED
+WT003,2.5,0.38,OK
+WT004,2.5,0.33,OK
+WT005,2.5,0.36,MINOR_ISSUE

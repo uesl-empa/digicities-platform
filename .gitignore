@@ -1,0 +1,162 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# PyCharm / VSCode / IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local configs
+# .env is NOT tracked — it's created from .env.example (`cp .env.example .env`).
+# Only .env.example (local-dev defaults, no secrets) ships in the repo.
+.env
+.env.local
+*.local
+james.env
+
+# GUI-saved connection credentials (NextCloud etc.) — plaintext, never commit
+data/.connections/
+
+# Claude Code / AI assistant workspaces
+.claude/
+CLAUDE.md
+
+# Local workspace data (per-user GraphDB dumps, query history, etc.)
+# Track only the bundled defaults / example seeds; user-generated content is gitignored.
+data/namespaces/*
+!data/namespaces/default_namespaces.txt
+data/queries/*
+!data/queries/*.sparql
+data/services/
+data/workspaces_olddata/
+
+# Service function scratch outputs and downloads
+service_functions/**/downloaded_files/
+service_functions/**/timeseries/
+service_functions/**/output_jsons/
+service_functions/**/batch_downloads/
+service_functions/**/data_product_downloads/
+service_functions/*.zip
+
+# Legacy/test scratch dirs
+testfrr/
+701
+streamlit.yaml
+.gitlab-ci.yml
+service_functions/
+
+# Tutorial-notebook scratch outputs
+tutorial/sample_data/*.json
+tutorial/.ipynb_checkpoints/
+
+# User-supplied Replica Builder Excel templates and their conversion outputs.
+# The user_templates/ folder itself is tracked (via README.md + .gitkeep) so
+# the directory exists in fresh clones — but anything users drop in stays local.
+tutorial/sample_data/user_templates/*
+!tutorial/sample_data/user_templates/.gitkeep
+!tutorial/sample_data/user_templates/README.md
+
+# data/ingestion_template/ ships the production Excel template
+# (data_ingestion_template.xlsx) + CSV references + README. Ignore any
+# OTHER .xlsx/.ttl that lands there (scratch copies, exports, etc.) but
+# keep the canonical template itself tracked.
+data/ingestion_template/*.xlsx
+!data/ingestion_template/data_ingestion_template.xlsx
+data/ingestion_template/*.ttl
+
+# data/ingestion/ — Excel-ingestion working folder. User-supplied workbooks
+# and generated TTLs stay local; only the bundled examples ship.
+data/ingestion/input/*.xlsx
+!data/ingestion/input/Example.xlsx
+!data/ingestion/input/MotelDB.xlsx
+data/ingestion/output/*.ttl
+!data/ingestion/output/Example.ttl
+!data/ingestion/output/MotelDB.ttl
+
+# macOS & system files
+.DS_Store
+Thumbs.db
+
+# Microsoft Office lock files (created when a workbook is open in Excel)
+~$*
+
+# Logs
+*.log
+
+# Local env backups
+.env.bak
+*.env.bak
+
+# Runtime artifacts written into bundled workspaces (submission results, query
+# scratch, ontology exports) — not part of the shipped demo.
+demo_workspaces/*/results/
+
+# Local scratch/test workspaces created while exercising the UI — not shipped.
+demo_workspaces/empa-campus-test/

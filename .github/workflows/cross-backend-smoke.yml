@@ -1,0 +1,49 @@
+name: cross-backend-smoke
+
+# Verifies that workspace TTLs + RDFS-Plus inference produce identical
+# query results across SPARQL 1.1 engines (Fuseki, GraphDB, RDF4J,
+# Oxigraph, …). Uses rdflib in-process — fast, deterministic, no
+# Docker dependency, no flaky service-container health-checks.
+#
+# The "live" cross-backend variant (which spins up Fuseki + GraphDB
+# containers and diffs REST results) lives in
+# tools/test_cross_backend_live.py — run it manually before releases.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/triplestore/**"
+      - "backend/workspace/**"
+      - "tests/test_cross_backend_smoke.py"
+      - "demo_workspaces/**"
+      - ".github/workflows/cross-backend-smoke.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/triplestore/**"
+      - "backend/workspace/**"
+      - "tests/test_cross_backend_smoke.py"
+      - "demo_workspaces/**"
+      - ".github/workflows/cross-backend-smoke.yml"
+
+jobs:
+  smoke-test:
+    name: SPARQL parity (rdflib in-process)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install minimal deps
+        # `requests` is needed because importing backend.workspace pulls in
+        # backend.triplestore at module-load time (the package exports
+        # ensure_workspace_repo, which depends on the triplestore factory,
+        # which imports both backend classes — both use requests).
+        run: |
+          # pandas is pulled in transitively: importing backend.workspace loads
+          # graphdb_provisioning -> backend.graphdb.client, which imports pandas.
+          pip install rdflib pytest owlrl pyyaml fsspec requests pandas
+      - name: Run cross-backend smoke
+        run: pytest tests/test_cross_backend_smoke.py -v

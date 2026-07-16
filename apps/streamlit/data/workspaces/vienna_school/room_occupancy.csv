@@ -1,0 +1,6 @@
+room_id,capacity,avg_occupancy,utilization_percent
+R101,30,28,93.3
+R102,35,32,91.4
+R103,25,23,92.0
+R104,40,35,87.5
+R105,32,29,90.6

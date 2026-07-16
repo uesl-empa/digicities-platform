@@ -1,0 +1,39 @@
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dici_onto: <https://digicities.info/ontology#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+
+SELECT DISTINCT ?URI ?Type ?attr_uri ?attr_type ?value ?unit
+WHERE {
+  # Match the energy technology instance and its specific class
+  ?URI a ?Type .
+  ?Type rdfs:subClassOf* dici_onto:EnergyTechnology .
+
+  # Get all attributes of the energy technology
+  ?URI dici_onto:hasAttribute ?attr_uri .
+
+  # Filter for only geospatial attributes
+  ?attr_uri a ?attr_type .
+  ?attr_type rdfs:subClassOf* dici_onto:GeospatialAttribute .
+
+  # Get value and unit if available
+  OPTIONAL { ?attr_uri qudt:value ?value }
+  OPTIONAL { ?attr_uri qudt:unit ?unit }
+
+  # Modified filter to handle equivalent classes
+  FILTER NOT EXISTS {
+    ?URI a ?more_specific_class .
+    ?more_specific_class rdfs:subClassOf+ ?Type .
+    FILTER NOT EXISTS { ?more_specific_class owl:equivalentClass ?Type }
+  }
+
+  # Modified filter to handle equivalent attribute types
+  FILTER NOT EXISTS {
+    ?attr_uri a ?more_specific_attribute_type .
+    ?more_specific_attribute_type rdfs:subClassOf+ ?attr_type .
+    FILTER NOT EXISTS { ?more_specific_attribute_type owl:equivalentClass ?attr_type }
+  }
+}
+ORDER BY ?URI ?attr_type
+LIMIT 100

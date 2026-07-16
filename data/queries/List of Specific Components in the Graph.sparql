@@ -1,0 +1,24 @@
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX dici_onto: <https://digicities.info/ontology#>
+    PREFIX owl: <http://www.w3.org/2002/07/owl#>
+    
+    SELECT DISTINCT ?mostSpecificClass
+    WHERE {
+        # Find all instances and their direct types
+        ?instance rdf:type ?mostSpecificClass .
+    
+        # Make sure the class is a subclass of Component (directly or indirectly)
+        ?mostSpecificClass rdfs:subClassOf* dici_onto:Component .
+    
+        # Modified filter to handle equivalent classes
+        FILTER NOT EXISTS {
+            ?instance rdf:type ?moreSpecificClass .
+            ?moreSpecificClass rdfs:subClassOf+ ?mostSpecificClass .
+            FILTER NOT EXISTS { ?moreSpecificClass owl:equivalentClass ?mostSpecificClass }
+        }
+    
+        # Exclude the Component class itself
+        FILTER (?mostSpecificClass != dici_onto:Component)
+    }
+    ORDER BY ?mostSpecificClass

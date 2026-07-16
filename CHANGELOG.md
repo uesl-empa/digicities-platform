@@ -1,0 +1,58 @@
+# Changelog
+
+All notable changes to the Digicities platform are recorded here. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.0] — 2026-07-16
+
+First public open-source release of the Digicities platform (Apache-2.0).
+
+### Added
+- **`backend/scenario_builder/`** — headless scenario TTL generation (`build_scenario_ttl`), closing the previous UI/session-state-only gap in the onboarding pipeline. Covered by `tests/test_scenario_builder.py`.
+- **Replica viewer** — full-replica and per-component TTL download buttons.
+- **Sidebar Light/Dark "Appearance" toggle** (`styles.render_appearance_toggle`) with readable dark-mode overrides, plus a pinned light default via `.streamlit/config.toml` (Streamlit 1.59 dropped the native toggle).
+- **Local-first workspace loading** — mount a folder (or folder of folders) of workspaces via `USECASES_HOST_PATH`; every template-structured subfolder is auto-discovered next to the bundled demos.
+- CI workflows validating every docker-compose overlay combination (`compose-config`) and a cross-backend smoke test.
+
+### Changed
+- **All workspace file I/O now routes through a single storage abstraction** (`ctx.storage` / `WorkspaceStorage`), giving byte-identical behaviour on local disk and NextCloud. Global assets (service library, open data products, replica-builder template) gained env-overridable local fallbacks (`data/global_*`).
+- **Backends are opt-in overlays** — `.env` defaults to local storage + Fuseki; NextCloud (AGPL) and GraphDB Free (proprietary EULA) are opt-in via their compose overlays. A `backend/triplestore/` abstraction hides per-server URL differences.
+- **Triplestore-related UI labels** renamed from "GraphDB" to "Triplestore"; the Fuseki web UI now loads without a login in local dev.
+- **Ontology extension model — extensions now live in workspaces, not in a central holding area.** The `digicities-ontology` repo is core-only; extensions are authored in each workspace's `ontology/extensions/` in the `dici_onto:` namespace (same as core). Concepts that get adopted across multiple workpackages and prove stable get promoted into core via a PR against `digicities-ontology/core/dici_onto_core.ttl`. See [`digicities-ontology/docs/CORE_EVOLUTION.md`](https://github.com/uesl-empa/digicities-ontology/blob/main/docs/CORE_EVOLUTION.md) for the lifecycle, promotion criteria, and the service-compatibility contract.
+- **Ontology Manager → Propose Upstream** form reframed: it now targets `core/dici_onto_core.ttl` for the promote-to-core PR rather than `extensions/<file>`. Pre-PR checklist updated to require ≥2-workpackage adoption + stability before submitting.
+- Bumped the base image to **Python 3.11** (from 3.9, which is past its official EOL).
+
+### Docs
+- `README.md`, `docs/INFERENCE.md`, `docs/USECASE_QUICKSTART.md` updated to reference the new ontology model + the `CORE_EVOLUTION.md` lifecycle.
+- `.env` is git-ignored; `cp .env.example .env` is the documented first step.
+- `.env.example` comment for `DIGICITIES_ONTOLOGY_REPO` updated to reflect the promote-to-core target.
+
+### Known limitations
+- Container image not yet published to a registry — the [`digicities-usecase-template`](https://github.com/uesl-empa/digicities-usecase-template) `docker-compose.yml` references a placeholder tag; build from a sibling clone (`build: ../digicities-platform`) in the meantime.
+
+## [0.1.0] — 2026-05-23
+
+First tagged release of the Digicities platform.
+
+### Added
+- Streamlit UI (`apps/streamlit/`) with Replica Builder, Ontology Manager, Scenario Builder, Assumptions, Data Products, and API Submission modules.
+- Pure-Python backend (`backend/`) — `graphdb/`, `ontology_manager/`, `replica_builder/`, `assumptions/`, `data_products/`, `api_submission/`.
+- Docker stack (`docker-compose.yml` + override + nextcloud overlay) — Fuseki on `:3030` (GraphDB optional overlay on `:7201`), Streamlit on `:8501`, optional NextCloud on `:8080`.
+- Zero-credential local quickstart — `AUTH_DISABLED=true` and `LOCAL_WORKSPACE=workspace_demo` defaults.
+- Tutorial notebooks under `tutorial/` against a fictional Alpine Village dataset.
+- Excel ingestion pipeline at `data/ingestion/ingest.ipynb`, plus production-ready template at `data/ingestion_template/`.
+- Vendored Digicities ontology under `services/graphdb/ontology/` (pinned to `v0.1.0` via `services/graphdb/ontology/VERSION`).
+- *Propose Upstream* affordance in the Ontology Manager — exports an extension TTL ready for PR-submission to the upstream ontology repo.
+- `NOTICE` and `THIRD_PARTY_LICENSES.md` covering bundled assets and pulled container images.
+
+### Licensing
+- Platform code: [Apache License 2.0](LICENSE) (chosen over MIT for the explicit patent grant).
+- Vendored ontology and QUDT unit list: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — see `NOTICE`.
+- GraphDB Free (pulled at runtime, not redistributed) remains proprietary under Ontotext's EULA.
+
+### Known limitations
+- Container image not yet published to a registry — the [`digicities-usecase-template`](https://github.com/uesl-empa/digicities-usecase-template) `docker-compose.yml` references `ghcr.io/uesl-empa/digicities-platform:v0.1.0` as a placeholder; uncomment its `build: ../digicities-platform` block to build from a sibling clone meanwhile.
+- Python 3.9 base image — past official EOL (October 2025). Functional, but a bump to 3.11+ is planned. *(Done in 0.3.0.)*
+- No automated end-to-end test suite yet — the tutorial notebooks are the de-facto regression tests, as documented in `CONTRIBUTING.md`.
+
+### Tooling
+- The v0.1.0 release scaffolding — license audit, CI workflows, NOTICE/THIRD_PARTY_LICENSES, deployment documentation — was prepared with assistance from [Claude Code](https://claude.com/claude-code).

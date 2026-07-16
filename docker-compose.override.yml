@@ -1,0 +1,42 @@
+# Development overrides — hot-reload and direct code mount
+# Applied automatically by: docker compose up
+# For production build only: docker compose -f docker-compose.yml up
+
+services:
+  streamlit:
+    volumes:
+      - .:/app
+      # Mount a directory of workspaces as the workspace parent — every subfolder
+      # appears in the platform's workspace switcher. Defaults to the bundled
+      # ./demo_workspaces (energy-simulation + motel-energy) so a fresh clone shows
+      # working demos out of the box. (energy-simulation is also always discovered
+      # from the image, independent of this mount.) Point USECASES_HOST_PATH at your
+      # own workspaces directory to use those instead,
+      # e.g. USECASES_HOST_PATH=../my-workspaces.
+      - ${USECASES_HOST_PATH:-./demo_workspaces}:/app/data/usecases
+    environment:
+      USECASES_DIR: /app/data/usecases
+      # Host-side location of the mount above, so the UI can translate the
+      # container path (/app/data/usecases/...) back to a path on your machine.
+      USECASES_HOST_PATH: ${USECASES_HOST_PATH:-./demo_workspaces}
+    command: >
+      streamlit run apps/streamlit/app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.runOnSave=true
+      --server.fileWatcherType=poll
+
+  fuseki:
+    # Local-dev only: make the triplestore anonymous so the Fuseki web UI on
+    # http://localhost:3030 loads without a login. The stock image hides the
+    # admin endpoints behind Basic auth, which makes its old UI hang forever on
+    # "Loading...". We force-install an allow-all shiro.ini on every boot (it
+    # must be re-applied each start because /fuseki is a persistent volume and
+    # the image's entrypoint would otherwise keep the auth-protected copy).
+    # See services/fuseki/shiro.ini for the security caveat.
+    volumes:
+      - ./services/fuseki/shiro.ini:/etc/fuseki-shiro.ini:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'cp -f /etc/fuseki-shiro.ini /fuseki/shiro.ini && exec /sbin/tini -- sh /docker-entrypoint.sh /jena-fuseki/fuseki-server'

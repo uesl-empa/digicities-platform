@@ -1,0 +1,43 @@
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix dcterms:   <http://purl.org/dc/terms/> .
+@prefix qudt:      <http://qudt.org/schema/qudt/> .
+@prefix unit:      <http://qudt.org/vocab/unit/> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix alpine:    <https://digicities.info/tutorial/alpine_village/ontology#> .
+@prefix dp:        <https://digicities.info/tutorial/alpine_village/data_products/> .
+@prefix av:        <https://digicities.info/tutorial/alpine_village/> .
+
+# ==============================================================
+# Data product: PV on Building A — hourly AC generation
+#
+# 168 h of synthetic AC output, modelled with an 8 kW peak array
+# and a bell-curve solar day plus light cloud modulation. The
+# time-series attribute lives at <https://digicities.info/tutorial/alpine_village/PV_A/generationProfile>.
+# ==============================================================
+
+dp:pv_a_generation
+    a dici_onto:DataProduct ;
+    rdfs:label "PV on Building A — hourly generation"^^xsd:string ;
+    rdfs:comment "Synthetic hourly AC output of the 8 kW rooftop PV, one week."^^xsd:string ;
+    dcterms:created "2026-04-23"^^xsd:date ;
+    dcterms:publisher "Digicities tutorial"^^xsd:string ;
+    dici_onto:describesComponent av:PV_A ;
+    dici_onto:hasResource <https://digicities.info/tutorial/alpine_village/data_products/pv_a_generation/resource> ;
+    dici_onto:hasAttribute <https://digicities.info/tutorial/alpine_village/PV_A/generationProfile> .
+
+<https://digicities.info/tutorial/alpine_village/data_products/pv_a_generation/resource>
+    a dici_onto:FileResource ;
+    rdfs:label "pv_generation.csv"^^xsd:string ;
+    dici_onto:hasRelativePath "resources/pv_generation.csv"^^xsd:string ;
+    dici_onto:hasMimeType "text/csv"^^xsd:string ;
+    dici_onto:hasRowCount "168"^^xsd:integer .
+
+<https://digicities.info/tutorial/alpine_village/PV_A/generationProfile>
+    a dici_onto:EnergyGeneratorAttribute, dici_onto:DynamicAttribute ;
+    rdfs:label "Hourly AC generation"^^xsd:string ;
+    qudt:unit unit:KiloW ;
+    dici_onto:hasUnitLabel "KiloW"^^xsd:string ;
+    dici_onto:hasResolution "PT1H"^^xsd:duration ;
+    dici_onto:hasDataFile "resources/pv_generation.csv"^^xsd:string .

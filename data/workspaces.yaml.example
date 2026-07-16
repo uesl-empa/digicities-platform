@@ -1,0 +1,60 @@
+# Digicities workspace registry
+# -----------------------------
+# Lists the workspaces this platform install can switch between.
+# Copy to `workspaces.yaml` (gitignored) and customise.
+#
+# The platform additionally auto-discovers any subdirectory of $USECASES_DIR
+# (default: ./data/usecases/) that looks like a workspace, so you can drop a
+# freshly-cloned usecase repo in there and skip editing this file.
+#
+# See docs/WORKSPACE_LAYOUT.md for the canonical folder structure every
+# workspace must follow.
+
+workspaces:
+
+  # --- Local-filesystem workspace (a folder on disk — often a git repo) ---
+  - id: motel-energy
+    name: Roadside Motel Chain
+    description: Three-site motel energy modelling demo (motel_project extension).
+    backend: local
+    # Path to the workspace root. Inside this dir, the canonical layout
+    # (ontology/, ingestion/, scenarios/, …) is expected.
+    path: /app/data/usecases/motel-energy
+    # Optional — GraphDB repo name, defaults to id.
+    # graphdb_repository: motel-energy
+
+  - id: wind-farm
+    name: Mountain Pass Wind Farm
+    description: Three-turbine wind farm demo (reformers extension).
+    backend: local
+    path: /app/data/usecases/wind-farm
+
+  # --- NextCloud workspace (a top-level folder on a NextCloud user account) ---
+  # Validated against the bundled local NextCloud overlay
+  # (docker-compose.nextcloud.yml). Confirmed: the same workspace abstraction
+  # works for local-FS and WebDAV workspaces — same modules, different
+  # backend — without any per-module adapter code.
+  - id: workspace_demo
+    name: NextCloud Demo (workspace_demo)
+    description: |
+      The NextCloud-backed workspace seeded by services/nextcloud/init.sh on
+      first boot of the nextcloud overlay. Use this entry to switch the
+      platform between a local-filesystem workspace and a NextCloud workspace
+      in the same session and see they behave identically.
+    backend: nextcloud
+    nextcloud_root: workspace_demo
+    # NEXTCLOUD_BASE_URL / NEXTCLOUD_BASIC_USERNAME / NEXTCLOUD_BASIC_PASSWORD
+    # come from .env. To override per-workspace, uncomment:
+    # nextcloud_base_url: https://my-nc.example.com
+    # nextcloud_username: admin
+    # nextcloud_password: admin
+
+  # --- S3 / GCS / FTP etc. via raw fsspec ---
+  # - id: alkmaar-windpark
+  #   name: Alkmaar wind park (S3-backed)
+  #   backend: fsspec
+  #   protocol: s3
+  #   root: my-bucket/digicities-workspaces/alkmaar-windpark
+  #   options:
+  #     key: ...
+  #     secret: ...

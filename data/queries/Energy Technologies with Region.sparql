@@ -1,0 +1,14 @@
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX dici_onto: <https://digicities.info/ontology#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT DISTINCT ?URI ?Type ?Location WHERE {
+  ?URI a ?Type.
+  ?tech rdfs:subClassOf dici_onto:EnergyTechnology.
+  ?URI dici_onto:locatedIn ?Location.
+  FILTER NOT EXISTS {
+    ?URI a ?subTech .
+    ?subTech rdfs:subClassOf ?Type .
+    FILTER (?subTech != ?Type && !EXISTS { ?subTech owl:equivalentClass ?Type })
+  }
+} 
+LIMIT 100
