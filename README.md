@@ -92,3 +92,5 @@ Digicities was funded through the SFOE P+D program under the ERA-Net Smart Energ
 The authors thank all Digicities project collaborators and contributors who helped guide the development of the platform and the ontology.
 
 The open-source release of this project (repository split, license audit, CI scaffolding, deployment documentation) was prepared with the assistance of [Claude Code](https://claude.com/claude-code).
+
+Since that release, portions of the codebase have continued to be developed and adapted with AI assistance. Wherever this happens, a `Co-Authored-By` trailer naming the AI model used is added to the commit, and contributors are expected to follow the same convention — in the interest of full transparency about how the code was produced.
