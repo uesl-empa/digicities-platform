@@ -26,6 +26,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show compose version
         run: docker compose version
+      - name: Seed .env from example
+        # docker-compose.yml declares `env_file: .env`, which is gitignored, so a
+        # fresh checkout has none and `docker compose config` errors with "env file
+        # .env not found". Copying the committed example mirrors the documented
+        # first-run step (`cp .env.example .env`) so the overlays validate as a real
+        # fresh clone would.
+        run: cp .env.example .env
       - name: Validate every shipped overlay combination
         run: |
           set -euo pipefail
