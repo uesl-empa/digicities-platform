@@ -64,4 +64,39 @@ def load_workspace_default_units(storage=None,
     return build_default_unit_map(graphs)
 
 
-__all__ = ["build_default_unit_map", "load_workspace_default_units"]
+_QUDT_SCHEMA = Namespace("http://qudt.org/schema/qudt/")
+
+
+def backfill_default_units(graph, default_units: Dict[str, str]) -> int:
+    """Stamp ``qudt:unit`` (+ ``dici_onto:hasUnitLabel``) onto attribute instances
+    in ``graph`` that carry a ``qudt:value`` but no ``qudt:unit``, using the
+    ``default_units`` map from :func:`load_workspace_default_units`.
+
+    This is the repeatable, backend-driven migration for replicas that were built
+    before their ontology classes declared a ``hasDefaultUnit`` — the unit still
+    comes from the ontology (never hardcoded here), it is just applied to existing
+    instances instead of at Excel-ingestion time. ``graph`` is mutated in place;
+    returns the number of instances stamped.
+    """
+    from rdflib import RDF, Literal
+    from rdflib.namespace import XSD
+
+    stamped = 0
+    for subj in list(graph.subjects(_QUDT_SCHEMA.value, None)):
+        if (subj, _QUDT_SCHEMA.unit, None) in graph:
+            continue
+        for cls in graph.objects(subj, RDF.type):
+            code = default_units.get(str(cls).split("#")[-1])
+            if code:
+                graph.add((subj, _QUDT_SCHEMA.unit, URIRef(_QUDT_UNIT_NS + code)))
+                graph.add((subj, DICI.hasUnitLabel, Literal(code, datatype=XSD.string)))
+                stamped += 1
+                break
+    return stamped
+
+
+__all__ = [
+    "backfill_default_units",
+    "build_default_unit_map",
+    "load_workspace_default_units",
+]
