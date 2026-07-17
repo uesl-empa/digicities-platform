@@ -30,7 +30,7 @@ extension, a replica, scenarios, and a service template.
 | `backend/` | Pure-Python core (no Streamlit): `graphdb/` (triplestore client + SPARQL), `triplestore/` (Fuseki/GraphDB backends), `replica_builder/`, `assumptions/`, `api_submission/` (incl. `ttl_converter.py`, the scenario→payload converter), `workspace/` (provisioning, registry) |
 | `data/ontology/` | The core ontology (`dici_onto_core.ttl`) used in local mode |
 | `data/global_services/` | Bundled service templates (`demo_energy_simulator.yaml`, `flexibility_optimizer.yaml`) — the canonical shape for a `services/*.yaml` |
-| `demo_workspaces/` | Self-contained example workspaces (`energy-simulation`, `motel-energy`) — copy their structure |
+| `demo_workspaces/` | Self-contained example workspace (`energy-simulation`) — copy its structure |
 | `tutorial/` | Jupyter notebooks (01–06 + 09) walking the API against the backend; `09_excel_import.ipynb` is the spreadsheet→replica path |
 | `docs/` | All guides (see below) |
 | `docker-compose.yml` | The default stack: Apache Jena Fuseki (`:3030`) + Streamlit (`:8501`) |

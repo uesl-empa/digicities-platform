@@ -14,9 +14,8 @@ each step.
 > **Onboarding kit.** A model-agnostic brief for driving this with an agent lives
 > in [`onboarding-kit/`](../onboarding-kit/): drop its `AGENTS.md` into any working
 > folder (a model + its data), point an agent at that folder and this running
-> ecosystem, and it works the steps below. The bundled `demo_workspaces/` (an
-> energy simulation and a motel-energy example) are worked references to compare
-> against.
+> ecosystem, and it works the steps below. The bundled `demo_workspaces/`
+> energy-simulation example is a worked reference to compare against.
 
 ## A note on judgement — confirm, don't guess
 

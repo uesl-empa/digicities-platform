@@ -18,12 +18,12 @@ Prerequisites
 -------------
 - A live Fuseki at $FUSEKI_URL (default http://fuseki:3030, admin/admin)
 - A live GraphDB at $GRAPHDB_LIVE_URL (default http://graphdb:7200)
-- A registered workspace named `motel-energy` accessible via the registry
+- A registered workspace named `energy-simulation` accessible via the registry
 
 Usage
 -----
     cd digicities-platform
-    python tools/test_cross_backend_live.py motel-energy
+    python tools/test_cross_backend_live.py energy-simulation
 """
 
 from __future__ import annotations

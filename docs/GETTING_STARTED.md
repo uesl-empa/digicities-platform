@@ -65,11 +65,10 @@ docker compose up -d --build
 ```
 
 Open **http://localhost:8501**. Login is disabled for local use, so you land straight
-in the app. Two demo workspaces are bundled and appear automatically (they show
+in the app. The demo workspace is bundled and appears automatically (it shows
 regardless of `USECASES_HOST_PATH`):
 
 - **Energy Simulation (demo)** - self-contained, no external services needed.
-- **Motel energy** - a second sample workspace.
 
 Nothing else to configure.
 

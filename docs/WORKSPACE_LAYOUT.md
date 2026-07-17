@@ -10,7 +10,7 @@ Whichever backend a workspace uses, the **subfolder layout below is identical**.
 
 This is the v0.2 contract. Earlier versions diverged between NextCloud and local-filesystem layouts. That divergence is gone.
 
-> ℹ️ **Note on the `motel-energy` examples below.** Throughout this document `motel-energy` refers to the small **demo workspace** describing three fictional motels. It's a worked example used to illustrate the workspace layout. It is unrelated to `MotelDB.xlsx`, which is a separate *technology database* (an equipment-spec catalogue, not a usecase).
+> ℹ️ **Note on the `energy-simulation` examples below.** Throughout this document `energy-simulation` refers to the bundled **demo workspace** (four buildings wired to the `demo_energy_simulator` service). It's a worked example used to illustrate the workspace layout.
 
 ## Folder structure
 
@@ -74,11 +74,11 @@ The Digicities platform's local-mode bootstrap (`services/graphdb/init.sh` and t
 
 ```json
 {
-  "id": "motel-energy",
-  "name": "Roadside Motel Chain",
-  "description": "Three-site motel energy modelling, demo usecase.",
+  "id": "energy-simulation",
+  "name": "Energy Simulation (demo)",
+  "description": "Bundled demo — four buildings wired to the demo_energy_simulator service.",
   "created": "2026-05-25",
-  "tags": ["buildings", "pv", "demo"]
+  "tags": ["demo", "energy", "example"]
 }
 ```
 
@@ -91,10 +91,10 @@ The Digicities platform's local-mode bootstrap (`services/graphdb/init.sh` and t
 Any path on disk. The workspace registry entry looks like:
 
 ```yaml
-- id: motel-energy
-  name: Roadside Motel Chain
+- id: energy-simulation
+  name: Energy Simulation (demo)
   backend: local
-  path: /home/you/digicities-opensource/usecases/motel-energy
+  path: /home/you/digicities-opensource/usecases/energy-simulation
 ```
 
 Inside that path, the folders above are present.
@@ -104,24 +104,24 @@ Inside that path, the folders above are present.
 A top-level folder on the NextCloud user's account, named by the workspace id. The registry entry looks like:
 
 ```yaml
-- id: motel-energy
-  name: Roadside Motel Chain
+- id: energy-simulation
+  name: Energy Simulation (demo)
   backend: nextcloud
-  nextcloud_root: motel-energy
+  nextcloud_root: energy-simulation
 ```
 
-The platform's `WorkspaceStorage` adapter joins the root with the canonical subpaths (`motel-energy/ontology/extensions/...` etc.) and uses `fsspec`'s `webdav` filesystem under the hood.
+The platform's `WorkspaceStorage` adapter joins the root with the canonical subpaths (`energy-simulation/ontology/extensions/...` etc.) and uses `fsspec`'s `webdav` filesystem under the hood.
 
 ### Other (S3, GCS, FTP, ...)
 
 `fsspec` supports many backends. A workspace registry entry can in principle point at any of them:
 
 ```yaml
-- id: motel-energy
-  name: Roadside Motel Chain
+- id: energy-simulation
+  name: Energy Simulation (demo)
   backend: fsspec
   protocol: s3
-  root: my-bucket/digicities-workspaces/motel-energy
+  root: my-bucket/digicities-workspaces/energy-simulation
 ```
 
 Not exercised in v0.2. Local and NextCloud are the only tested paths. The abstraction admits it for free.
@@ -130,8 +130,8 @@ Not exercised in v0.2. Local and NextCloud are the only tested paths. The abstra
 
 The point of one canonical layout is that a workspace can move between backends with a directory copy:
 
-- **NextCloud to git repo**: `rclone copy nextcloud:motel-energy /usecases/motel-energy && cd /usecases/motel-energy && git init && git add . && git commit -m "Snapshot from NextCloud"`.
-- **Git repo to NextCloud**: `git clone <repo> /tmp/motel-energy && rclone copy /tmp/motel-energy nextcloud:motel-energy`.
+- **NextCloud to git repo**: `rclone copy nextcloud:energy-simulation /usecases/energy-simulation && cd /usecases/energy-simulation && git init && git add . && git commit -m "Snapshot from NextCloud"`.
+- **Git repo to NextCloud**: `git clone <repo> /tmp/energy-simulation && rclone copy /tmp/energy-simulation nextcloud:energy-simulation`.
 - **Platform-mediated**: the platform offers a *Sync to git folder* / *Sync from git folder* button (deferred to v0.3) that does the equivalent through the storage abstraction.
 
 ## Migration from pre-v0.2 layouts

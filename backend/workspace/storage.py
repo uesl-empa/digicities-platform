@@ -136,7 +136,7 @@ class WorkspaceStorage:
 
         Requires `pip install webdav4[fsspec]`.
         `root` is the workspace folder path on the NextCloud user account,
-        e.g. "motel-energy" → addresses /remote.php/dav/files/<user>/motel-energy/...
+        e.g. "energy-simulation" → addresses /remote.php/dav/files/<user>/energy-simulation/...
         """
         try:
             import webdav4.fsspec  # noqa: F401  — registers the 'webdav' protocol
