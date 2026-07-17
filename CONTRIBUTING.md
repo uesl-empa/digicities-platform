@@ -76,6 +76,7 @@ If you changed something in `backend/graphdb/`, also re-run Alpine Village's upl
 - **Don't amend commits that have been pushed.** Create a new commit instead.
 - **Don't commit `.env` (or any local `*.env`), `data/namespaces/`, `__pycache__/`.** They're gitignored, but double-check with `git status` before pushing.
 - **Don't re-introduce hardcoded credentials or production URLs.** Every external endpoint should be an env var with no default pointing at a real deployment.
+- **Disclose AI assistance.** If a commit was developed or adapted with an AI coding assistant, add a `Co-Authored-By: <Model name> <email>` trailer naming the model used (e.g. `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`). The project follows this convention for full transparency about how the code was produced; please do the same.
 
 ## What's in scope for contributions
 
