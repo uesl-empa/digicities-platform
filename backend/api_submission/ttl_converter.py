@@ -576,11 +576,18 @@ class RobustTTL2YAMLProcessor:
 
         # Handle categorical
         if 'CategoricalAttribute' in types:
+            attr_name = self._extract_name(str(attr_uri))
             for t in types:
-                if t not in ['CategoricalAttribute', 'PhysicalAttribute']:
-                    attr_name = self._extract_name(str(attr_uri))
-                    if t != attr_name:
-                        return t
+                if t in ('CategoricalAttribute', 'PhysicalAttribute'):
+                    continue
+                # Skip the attribute's kind class (e.g. DHWSupply) so only the
+                # category value (e.g. ElectricallyHeated) is returned. A baseline
+                # attribute instance is named after its class (DHWSupply); a scenario
+                # override is <Class>_<suffix> (DHWSupply_retrofit) — so the kind
+                # class is the type the instance name equals or is prefixed by.
+                if t == attr_name or attr_name.startswith(t + '_'):
+                    continue
+                return t
 
         # Handle event/temporal
         if 'EventAttribute' in types:
