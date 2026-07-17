@@ -507,12 +507,26 @@ def convert_excel_to_ttl_wrapper(uploaded_file, project_uri: str, uri_mode: str)
             tmp_output_path = tmp_output.name
         # File is now closed
 
+        # Build the ontology default-unit map so the builder can stamp a unit onto
+        # any Physical/Geospatial attribute the workbook leaves blank — keeping the
+        # instance self-describing and constrained to the ontology.
+        _default_units = None
+        try:
+            import streamlit as _st_local
+            from backend.replica_builder.utils.default_units import load_workspace_default_units
+            _ctx = _st_local.session_state.get("workspace_context")
+            if _ctx is not None:
+                _default_units = load_workspace_default_units(storage=getattr(_ctx, "storage", None))
+        except Exception as _e:  # never block the import on a lookup issue
+            print(f"[replica-builder] default-unit map unavailable: {_e}")
+
         # Call the embedded function
         process_excel_to_ttl(
             project_uri=project_uri,
             file_path=tmp_input_path,
             output_ttl_path=tmp_output_path,
-            uri_mode=uri_mode
+            uri_mode=uri_mode,
+            default_units=_default_units,
         )
 
         # Read TTL content

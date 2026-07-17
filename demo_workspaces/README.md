@@ -9,7 +9,6 @@ Self-contained example workspaces shipped with the platform so that a fresh `doc
 | Workspace | What it models |
 |---|---|
 | `energy-simulation/` | The energy-simulation pipeline demo: buildings + scenarios wired to the bundled `demo_energy_simulator` service (convert → submit → dashboard, fully offline). Always available. See `docs/GETTING_STARTED.md`. |
-| `motel-energy/` | A small fictional motel chain (3 sites) with an extension TTL, an ingested replica, and two scenarios (baseline + solar rollout). |
 
 ## Pointing at your own usecases instead
 

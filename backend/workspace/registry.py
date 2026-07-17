@@ -19,10 +19,10 @@ config.
 YAML schema:
 
     workspaces:
-      - id: motel-energy
-        name: Roadside Motel Chain
+      - id: energy-simulation
+        name: Energy Simulation (demo)
         backend: local
-        path: /home/you/digicities-opensource/usecases/motel-energy
+        path: /home/you/digicities-opensource/usecases/energy-simulation
 
       - id: vienna-school
         name: Vienna school retrofit

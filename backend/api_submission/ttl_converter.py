@@ -576,11 +576,18 @@ class RobustTTL2YAMLProcessor:
 
         # Handle categorical
         if 'CategoricalAttribute' in types:
+            attr_name = self._extract_name(str(attr_uri))
             for t in types:
-                if t not in ['CategoricalAttribute', 'PhysicalAttribute']:
-                    attr_name = self._extract_name(str(attr_uri))
-                    if t != attr_name:
-                        return t
+                if t in ('CategoricalAttribute', 'PhysicalAttribute'):
+                    continue
+                # Skip the attribute's kind class (e.g. DHWSupply) so only the
+                # category value (e.g. ElectricallyHeated) is returned. A baseline
+                # attribute instance is named after its class (DHWSupply); a scenario
+                # override is <Class>_<suffix> (DHWSupply_retrofit) — so the kind
+                # class is the type the instance name equals or is prefixed by.
+                if t == attr_name or attr_name.startswith(t + '_'):
+                    continue
+                return t
 
         # Handle event/temporal
         if 'EventAttribute' in types:
@@ -590,6 +597,15 @@ class RobustTTL2YAMLProcessor:
                 if year_match:
                     return f"01-01-{year_match.group(1)}"
                 return val_str
+
+        # Handle resource (file/path) references and simple no-unit values.
+        # ResourceAttribute stores its value in dici_onto:hasDataPath (e.g. a
+        # weather .epw file reference); SimpleValueAttribute in
+        # dici_onto:hasAttributeValue. Neither carries a qudt:value.
+        for val in self.g.objects(attr_uri, self.DICI.hasDataPath):
+            return self._convert_literal(val)
+        for val in self.g.objects(attr_uri, self.DICI.hasAttributeValue):
+            return self._convert_literal(val)
 
         # Handle regular values
         for val in self.g.objects(attr_uri, self.QUDT.value):

@@ -4,10 +4,10 @@ You've heard about Digicities. You want to see what it does. You don't want to r
 
 This guide gets you from zero to "I see what this is" in ten minutes. No coding. No RDF knowledge. No SPARQL. Just clicks.
 
-> 📘 This is a light no-code tour of the **motel** demo. For the supported end-to-end
-> pipelines (energy simulation and the flexibility optimiser), follow
-> [`GETTING_STARTED.md`](GETTING_STARTED.md). One step below uses the **Query Manager**
-> module, which is archived — tick **"Show archived modules"** in the sidebar to follow it.
+> 📘 This is a light no-code tour of the **energy-simulation** demo. It ends by
+> pointing you at the fully-tested end-to-end pipeline (build a scenario, submit it
+> to the bundled energy simulator, get results back), which is written up
+> step-by-step in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
 ---
 
@@ -71,9 +71,7 @@ Open your browser and go to:
 
 **http://localhost:8501**
 
-You'll see a page titled **"Your Workspaces"** with two bundled demo cards: **"Roadside Motel Chain"** and **"Energy Simulation"** (at [`demo_workspaces/`](../demo_workspaces/)). This tour uses the motel one. `docker-compose.override.yml` mounts `./demo_workspaces` into the container automatically.
-
-> ℹ️ **Note on naming.** The `motel-energy` demo workspace is a tiny example modelling three fictional motels. It is **not** the same as `MotelDB.xlsx` you may see elsewhere in the codebase. That's a separate *technology database* (an equipment-spec catalogue, not a worked example). Don't conflate the two.
+You'll see a page titled **"Your Workspaces"** with a bundled demo card: **"Energy Simulation (demo)"** (at [`demo_workspaces/`](../demo_workspaces/)). This tour uses it. `docker-compose.override.yml` mounts `./demo_workspaces` into the container automatically.
 
 If you'd rather work against your own usecase repos instead of the demo, edit `docker-compose.override.yml` and change `./demo_workspaces` to point at the parent directory of your usecases (e.g. `../usecases`). Then `docker restart digicities-streamlit`.
 
@@ -85,76 +83,88 @@ This is where you actually look at the platform.
 
 ### 📂 Open the workspace
 
-Click the green **"Open"** button on the Motel Chain card. You're now "inside" that workspace. The sidebar on the left lists modules you can use.
+Click the green **"Open"** button on the Energy Simulation card. You're now "inside" that workspace. The sidebar on the left lists modules you can use.
 
-### 🔬 Look at the data: Component Explorer
+### 🔬 Look at the data: Digital Replica Explorer
 
-In the sidebar, find **"Digital Replica Explorer"** (or "Component Explorer"). Click it. You'll see a list of component types. At the top should be **"Building (3 instances)"**.
+In the sidebar, find **"Digital Replica Explorer"** (or "Component Explorer"). Click it. You'll see a list of component types. At the top should be **"Building (4 instances)"**.
 
-Click Building. You'll see a table with three rows, one per motel (A, B, C), and columns for each attribute (floor area, electricity consumption, etc.).
+Click Building. You'll see a table with four rows, one per building, and columns for each attribute (floor area, building age, number of floors, heating supply, ...):
 
-> 🧠 **What you're seeing**: a digital twin of three real-ish motels, modelled as RDF triples. The platform reads them from a knowledge graph (Fuseki) and lays them out in a table for you. You didn't have to know what RDF is.
+| building | floor area | age | floors |
+|---|---|---|---|
+| MFH_1 (multi-family house) | 284 m² | 1985 | 4 |
+| Office_1 | 600 m² | 1995 | 5 |
+| SFH_1 (single-family house) | 150 m² | 2005 | 2 |
+| SFH_old | 180 m² | 1955 | 2 |
+
+> 🧠 **What you're seeing**: a digital twin of four buildings, modelled as RDF triples. The platform reads them from a knowledge graph (Fuseki) and lays them out in a table for you. You didn't have to know what RDF is. Notice each numeric value carries a **unit** (m², yr) — those come from the ontology, so the data is self-describing.
 
 ### 🌐 Look at the schema: Ontology Manager
 
 Click **"Ontology Manager"** in the sidebar. Then click the green **"Load Extensions"** button.
 
-You'll see a file called `motel_project.ttl`. That's the *vocabulary* the motel data uses. Definitions like "what's a Building?", "what's an electricity consumption attribute?". Click on it to expand.
+You'll see a file called `energy_sim_extension.ttl`. That's the *vocabulary* the building data uses. Definitions like "what's a Building?", "what's a GroundFloorArea attribute, and what unit does it default to?". Click on it to expand.
 
-> 🧠 **What you're seeing**: the schema (the rules) that the data follows. You can edit it from this UI to add new types. For now, just notice that the platform separates *what the words mean* (schema) from *what's true about each motel* (data).
+> 🧠 **What you're seeing**: the schema (the rules) that the data follows. You can edit it from this UI to add new types. For now, just notice that the platform separates *what the words mean* (schema) from *what's true about each building* (data).
 
-### 🔍 Run a query: Query Manager
+### 🧪 Look at the what-ifs: Scenario Builder
 
-Click **"Query Manager"** in the sidebar. There's a pre-saved query called `list_motels`. Pick it from the dropdown. You'll see SPARQL code appear in the text box.
+Click **"Scenario Builder"** in the sidebar. A scenario is a selection of buildings plus optional *what-if overrides* layered on top of the ingested data — it references the replica, it doesn't copy it.
 
-Click the **"🚀 Run Query"** button. You'll see a 3-row table:
+The workspace ships with a few:
 
-| building | label |
-|---|---|
-| https://digicities.info/proj/motel-energy/MotelA | Motel A, Highway Junction |
-| https://digicities.info/proj/motel-energy/MotelB | Motel B, Lakeside |
-| https://digicities.info/proj/motel-energy/MotelC | Motel C, Mountain Pass |
+- **Energy Sim - Baseline** — a single building as-ingested.
+- **Heat pump retrofit** — the same building with its **HeatingSupply** and **DHWSupply** overridden (an electrified retrofit).
+- **Town block** — three buildings together.
 
-> 🧠 **What you're seeing**: a live query against the workspace's knowledge graph. SPARQL is to RDF what SQL is to spreadsheets. You don't have to write SPARQL. Workspace authors save common queries for you.
+Open one and notice the overrides sit *on top of* the baseline values without changing them.
 
-### 📦 Look at a packaged dataset: Data Products
+> 🧠 **What you're seeing**: how Digicities models change. A retrofit doesn't overwrite your data — it layers a new attribute that *supersedes* the old one, so you can compare before and after.
 
-Click **"Data Products"** in the sidebar. You'll see one product: `motel_chain_monthly_electricity`.
+---
 
-Click into it. You'll see a TTL manifest (describing what's in the product) and a CSV file (`monthly_kwh.csv`) with 36 rows: 3 motels x 12 months of electricity consumption.
+## The payoff: run it end-to-end
 
-> 🧠 **What you're seeing**: a "data product", a packaged dataset (a CSV plus a manifest that says what it is, where it came from, what it relates to) that other people can use without having to ask you what the columns mean.
+Everything above is the *inputs*. The energy-simulation demo also ships a **fully offline, tested pipeline** that turns a scenario into results:
+
+```
+Digital replica  →  Scenario  →  Convert  →  Submit  →  Results dashboard
+```
+
+You drive it from **API Data Submission**: the bundled **`demo_energy_simulator`** service auto-registers (no setup), you pick a scenario and **Convert** it to the service's payload, then **Submit** to get annual heating / hot-water / electricity estimates per building.
+
+👉 The click-by-click walkthrough is **Pipeline 1** in [`GETTING_STARTED.md`](GETTING_STARTED.md).
 
 ---
 
 ## That's it: you've seen the platform
 
-What you just did is the entire user-facing workflow:
+What you just did covers the user-facing workflow:
 
 ```
 Workspace
   ↓
-  ├── Look at the data         (Component Explorer)
+  ├── Look at the data         (Digital Replica Explorer)
   ├── Look at the schema       (Ontology Manager)
-  ├── Ask questions of it      (Query Manager)
-  └── Use packaged datasets    (Data Products)
+  ├── Define what-if scenarios (Scenario Builder)
+  └── Submit to a model        (API Data Submission → results)
 ```
 
-Plus three things you didn't have to touch yet:
+Plus a couple of things you didn't have to touch yet:
 
 ```
-  ├── Convert Excel to workspace data    (Replica Builder)
-  ├── Define what-if scenarios           (Scenario Builder)
-  └── Submit to external solvers         (API Submission)
+  ├── Convert a spreadsheet into workspace data   (Replica Builder)
+  └── Layer numeric assumptions onto attributes   (Assumptions Module, archived)
 ```
 
-Each of those is one click in the sidebar when you're ready.
+Each is one click in the sidebar when you're ready.
 
 ---
 
 ## What's a workspace, really?
 
-A workspace is **a folder of files** describing one project: your district, your wind farm, your motel chain, whatever. The platform reads the folder and gives you the UI you just clicked through.
+A workspace is **a folder of files** describing one project: your district, your wind farm, your building portfolio, whatever. The platform reads the folder and gives you the UI you just clicked through.
 
 The folder layout is:
 
@@ -181,6 +191,7 @@ The next step is to create your own workspace. Read:
 
 Or look at:
 
+- **[`GETTING_STARTED.md`](GETTING_STARTED.md)**: the two supported end-to-end pipelines, step by step.
 - **[`USECASE_QUICKSTART.md`](USECASE_QUICKSTART.md)**: reference documentation once you know what you're doing.
 - **[`WORKSPACE_LAYOUT.md`](WORKSPACE_LAYOUT.md)**: the canonical folder structure spec.
 - **[`INFERENCE.md`](INFERENCE.md)**: how the platform's RDFS-Plus inference works and what it means for SPARQL queries.
@@ -209,9 +220,9 @@ docker compose down -v
 | Symptom | Try this |
 |---|---|
 | `http://localhost:8501` doesn't load | Run `docker compose ps`. All services should say "healthy". If "starting", wait 30 seconds. If "unhealthy", run `docker compose logs streamlit` and look at the last 20 lines. |
-| "Your Workspaces" page is empty | Confirm `demo_workspaces/motel-energy/` exists in your clone (it ships with the repo). Confirm `docker-compose.override.yml` still has the `./demo_workspaces:/app/data/usecases` line and the `USECASES_DIR` env var. Restart Streamlit: `docker restart digicities-streamlit`. |
+| "Your Workspaces" page is empty | Confirm `demo_workspaces/energy-simulation/` exists in your clone (it ships with the repo). Confirm `docker-compose.override.yml` still has the `./demo_workspaces:/app/data/usecases` line and the `USECASES_DIR` env var. Restart Streamlit: `docker restart digicities-streamlit`. |
 | "Module not found" error in the UI | Container was built before some dependency was added. Run `docker compose build streamlit && docker compose up -d`. |
-| Component Explorer says "No component types with instances" | Open the workspace first by clicking *📂 Open* on the card. That triggers the data load into Fuseki. Then go to Component Explorer. |
+| Digital Replica Explorer says "No component types with instances" | Open the workspace first by clicking *📂 Open* on the card. That triggers the data load into Fuseki. Then go to Digital Replica Explorer. |
 | Port already in use | Another stack is using port 8501 or 3030. Stop it: `docker ps` to find it, `docker stop <name>`. |
 
 ---

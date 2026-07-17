@@ -24,7 +24,7 @@ works out of the box.
 
 ## Working with your own data
 
-A **workspace** is a folder describing one project (your district, your wind farm, your motel chain). To load one, point the platform at a directory of usecases:
+A **workspace** is a folder describing one project (your district, your wind farm, your building portfolio). To load one, point the platform at a directory of usecases:
 
 ```yaml
 # digicities-platform/docker-compose.override.yml

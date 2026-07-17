@@ -8,8 +8,8 @@ services:
       - .:/app
       # Mount a directory of workspaces as the workspace parent — every subfolder
       # appears in the platform's workspace switcher. Defaults to the bundled
-      # ./demo_workspaces (energy-simulation + motel-energy) so a fresh clone shows
-      # working demos out of the box. (energy-simulation is also always discovered
+      # ./demo_workspaces (the energy-simulation demo) so a fresh clone shows a
+      # working demo out of the box. (energy-simulation is also always discovered
       # from the image, independent of this mount.) Point USECASES_HOST_PATH at your
       # own workspaces directory to use those instead,
       # e.g. USECASES_HOST_PATH=../my-workspaces.

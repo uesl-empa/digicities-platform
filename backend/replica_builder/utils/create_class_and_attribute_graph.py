@@ -4,7 +4,8 @@
 import pandas as pd
 
 
-def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="default"):
+def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="default",
+                         default_units=None):
     """
     Extended script to handle different attribute types.
     Now with fixed curve data processing and correct annotation format.
@@ -305,6 +306,10 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                 reference_declarations.append(" ;\n".join(ref_props) + " .")
                 reference_declarations.append("")
 
+    # Track which attributes we've already logged a default-unit stamp for, so a
+    # workbook with many rows doesn't repeat the message per instance.
+    stamped_default_logged = set()
+
     for sheet_name, df in sheets.items():
         if sheet_name in ("Data Validation", "Reference"):
             continue
@@ -372,6 +377,14 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                     # Get common properties from the first time variant
                     first_col = next(iter(time_variants.values()))
                     qudt_unit = get_clean_header_value(first_col, 2, is_nonempty)
+                    # Stamp the ontology default unit when the workbook gives none, so
+                    # the instance stays self-describing. Never silent — it logs (once).
+                    if not qudt_unit and default_units and attr_name in default_units:
+                        qudt_unit = default_units[attr_name]
+                        if attr_name not in stamped_default_logged:
+                            print(f"[replica-builder] '{attr_name}': no unit in workbook — "
+                                  f"stamped ontology default unit:{qudt_unit}")
+                            stamped_default_logged.add(attr_name)
 
                     # Build the single attribute declaration with all time series references
                     attr_properties = [
@@ -486,6 +499,12 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             attr_type = None
 
                     qudt_unit = get_clean_header_value(col, 2, is_nonempty)
+                    if not qudt_unit and default_units and attr_name in default_units:
+                        qudt_unit = default_units[attr_name]
+                        if attr_name not in stamped_default_logged:
+                            print(f"[replica-builder] '{attr_name}': no unit in workbook — "
+                                  f"stamped ontology default unit:{qudt_unit}")
+                            stamped_default_logged.add(attr_name)
                     qudt_unit_y = get_clean_header_value(col, 3, is_nonempty)
                     currency = get_clean_header_value(col, 4, is_nonempty)
                     predicate = get_clean_header_value(col, 5, is_nonempty)  # predicate for class objects

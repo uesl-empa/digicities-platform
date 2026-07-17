@@ -92,9 +92,7 @@ This is the fastest way to verify everything works. Use one of the bundled demos
 
 ```powershell
 cd $ROOT/usecases
-# The two demos in this repo:
-git clone https://github.com/uesl-empa/digicities-usecase-motel-energy.git motel-energy
-# or
+# The bundled demo usecase:
 git clone https://github.com/uesl-empa/digicities-usecase-energy-simulation.git energy-simulation
 ```
 
@@ -120,7 +118,7 @@ You're now "inside" the workspace. The sidebar shows the available modules:
 
 Sidebar → **Ontology Manager** → *🔄 Load Extensions*.
 
-You should see the workspace's extension file (e.g. `motel_project.ttl`). Click *Open* and you can browse the classes and attributes the workspace defines.
+You should see the workspace's extension file (e.g. `energy_sim_extension.ttl`). Click *Open* and you can browse the classes and attributes the workspace defines.
 
 Switch workspaces from the sidebar dropdown. The Ontology Manager re-loads with the *other* workspace's extension. This is the proof point: each workspace owns its own ontology view.
 
@@ -348,5 +346,5 @@ What works identically for both backends: Ontology Manager, Query Manager, Repli
 
 - **Canonical workspace layout**: [`WORKSPACE_LAYOUT.md`](WORKSPACE_LAYOUT.md)
 - **Registry config schema**: [`data/workspaces.yaml.example`](../data/workspaces.yaml.example)
-- **Demo usecases** (in this repo): [`demo_workspaces/motel-energy/`](../demo_workspaces/motel-energy/), [`demo_workspaces/energy-simulation/`](../demo_workspaces/energy-simulation/)
+- **Demo usecase** (in this repo): [`demo_workspaces/energy-simulation/`](../demo_workspaces/energy-simulation/)
 - **Usecase template** (use as starting point): https://github.com/uesl-empa/digicities-usecase-template

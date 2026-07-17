@@ -13,15 +13,15 @@
 workspaces:
 
   # --- Local-filesystem workspace (a folder on disk — often a git repo) ---
-  - id: motel-energy
-    name: Roadside Motel Chain
-    description: Three-site motel energy modelling demo (motel_project extension).
+  - id: energy-simulation
+    name: Energy Simulation (demo)
+    description: Bundled demo — build a building scenario and submit it to the demo_energy_simulator service (energy_sim extension).
     backend: local
     # Path to the workspace root. Inside this dir, the canonical layout
     # (ontology/, ingestion/, scenarios/, …) is expected.
-    path: /app/data/usecases/motel-energy
+    path: /app/data/usecases/energy-simulation
     # Optional — GraphDB repo name, defaults to id.
-    # graphdb_repository: motel-energy
+    # graphdb_repository: energy-simulation
 
   - id: wind-farm
     name: Mountain Pass Wind Farm
