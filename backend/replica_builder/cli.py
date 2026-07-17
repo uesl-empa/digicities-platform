@@ -83,6 +83,14 @@ def main(argv: list[str] | None = None) -> int:
         help="URI-construction strategy passed to process_excel_to_ttl. See the "
              "ingestion template docs for what each mode does.",
     )
+    parser.add_argument(
+        "--ontology-dir",
+        type=Path,
+        default=None,
+        help="Workspace ontology directory (with extensions/ + vendored core). When "
+             "given, any Physical/Geospatial attribute the workbook leaves without a "
+             "unit is stamped with its class's dici_onto:hasDefaultUnit.",
+    )
     args = parser.parse_args(argv)
 
     if not args.xlsx.exists():
@@ -99,11 +107,18 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[ingest] uri mode    : {args.uri_mode}")
     print(f"[ingest] output      : {output_path}")
 
+    default_units = None
+    if args.ontology_dir:
+        from backend.replica_builder.utils.default_units import load_workspace_default_units
+        default_units = load_workspace_default_units(ontology_dir=str(args.ontology_dir))
+        print(f"[ingest] default units: {len(default_units)} class(es) from {args.ontology_dir}")
+
     process_excel_to_ttl(
         project_uri=project_uri,
         file_path=str(args.xlsx),
         output_ttl_path=str(output_path),
         uri_mode=args.uri_mode,
+        default_units=default_units,
     )
 
     if not output_path.exists():
