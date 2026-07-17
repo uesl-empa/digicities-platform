@@ -897,7 +897,7 @@ dici_onto:hasCategoricalValue rdf:type owl:DatatypeProperty ;
 ###  https://digicities.info/ontology#hasDataPath
 dici_onto:hasDataPath rdf:type owl:DatatypeProperty ;
                       rdfs:subPropertyOf dici_onto:hasAttributeValue ;
-                      rdfs:domain dici_onto:CurveAttribute ;
+                      rdfs:domain dici_onto:ResourceAttribute ;
                       rdfs:range xsd:string ;
                       rdfs:label "has data path" .
 

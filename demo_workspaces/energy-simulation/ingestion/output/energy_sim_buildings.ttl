@@ -190,8 +190,8 @@
         dici_onto:SFH,
         dici_onto:SIA2024BuildingType .
 
-<https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> a dici_onto:PhysicalAttribute,
+<https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> a dici_onto:ResourceAttribute,
         dici_onto:WeatherEPW ;
-    qudt:value "demo_weather.epw" ;
+    dici_onto:hasDataPath "demo_weather.epw"^^xsd:string ;
     dici_onto:sourceType "ingestion" .
 

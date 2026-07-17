@@ -591,6 +591,15 @@ class RobustTTL2YAMLProcessor:
                     return f"01-01-{year_match.group(1)}"
                 return val_str
 
+        # Handle resource (file/path) references and simple no-unit values.
+        # ResourceAttribute stores its value in dici_onto:hasDataPath (e.g. a
+        # weather .epw file reference); SimpleValueAttribute in
+        # dici_onto:hasAttributeValue. Neither carries a qudt:value.
+        for val in self.g.objects(attr_uri, self.DICI.hasDataPath):
+            return self._convert_literal(val)
+        for val in self.g.objects(attr_uri, self.DICI.hasAttributeValue):
+            return self._convert_literal(val)
+
         # Handle regular values
         for val in self.g.objects(attr_uri, self.QUDT.value):
             return self._convert_literal(val)

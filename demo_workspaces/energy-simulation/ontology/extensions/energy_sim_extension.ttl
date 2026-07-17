@@ -58,7 +58,7 @@ dici_onto:SFH rdfs:label "Single-family house" ;
 
 dici_onto:WeatherEPW a owl:Class ;
     rdfs:label "Weather EPW file" ;
-    rdfs:subClassOf dici_onto:PhysicalAttribute .
+    rdfs:subClassOf dici_onto:ResourceAttribute .
 
 dici_onto:SIA2024BuildingType a owl:Class ;
     rdfs:label "SIA 2024 Building Type" ;

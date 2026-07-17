@@ -279,6 +279,81 @@ class AttributeMixin:
         except Exception as e:
             return False, f"Error setting default unit: {str(e)}"
 
+    # Canonical base attribute value-types (mirrors add_attribute's type_class_map).
+    BASE_ATTRIBUTE_TYPES = {
+        "PhysicalAttribute", "SimpleCostAttribute", "UnitBasedCostAttribute",
+        "CurveAttribute", "CategoricalAttribute", "GeospatialAttribute",
+        "CustomPhysicalRatioAttribute", "EventAttribute",
+        "SimpleValueAttribute", "ResourceAttribute",
+    }
+    # Of those, the ones that carry a dici_onto:hasDefaultUnit.
+    _UNIT_BEARING_BASE_TYPES = {
+        "PhysicalAttribute", "GeospatialAttribute", "UnitBasedCostAttribute",
+        "CurveAttribute", "CustomPhysicalRatioAttribute",
+    }
+
+    def set_attribute_base_type(self, extension_filename: str, attribute: str,
+                                base_type: str) -> Tuple[bool, str]:
+        """Change an existing attribute class's base value-type.
+
+        The repeatable, backend-driven way to reclassify an attribute (e.g. a
+        ``WeatherEPW`` that was wrongly declared a ``PhysicalAttribute`` becomes a
+        ``ResourceAttribute`` file reference) rather than hand-editing TTL. Swaps
+        the ``rdfs:subClassOf`` from whichever base type it currently has to
+        ``base_type``, and drops a now-meaningless ``hasDefaultUnit`` when moving
+        to a unit-less type. Mirrors :meth:`set_default_unit`'s load/save/export
+        flow so the temp graph and per-workspace export stay in sync.
+
+        Args:
+            extension_filename: the extension to edit, or ``CORE_ONTOLOGY_MODIFICATION``.
+            attribute: the attribute class — full IRI or local name.
+            base_type: one of :attr:`BASE_ATTRIBUTE_TYPES` (IRI or local name).
+
+        Returns:
+            ``(ok, message)``.
+        """
+        try:
+            base_local = base_type.split('#')[-1].split('/')[-1]
+            if base_local not in self.BASE_ATTRIBUTE_TYPES:
+                return False, (f"'{base_local}' is not a known base attribute type "
+                               f"(one of: {', '.join(sorted(self.BASE_ATTRIBUTE_TYPES))})")
+
+            local = attribute.split('#')[-1].split('/')[-1]
+            attr_uri = dici_onto[local]
+
+            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+                if self.use_nextcloud:
+                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
+                ext_graph = self.load_core_ontology()
+            else:
+                ext_graph = self.load_extension(extension_filename)
+
+            if (attr_uri, RDF.type, OWL.Class) not in ext_graph:
+                return False, f"Attribute class '{local}' not found in {extension_filename}"
+
+            # Swap the base value-type: drop subClassOf to any known base type,
+            # leaving domain/other superclasses untouched, then add the new one.
+            for parent in list(ext_graph.objects(attr_uri, RDFS.subClassOf)):
+                if isinstance(parent, URIRef) and str(parent).split('#')[-1] in self.BASE_ATTRIBUTE_TYPES:
+                    ext_graph.remove((attr_uri, RDFS.subClassOf, parent))
+            ext_graph.add((attr_uri, RDFS.subClassOf, dici_onto[base_local]))
+
+            # Units are meaningless for non-unit-bearing types — remove any default.
+            if base_local not in self._UNIT_BEARING_BASE_TYPES:
+                for u in list(ext_graph.objects(attr_uri, dici_onto.hasDefaultUnit)):
+                    ext_graph.remove((attr_uri, dici_onto.hasDefaultUnit, u))
+
+            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+                self.save_core_ontology(ext_graph)
+                self.update_temp_and_export_core_mod()
+            else:
+                self.save_extension(extension_filename, ext_graph)
+                self.update_temp_and_export(extension_filename)
+
+            return True, f"Base type for '{local}' set to {base_local}"
+        except Exception as e:
+            return False, f"Error setting base type: {str(e)}"
+
     def remove_attribute(self, extension_filename: str, attribute_uri: str) -> Tuple[bool, str]:
         """Remove an attribute and all its associated triples"""
         try:
