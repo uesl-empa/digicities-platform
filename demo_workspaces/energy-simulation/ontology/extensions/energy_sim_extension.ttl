@@ -41,7 +41,7 @@ dici_onto:NumberOfFloors a owl:Class ;
     rdfs:label "Number of Floors" ;
     rdfs:subClassOf dici_onto:BuildingAttribute,
         dici_onto:PhysicalAttribute ;
-    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/NUM> .
+    dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/COUNT> .
 
 dici_onto:Office rdfs:label "Office" ;
     rdfs:subClassOf dici_onto:SIA2024BuildingType .

@@ -1,109 +1,197 @@
-# Energy Simulation tutorial — base building instances (the digital replica).
-# Loaded into <http://classes_and_attributes>; shown in the Digital Replica
-# Explorer and selectable in the Scenario Builder.
 @prefix dici_onto: <https://digicities.info/ontology#> .
 @prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix unit: <http://qudt.org/vocab/unit/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-
-<https://digicities.info/proj/energy-simulation/Location/TownCentre> a dici_onto:Location ;
-    rdfs:label "Town Centre" ;
-    dici_onto:sourceType "ingestion" ;
-    dici_onto:hasAttribute <https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> ;
-    dici_onto:hasLocationWeatherEPWAttribute <https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> .
-<https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> a dici_onto:WeatherEPW, dici_onto:PhysicalAttribute ;
-    dici_onto:sourceType "ingestion" ;
-    qudt:value "demo_weather.epw" .
 
 <https://digicities.info/proj/energy-simulation/Building/MFH_1> a dici_onto:Building ;
     rdfs:label "MFH_1" ;
-    dici_onto:sourceType "ingestion" ;
-    dici_onto:hasAttribute
-        <https://digicities.info/proj/energy-simulation/Building/MFH_1/SIA2024BuildingType>,
-        <https://digicities.info/proj/energy-simulation/Building/MFH_1/BuildingAge>,
+    dici_onto:hasAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/BuildingAge>,
+        <https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply>,
         <https://digicities.info/proj/energy-simulation/Building/MFH_1/GroundFloorArea>,
-        <https://digicities.info/proj/energy-simulation/Building/MFH_1/NumberOfFloors>,
         <https://digicities.info/proj/energy-simulation/Building/MFH_1/HeatingSupply>,
-        <https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply> ;
-    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/SIA2024BuildingType> ;
+        <https://digicities.info/proj/energy-simulation/Building/MFH_1/NumberOfFloors>,
+        <https://digicities.info/proj/energy-simulation/Building/MFH_1/SIA2024BuildingType> ;
     dici_onto:hasBuildingBuildingAgeAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/BuildingAge> ;
+    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply> ;
     dici_onto:hasBuildingGroundFloorAreaAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/GroundFloorArea> ;
-    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/NumberOfFloors> ;
     dici_onto:hasBuildingHeatingSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/HeatingSupply> ;
-    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply> .
-<https://digicities.info/proj/energy-simulation/Building/MFH_1/SIA2024BuildingType> a dici_onto:SIA2024BuildingType, dici_onto:CategoricalAttribute, dici_onto:MFH .
-<https://digicities.info/proj/energy-simulation/Building/MFH_1/BuildingAge> a dici_onto:BuildingAge, dici_onto:PhysicalAttribute ; qudt:value "1985" .
-<https://digicities.info/proj/energy-simulation/Building/MFH_1/GroundFloorArea> a dici_onto:GroundFloorArea, dici_onto:PhysicalAttribute ; qudt:value "284.0"^^xsd:decimal ; qudt:unit unit:M2 .
-<https://digicities.info/proj/energy-simulation/Building/MFH_1/NumberOfFloors> a dici_onto:NumberOfFloors, dici_onto:PhysicalAttribute ; qudt:value "4"^^xsd:decimal .
-<https://digicities.info/proj/energy-simulation/Building/MFH_1/HeatingSupply> a dici_onto:HeatingSupply, dici_onto:CategoricalAttribute, dici_onto:GasHeated .
-<https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply> a dici_onto:DHWSupply, dici_onto:CategoricalAttribute, dici_onto:GasHeated .
-
-<https://digicities.info/proj/energy-simulation/Building/SFH_1> a dici_onto:Building ;
-    rdfs:label "SFH_1" ;
-    dici_onto:sourceType "ingestion" ;
-    dici_onto:hasAttribute
-        <https://digicities.info/proj/energy-simulation/Building/SFH_1/SIA2024BuildingType>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_1/BuildingAge>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_1/GroundFloorArea>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_1/NumberOfFloors>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_1/HeatingSupply>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_1/DHWSupply> ;
-    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/SIA2024BuildingType> ;
-    dici_onto:hasBuildingBuildingAgeAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/BuildingAge> ;
-    dici_onto:hasBuildingGroundFloorAreaAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/GroundFloorArea> ;
-    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/NumberOfFloors> ;
-    dici_onto:hasBuildingHeatingSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/HeatingSupply> ;
-    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/DHWSupply> .
-<https://digicities.info/proj/energy-simulation/Building/SFH_1/SIA2024BuildingType> a dici_onto:SIA2024BuildingType, dici_onto:CategoricalAttribute, dici_onto:SFH .
-<https://digicities.info/proj/energy-simulation/Building/SFH_1/BuildingAge> a dici_onto:BuildingAge, dici_onto:PhysicalAttribute ; qudt:value "2005" .
-<https://digicities.info/proj/energy-simulation/Building/SFH_1/GroundFloorArea> a dici_onto:GroundFloorArea, dici_onto:PhysicalAttribute ; qudt:value "150.0"^^xsd:decimal ; qudt:unit unit:M2 .
-<https://digicities.info/proj/energy-simulation/Building/SFH_1/NumberOfFloors> a dici_onto:NumberOfFloors, dici_onto:PhysicalAttribute ; qudt:value "2"^^xsd:decimal .
-<https://digicities.info/proj/energy-simulation/Building/SFH_1/HeatingSupply> a dici_onto:HeatingSupply, dici_onto:CategoricalAttribute, dici_onto:GasHeated .
-<https://digicities.info/proj/energy-simulation/Building/SFH_1/DHWSupply> a dici_onto:DHWSupply, dici_onto:CategoricalAttribute, dici_onto:GasHeated .
+    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/NumberOfFloors> ;
+    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/MFH_1/SIA2024BuildingType> ;
+    dici_onto:sourceType "ingestion" .
 
 <https://digicities.info/proj/energy-simulation/Building/Office_1> a dici_onto:Building ;
     rdfs:label "Office_1" ;
-    dici_onto:sourceType "ingestion" ;
-    dici_onto:hasAttribute
-        <https://digicities.info/proj/energy-simulation/Building/Office_1/SIA2024BuildingType>,
-        <https://digicities.info/proj/energy-simulation/Building/Office_1/BuildingAge>,
+    dici_onto:hasAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/BuildingAge>,
+        <https://digicities.info/proj/energy-simulation/Building/Office_1/DHWSupply>,
         <https://digicities.info/proj/energy-simulation/Building/Office_1/GroundFloorArea>,
-        <https://digicities.info/proj/energy-simulation/Building/Office_1/NumberOfFloors>,
         <https://digicities.info/proj/energy-simulation/Building/Office_1/HeatingSupply>,
-        <https://digicities.info/proj/energy-simulation/Building/Office_1/DHWSupply> ;
-    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/SIA2024BuildingType> ;
+        <https://digicities.info/proj/energy-simulation/Building/Office_1/NumberOfFloors>,
+        <https://digicities.info/proj/energy-simulation/Building/Office_1/SIA2024BuildingType> ;
     dici_onto:hasBuildingBuildingAgeAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/BuildingAge> ;
+    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/DHWSupply> ;
     dici_onto:hasBuildingGroundFloorAreaAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/GroundFloorArea> ;
-    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/NumberOfFloors> ;
     dici_onto:hasBuildingHeatingSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/HeatingSupply> ;
-    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/DHWSupply> .
-<https://digicities.info/proj/energy-simulation/Building/Office_1/SIA2024BuildingType> a dici_onto:SIA2024BuildingType, dici_onto:CategoricalAttribute, dici_onto:Office .
-<https://digicities.info/proj/energy-simulation/Building/Office_1/BuildingAge> a dici_onto:BuildingAge, dici_onto:PhysicalAttribute ; qudt:value "1995" .
-<https://digicities.info/proj/energy-simulation/Building/Office_1/GroundFloorArea> a dici_onto:GroundFloorArea, dici_onto:PhysicalAttribute ; qudt:value "600.0"^^xsd:decimal ; qudt:unit unit:M2 .
-<https://digicities.info/proj/energy-simulation/Building/Office_1/NumberOfFloors> a dici_onto:NumberOfFloors, dici_onto:PhysicalAttribute ; qudt:value "5"^^xsd:decimal .
-<https://digicities.info/proj/energy-simulation/Building/Office_1/HeatingSupply> a dici_onto:HeatingSupply, dici_onto:CategoricalAttribute, dici_onto:ElectricallyHeated .
-<https://digicities.info/proj/energy-simulation/Building/Office_1/DHWSupply> a dici_onto:DHWSupply, dici_onto:CategoricalAttribute, dici_onto:ElectricallyHeated .
+    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/NumberOfFloors> ;
+    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/Office_1/SIA2024BuildingType> ;
+    dici_onto:sourceType "ingestion" .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_1> a dici_onto:Building ;
+    rdfs:label "SFH_1" ;
+    dici_onto:hasAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/BuildingAge>,
+        <https://digicities.info/proj/energy-simulation/Building/SFH_1/DHWSupply>,
+        <https://digicities.info/proj/energy-simulation/Building/SFH_1/GroundFloorArea>,
+        <https://digicities.info/proj/energy-simulation/Building/SFH_1/HeatingSupply>,
+        <https://digicities.info/proj/energy-simulation/Building/SFH_1/NumberOfFloors>,
+        <https://digicities.info/proj/energy-simulation/Building/SFH_1/SIA2024BuildingType> ;
+    dici_onto:hasBuildingBuildingAgeAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/BuildingAge> ;
+    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/DHWSupply> ;
+    dici_onto:hasBuildingGroundFloorAreaAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/GroundFloorArea> ;
+    dici_onto:hasBuildingHeatingSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/HeatingSupply> ;
+    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/NumberOfFloors> ;
+    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_1/SIA2024BuildingType> ;
+    dici_onto:sourceType "ingestion" .
 
 <https://digicities.info/proj/energy-simulation/Building/SFH_old> a dici_onto:Building ;
     rdfs:label "SFH_old" ;
-    dici_onto:sourceType "ingestion" ;
-    dici_onto:hasAttribute
-        <https://digicities.info/proj/energy-simulation/Building/SFH_old/SIA2024BuildingType>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_old/BuildingAge>,
+    dici_onto:hasAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/BuildingAge>,
+        <https://digicities.info/proj/energy-simulation/Building/SFH_old/DHWSupply>,
         <https://digicities.info/proj/energy-simulation/Building/SFH_old/GroundFloorArea>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_old/NumberOfFloors>,
         <https://digicities.info/proj/energy-simulation/Building/SFH_old/HeatingSupply>,
-        <https://digicities.info/proj/energy-simulation/Building/SFH_old/DHWSupply> ;
-    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/SIA2024BuildingType> ;
+        <https://digicities.info/proj/energy-simulation/Building/SFH_old/NumberOfFloors>,
+        <https://digicities.info/proj/energy-simulation/Building/SFH_old/SIA2024BuildingType> ;
     dici_onto:hasBuildingBuildingAgeAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/BuildingAge> ;
+    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/DHWSupply> ;
     dici_onto:hasBuildingGroundFloorAreaAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/GroundFloorArea> ;
-    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/NumberOfFloors> ;
     dici_onto:hasBuildingHeatingSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/HeatingSupply> ;
-    dici_onto:hasBuildingDHWSupplyAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/DHWSupply> .
-<https://digicities.info/proj/energy-simulation/Building/SFH_old/SIA2024BuildingType> a dici_onto:SIA2024BuildingType, dici_onto:CategoricalAttribute, dici_onto:SFH .
-<https://digicities.info/proj/energy-simulation/Building/SFH_old/BuildingAge> a dici_onto:BuildingAge, dici_onto:PhysicalAttribute ; qudt:value "1955" .
-<https://digicities.info/proj/energy-simulation/Building/SFH_old/GroundFloorArea> a dici_onto:GroundFloorArea, dici_onto:PhysicalAttribute ; qudt:value "180.0"^^xsd:decimal ; qudt:unit unit:M2 .
-<https://digicities.info/proj/energy-simulation/Building/SFH_old/NumberOfFloors> a dici_onto:NumberOfFloors, dici_onto:PhysicalAttribute ; qudt:value "2"^^xsd:decimal .
-<https://digicities.info/proj/energy-simulation/Building/SFH_old/HeatingSupply> a dici_onto:HeatingSupply, dici_onto:CategoricalAttribute, dici_onto:OilHeated .
-<https://digicities.info/proj/energy-simulation/Building/SFH_old/DHWSupply> a dici_onto:DHWSupply, dici_onto:CategoricalAttribute, dici_onto:OilHeated .
+    dici_onto:hasBuildingNumberOfFloorsAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/NumberOfFloors> ;
+    dici_onto:hasBuildingSIA2024BuildingTypeAttribute <https://digicities.info/proj/energy-simulation/Building/SFH_old/SIA2024BuildingType> ;
+    dici_onto:sourceType "ingestion" .
+
+<https://digicities.info/proj/energy-simulation/Location/TownCentre> a dici_onto:Location ;
+    rdfs:label "Town Centre" ;
+    dici_onto:hasAttribute <https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> ;
+    dici_onto:hasLocationWeatherEPWAttribute <https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> ;
+    dici_onto:sourceType "ingestion" .
+
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/BuildingAge> a dici_onto:BuildingAge,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:YR ;
+    qudt:value "1985" ;
+    dici_onto:hasUnitLabel "YR"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/DHWSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:DHWSupply,
+        dici_onto:GasHeated .
+
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/GroundFloorArea> a dici_onto:GroundFloorArea,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:M2 ;
+    qudt:value 284.0 .
+
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/HeatingSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:GasHeated,
+        dici_onto:HeatingSupply .
+
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/NumberOfFloors> a dici_onto:NumberOfFloors,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:COUNT ;
+    qudt:value 4.0 ;
+    dici_onto:hasUnitLabel "COUNT"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/MFH_1/SIA2024BuildingType> a dici_onto:CategoricalAttribute,
+        dici_onto:MFH,
+        dici_onto:SIA2024BuildingType .
+
+<https://digicities.info/proj/energy-simulation/Building/Office_1/BuildingAge> a dici_onto:BuildingAge,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:YR ;
+    qudt:value "1995" ;
+    dici_onto:hasUnitLabel "YR"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/Office_1/DHWSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:DHWSupply,
+        dici_onto:ElectricallyHeated .
+
+<https://digicities.info/proj/energy-simulation/Building/Office_1/GroundFloorArea> a dici_onto:GroundFloorArea,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:M2 ;
+    qudt:value 600.0 .
+
+<https://digicities.info/proj/energy-simulation/Building/Office_1/HeatingSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:ElectricallyHeated,
+        dici_onto:HeatingSupply .
+
+<https://digicities.info/proj/energy-simulation/Building/Office_1/NumberOfFloors> a dici_onto:NumberOfFloors,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:COUNT ;
+    qudt:value 5.0 ;
+    dici_onto:hasUnitLabel "COUNT"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/Office_1/SIA2024BuildingType> a dici_onto:CategoricalAttribute,
+        dici_onto:Office,
+        dici_onto:SIA2024BuildingType .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_1/BuildingAge> a dici_onto:BuildingAge,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:YR ;
+    qudt:value "2005" ;
+    dici_onto:hasUnitLabel "YR"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_1/DHWSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:DHWSupply,
+        dici_onto:GasHeated .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_1/GroundFloorArea> a dici_onto:GroundFloorArea,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:M2 ;
+    qudt:value 150.0 .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_1/HeatingSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:GasHeated,
+        dici_onto:HeatingSupply .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_1/NumberOfFloors> a dici_onto:NumberOfFloors,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:COUNT ;
+    qudt:value 2.0 ;
+    dici_onto:hasUnitLabel "COUNT"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_1/SIA2024BuildingType> a dici_onto:CategoricalAttribute,
+        dici_onto:SFH,
+        dici_onto:SIA2024BuildingType .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_old/BuildingAge> a dici_onto:BuildingAge,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:YR ;
+    qudt:value "1955" ;
+    dici_onto:hasUnitLabel "YR"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_old/DHWSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:DHWSupply,
+        dici_onto:OilHeated .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_old/GroundFloorArea> a dici_onto:GroundFloorArea,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:M2 ;
+    qudt:value 180.0 .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_old/HeatingSupply> a dici_onto:CategoricalAttribute,
+        dici_onto:HeatingSupply,
+        dici_onto:OilHeated .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_old/NumberOfFloors> a dici_onto:NumberOfFloors,
+        dici_onto:PhysicalAttribute ;
+    qudt:unit unit:COUNT ;
+    qudt:value 2.0 ;
+    dici_onto:hasUnitLabel "COUNT"^^xsd:string .
+
+<https://digicities.info/proj/energy-simulation/Building/SFH_old/SIA2024BuildingType> a dici_onto:CategoricalAttribute,
+        dici_onto:SFH,
+        dici_onto:SIA2024BuildingType .
+
+<https://digicities.info/proj/energy-simulation/Location/TownCentre/WeatherEPW> a dici_onto:PhysicalAttribute,
+        dici_onto:WeatherEPW ;
+    qudt:value "demo_weather.epw" ;
+    dici_onto:sourceType "ingestion" .
+
