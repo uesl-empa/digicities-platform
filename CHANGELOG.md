@@ -2,6 +2,11 @@
 
 All notable changes to the Digicities platform are recorded here. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Scenario and assumptions TTL now emit correct QUDT units instead of `UNITLESS`.** The workspace TTL loader was down-converting `qudt:unit` IRIs to lossy display abbreviations (`KiloW` → `kW`, `KiloW-HR` → `kW-HR`) that the TTL emitter could not turn back into valid QUDT IRIs. `_map_unit_uri_to_string` now returns the QUDT code, so units round-trip cleanly (`qudt:unit unit:KiloW`); `UNITLESS` is emitted only for genuinely unit-less attributes.
+
 ## [0.3.0] — 2026-07-16
 
 First public open-source release of the Digicities platform (Apache-2.0).
