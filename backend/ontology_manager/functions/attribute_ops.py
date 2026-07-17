@@ -218,6 +218,67 @@ class AttributeMixin:
         except Exception as e:
             return False, f"Error adding attribute: {str(e)}"
 
+    def set_default_unit(self, extension_filename: str, attribute: str,
+                         qudt_unit: str) -> Tuple[bool, str]:
+        """Set (or replace) ``dici_onto:hasDefaultUnit`` on an existing attribute class.
+
+        The repeatable, backend-driven way to give an attribute class its unit
+        (rather than hand-editing TTL). Mirrors :meth:`add_attribute`'s load/save
+        flow so the temp graph and per-workspace export stay in sync.
+
+        Args:
+            extension_filename: the extension to edit, or ``CORE_ONTOLOGY_MODIFICATION``.
+            attribute: the attribute class — full IRI or local name (e.g.
+                ``LumpedHeatCapacity`` or ``https://digicities.info/ontology#LumpedHeatCapacity``).
+            qudt_unit: a QUDT unit *local code* (e.g. ``KiloW``, ``M2``, ``KiloW-HR-PER-K``).
+
+        Returns:
+            ``(ok, message)``.
+        """
+        try:
+            if not qudt_unit or not qudt_unit.strip():
+                return False, "A QUDT unit code is required"
+            qudt_unit = qudt_unit.strip()
+
+            # Validate against the vendored QUDT vocabulary (same source the
+            # Ontology Manager unit dropdown uses) — never write an arbitrary
+            # string. If the list can't be loaded, fall through rather than
+            # hard-fail on an infrastructure issue.
+            valid_units = self.get_qudt_units()
+            if valid_units and qudt_unit not in valid_units:
+                return False, (f"'{qudt_unit}' is not a recognised QUDT unit code "
+                               f"(not present in the vendored qudt_units.txt)")
+
+            local = attribute.split('#')[-1].split('/')[-1]
+            attr_uri = dici_onto[local]
+
+            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+                if self.use_nextcloud:
+                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
+                ext_graph = self.load_core_ontology()
+            else:
+                ext_graph = self.load_extension(extension_filename)
+
+            if (attr_uri, RDF.type, OWL.Class) not in ext_graph:
+                return False, f"Attribute class '{local}' not found in {extension_filename}"
+
+            # Replace any existing default unit (idempotent / re-runnable).
+            for existing in list(ext_graph.objects(attr_uri, dici_onto.hasDefaultUnit)):
+                ext_graph.remove((attr_uri, dici_onto.hasDefaultUnit, existing))
+            unit_uri = URIRef("http://qudt.org/vocab/unit/" + qudt_unit)
+            ext_graph.add((attr_uri, dici_onto.hasDefaultUnit, unit_uri))
+
+            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+                self.save_core_ontology(ext_graph)
+                self.update_temp_and_export_core_mod()
+            else:
+                self.save_extension(extension_filename, ext_graph)
+                self.update_temp_and_export(extension_filename)
+
+            return True, f"Default unit for '{local}' set to unit:{qudt_unit}"
+        except Exception as e:
+            return False, f"Error setting default unit: {str(e)}"
+
     def remove_attribute(self, extension_filename: str, attribute_uri: str) -> Tuple[bool, str]:
         """Remove an attribute and all its associated triples"""
         try:
