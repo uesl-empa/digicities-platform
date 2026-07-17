@@ -918,29 +918,22 @@ class NextCloudTTLUseCaseLoader:
         return str(literal_value)
 
     def _map_unit_uri_to_string(self, unit_uri: str) -> str:
-        """Map QUDT unit URIs to readable strings"""
-        unit_mapping = {
-            'http://qudt.org/vocab/unit/MegaW': 'MW',
-            'http://qudt.org/vocab/unit/KiloW': 'kW',
-            'http://qudt.org/vocab/unit/M': 'm',
-            'http://qudt.org/vocab/unit/DEG': '°',
-            'http://qudt.org/vocab/unit/M-PER-SEC': 'm/s',
-            'http://qudt.org/vocab/unit/N': 'N',
-            'http://qudt.org/vocab/unit/ONE': 'dimensionless',
-            'http://qudt.org/vocab/unit/W-M2': 'W/m²',
-            'http://qudt.org/vocab/unit/W-HR': 'W-HR',
-            'http://qudt.org/vocab/unit/KiloW-HR': 'kW-HR',
-            'unit:M-PER-SEC': 'm/s',
-            'unit:N': 'N',
-            'unit:M': 'm',
-            'unit:MegaW': 'MW',
-            'unit:DEG': '°'
-        }
+        """Return the QUDT unit *code* (local name) from a unit URI or CURIE.
 
+        e.g. ``http://qudt.org/vocab/unit/KiloW`` -> ``KiloW``,
+             ``unit:KiloW-HR``                     -> ``KiloW-HR``.
+
+        Previously this down-mapped to lossy display abbreviations
+        (``KiloW`` -> ``kW``, ``KiloW-HR`` -> ``kW-HR``), which the scenario/
+        assumptions TTL emitter (``map_unit_to_uri``) could not turn back into a
+        valid ``qudt:unit <.../KiloW>`` IRI — yielding ``<.../kW-HR>`` or
+        ``UNITLESS``. Keeping the QUDT code round-trips cleanly; the replica
+        also carries ``dici_onto:hasUnitLabel`` for friendly UI display.
+        """
         if unit_uri.startswith('unit:'):
-            return unit_mapping.get(unit_uri, unit_uri.replace('unit:', ''))
+            return unit_uri.replace('unit:', '')
 
-        return unit_mapping.get(unit_uri, unit_uri.split('/')[-1])
+        return unit_uri.rstrip('/').split('/')[-1]
 
     def _map_currency_uri_to_string(self, currency_uri: str) -> str:
         """Map currency URIs to readable strings"""
