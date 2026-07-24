@@ -75,7 +75,10 @@ its data. There is no prescribed answer.
    **Service Requirements Builder**, mapping your ontology terms to the fields the
    model expects.
 7. **Organise scenarios.** Assemble scenarios from the replica in the **Scenario
-   Builder**.
+   Builder**. To generate *what-if* variants of an existing scenario (change a few
+   attributes, sweep a parameter), use the **Assumptions Module** — it writes thin
+   scenarios (replica references + `supersedesAttribute` overrides), same shape as
+   the Scenario Builder. (Archived module: enable "Show archived modules".)
 8. **Hook up and run.** Register the service endpoint and run Convert → Submit in
    **API Data Submission**. If the model consumes a live stream or wants a
    different shape, add a small transport adapter (see

@@ -164,6 +164,38 @@ def get_named_individuals(client) -> pd.DataFrame:
     return run_df(client, query, ["individual", "class", "label"])
 
 
+def get_categorical_value_options(client) -> pd.DataFrame:
+    """Valid values for each categorical attribute class, both modelling patterns.
+
+    Two ways a categorical value is declared against its attribute class:
+      - subclass values   : ``:GasHeated rdfs:subClassOf :HeatingSupply`` (energy_sim)
+      - named individuals : ``:Foo a owl:NamedIndividual, :SomeCategorical``
+
+    Returns one row per (attribute class, value). Columns: ``attrClass``,
+    ``value``, ``label`` (the value's rdfs:label, if any).
+    """
+    query = f"""
+    {_PREFIXES}
+    SELECT DISTINCT ?attrClass ?value ?label
+    WHERE {{
+        GRAPH {_G} {{
+            ?attrClass rdfs:subClassOf* dici_onto:CategoricalAttribute .
+            FILTER(?attrClass != dici_onto:CategoricalAttribute)
+            {{
+                ?value rdfs:subClassOf ?attrClass .
+                FILTER(?value != ?attrClass)
+            }} UNION {{
+                ?value a owl:NamedIndividual .
+                ?value a ?attrClass .
+            }}
+            OPTIONAL {{ ?value rdfs:label ?label }}
+        }}
+    }}
+    ORDER BY ?attrClass ?value
+    """
+    return run_df(client, query, ["attrClass", "value", "label"])
+
+
 def get_default_units(client) -> pd.DataFrame:
     """Units referenced via hasDefaultUnit in the ontology. Columns: unit, label."""
     query = f"""
