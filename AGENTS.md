@@ -26,7 +26,7 @@ extension, a replica, scenarios, and a service template.
 | Path | What's there |
 |---|---|
 | `apps/streamlit/app.py` | The Streamlit UI entry point |
-| `apps/streamlit/components/` | UI modules (Replica Builder, Scenario Builder, Service Requirements Builder, API Submission, …) — thin shells over `backend/` |
+| `apps/streamlit/components/` | UI modules (Replica Builder, Scenario Builder, Service Requirements Builder, Assumptions, API Submission, …) — thin shells over `backend/` |
 | `backend/` | Pure-Python core (no Streamlit): `graphdb/` (triplestore client + SPARQL), `triplestore/` (Fuseki/GraphDB backends), `replica_builder/`, `assumptions/`, `api_submission/` (incl. `ttl_converter.py`, the scenario→payload converter), `workspace/` (provisioning, registry) |
 | `data/ontology/` | The core ontology (`dici_onto_core.ttl`) used in local mode |
 | `data/global_services/` | Bundled service templates (`demo_energy_simulator.yaml`, `flexibility_optimizer.yaml`) — the canonical shape for a `services/*.yaml` |
@@ -57,6 +57,15 @@ extension, a replica, scenarios, and a service template.
 - The converter reads attribute values from **`qudt:value`** only.
 - Scenario links are `dici_onto:ComponentLink` nodes with `dici_onto:hasInputEntity`
   and `dici_onto:linksInputyEntityTo` (note the odd spelling — match it exactly).
+- **Scenarios are thin.** The Scenario Builder and the Assumptions module write
+  scenarios that *reference* the replica's components and carry only overrides — a
+  fresh attribute node with `dici_onto:supersedesAttribute <replica-attr>` plus
+  `dici_onto:usedInScenario <scenario>`. Unchanged attributes are never re-emitted;
+  `backend/graphdb/queries/scenarios.py::materialize_scenario_graphs` merges the
+  overrides over the replica before the converter reads it, so a one-attribute edit
+  still yields a complete scenario. Serialise any new attribute value through the
+  canonical helper (`backend/replica_builder/utils/ttl_attribute_helpers.py`), never
+  a bespoke emitter, or you'll drop units/data-paths/categorical values.
 - Default triplestore is **Fuseki** on `:3030` (`TRIPLESTORE_BACKEND=fuseki`);
   Fuseki needs HTTP Basic admin auth for **writes** (reads are open). GraphDB is
   an optional overlay on `:7201`.

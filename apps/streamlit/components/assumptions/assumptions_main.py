@@ -266,10 +266,22 @@ def parse_scenario_ttl_with_builder(ttl_content: str, workspace_id: str, filenam
         # Extract components using the proven extraction method
         components_by_type = loader.extract_components_from_graph(graph, f"scenario_{filename}")
 
-        # Flatten components into a single list
+        # Flatten into a single list, keeping only genuine components. The loader
+        # indexes every rdf:type, so attribute nodes (BuildingAge, GroundFloorArea,
+        # …), ComponentLinks, the Scenario, and categorical value-classes also come
+        # back here. Real components are the ones that own attributes; drop the rest
+        # so the "Select Components to Modify" list shows only replica components.
         all_components = []
         for comp_type, components in components_by_type.items():
-            all_components.extend(components)
+            if comp_type in ('ComponentLink', 'Scenario'):
+                continue
+            for c in components:
+                real_attrs = {
+                    k: v for k, v in (c.get('attributes') or {}).items()
+                    if k not in ('URI', 'label') and isinstance(v, dict)
+                }
+                if real_attrs:
+                    all_components.append(c)
 
         if not all_components:
             return None
@@ -283,6 +295,8 @@ def parse_scenario_ttl_with_builder(ttl_content: str, workspace_id: str, filenam
         scenario_uri = None
         scenario_name = None
         namespace = None
+        service = None
+        workspace = None
 
         # Find scenario declaration
         for s, p, o in graph.triples((None, RDF.type, DICI.Scenario)):
@@ -292,6 +306,12 @@ def parse_scenario_ttl_with_builder(ttl_content: str, workspace_id: str, filenam
             # Get scenario name from label or URI
             for label in graph.objects(s, RDFS.label):
                 scenario_name = str(label)
+            # Carry the service + workspace labels so a generated scenario stays
+            # attached to the same service (else the submission filter hides it).
+            for svc in graph.objects(s, DICI.builtForService):
+                service = str(svc)
+            for ws in graph.objects(s, DICI.createdInWorkspace):
+                workspace = str(ws)
             break
 
         if not scenario_name:
@@ -322,6 +342,8 @@ def parse_scenario_ttl_with_builder(ttl_content: str, workspace_id: str, filenam
             'namespace': namespace,
             'components': all_components,
             'component_links': component_links,
+            'service': service,
+            'workspace': workspace or workspace_id,
             'source': 'workspace_ttl'
         }
 
@@ -669,6 +691,9 @@ def tab_manual_modification():
         st.warning("⚠️ Please load a baseline scenario first (Tab 1)")
         return
 
+    # Constrain categorical edits to the ontology's valid values (cached per workspace).
+    _ensure_categorical_options()
+
     st.write("""
     Manually modify individual component attributes to create custom scenarios.
     Select components, edit their attributes, and generate modified scenarios.
@@ -787,6 +812,54 @@ def show_manual_modification_interface(component):
         show_modification_summary(component_key, component['label'])
 
 
+def _load_categorical_options(client):
+    """Map each categorical attribute class -> {value_name: label} from the ontology.
+
+    Covers both modelling patterns (subclass values and named individuals). Returns
+    {} when no client/ontology is available so callers fall back to free text.
+    """
+    if client is None:
+        return {}
+    try:
+        from backend.graphdb.queries.ontology import get_categorical_value_options
+        df = get_categorical_value_options(client)
+    except Exception:
+        return {}
+    if df is None or getattr(df, "empty", True):
+        return {}
+    options = {}
+    for _, row in df.iterrows():
+        attr_cls = str(row["attrClass"]).split("#")[-1].split("/")[-1]
+        value = str(row["value"]).split("#")[-1].split("/")[-1]
+        raw_label = row.get("label")
+        label = str(raw_label).strip()
+        if label.lower() in ("", "nan", "none"):
+            label = ""
+        options.setdefault(attr_cls, {})
+        options[attr_cls].setdefault(value, label or value)
+    return options
+
+
+def _ensure_categorical_options():
+    """Load + cache the ontology's categorical value options for this workspace."""
+    ws = st.session_state.get("current_workspace") or {}
+    ws_id = ws.get("id")
+    cache = st.session_state.get("assumptions_categorical_options_cache")
+    if cache and cache.get("ws") == ws_id:
+        return
+    client = st.session_state.get("workspace_client")
+    st.session_state.assumptions_categorical_options_cache = {
+        "ws": ws_id,
+        "opts": _load_categorical_options(client),
+    }
+
+
+def _categorical_options_for(attr_name):
+    """The {value: label} options for a categorical attribute class, or {}."""
+    cache = st.session_state.get("assumptions_categorical_options_cache") or {}
+    return (cache.get("opts") or {}).get(attr_name, {})
+
+
 def show_attribute_editor(component_key, attr_name, attr_data, category):
     """Show editor for a single attribute"""
     current_value = attr_data.get('value', '')
@@ -816,6 +889,32 @@ def show_attribute_editor(component_key, attr_name, attr_data, category):
                     value=str(current_value),
                     key=f"edit_{component_key}_{attr_name}",
                     label_visibility="collapsed"
+                )
+        elif category == 'categorical':
+            # Constrain to the ontology's valid values for this attribute (named
+            # individuals / subclasses), same as the Replica Builder. Fall back to
+            # free text only when the ontology defines none.
+            opts = _categorical_options_for(attr_name)
+            if opts:
+                names = list(opts.keys())
+                current = str(current_value)
+                index = names.index(current) if current in names else 0
+                new_value = st.selectbox(
+                    f"Value for {attr_name}",
+                    options=names,
+                    index=index,
+                    format_func=lambda n: opts.get(n) or n,
+                    key=f"edit_{component_key}_{attr_name}",
+                    label_visibility="collapsed",
+                    help="Ontology-defined values for this attribute",
+                )
+            else:
+                new_value = st.text_input(
+                    f"Value for {attr_name}",
+                    value=str(current_value),
+                    key=f"edit_{component_key}_{attr_name}",
+                    label_visibility="collapsed",
+                    help="No ontology-defined values found for this attribute; free text",
                 )
         else:
             new_value = st.text_input(
@@ -1145,180 +1244,18 @@ def export_single_scenario(scenario):
 
 def generate_scenario_ttl_with_builder_infrastructure(scenario_data):
     """
-    Generate TTL using the same approach as scenario_builder_summary
-    This ensures compatibility and proper attribute handling
+    Generate a THIN scenario TTL for an assumptions result.
+
+    Delegates to the backend single-source-of-truth builder
+    ``backend.assumptions.thin_scenario_ttl.build_thin_scenario_ttl`` so
+    assumption scenarios have the exact same shape as Scenario Builder / hand-
+    authored scenarios: they reference the canonical replica components and
+    carry only ``supersedesAttribute`` overrides for what changed. Unchanged
+    attributes (resource data paths, curves, time series, …) inherit from the
+    replica via ``materialize_scenario_graphs`` instead of being re-serialised.
     """
-    scenario_name = scenario_data['scenario_name']
-    namespace = scenario_data.get('namespace', 'https://digicities.info/proj/REFORMERS')
-    scenario_uri = f"{namespace}/{scenario_name.replace(' ', '_')}"
-    components = scenario_data['components']
-    component_links = scenario_data.get('component_links', [])
-
-    ttl_lines = [
-        "@prefix dici_onto: <https://digicities.info/ontology#> .",
-        "@prefix qudt: <http://qudt.org/schema/qudt/> .",
-        "@prefix unit: <http://qudt.org/vocab/unit/> .",
-        "@prefix dcterms: <http://purl.org/dc/terms/> .",
-        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
-        "@prefix cur: <http://qudt.org/vocab/currency/> .",
-        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
-        "",
-        f"# Scenario declaration",
-        f'<{scenario_uri}> a dici_onto:Scenario ;',
-        f'    rdfs:label "{scenario_name}" ;',
-        f'    dcterms:description "Scenario generated by Assumptions Module" ;'
-    ]
-
-    # Add assumption metadata
-    assumption = scenario_data.get('assumption', {})
-    if assumption:
-        ttl_lines.append(f'    dici_onto:assumptionApplied "{assumption.get("name", "Unknown")}" ;')
-        ttl_lines.append(f'    dici_onto:assumptionType "{assumption.get("type", "single")}" ;')
-
-    # Add manual modification metadata
-    if scenario_data.get('type') == 'manual_modification':
-        ttl_lines.append(f'    dici_onto:modificationType "manual" ;')
-
-    ttl_lines.extend([
-        f'    dici_onto:modifiedComponents "{scenario_data.get("modified_count", 0)}"^^xsd:integer .',
-        ""
-    ])
-
-    # Get object property specificity (default to High)
-    specificity = 'High'
-
-    # Add component declarations
-    if components:
-        ttl_lines.extend([
-            "# Component instance declarations",
-            ""
-        ])
-
-        for component in components:
-            component_uri = component['uri']
-            component_type = component['type']
-            component_label = component['label']
-
-            # Start component declaration
-            ttl_lines.append(f"<{component_uri}> a dici_onto:{component_type} ;")
-            ttl_lines.append(f'    rdfs:label "{component_label}" ;')
-
-            # Add source tracking
-            if component.get('source') in ['modified', 'manual_modified']:
-                ttl_lines.append(f'    dici_onto:sourceType "{component.get("source")}" ;')
-                if component.get('derived_from'):
-                    ttl_lines.append(f'    dici_onto:derivedFrom <{component.get("derived_from")}> ;')
-            else:
-                ttl_lines.append(f'    dici_onto:sourceType "unmodified" ;')
-
-            # Add object properties for attributes
-            for attr_name, attr_data in component.get('attributes', {}).items():
-                if attr_name not in ['URI', 'label'] and isinstance(attr_data, dict):
-                    attr_name_clean = attr_name.replace('_', '').replace(' ', '').replace('.', '')
-                    attr_uri = attr_data.get('uri', f"{component_uri}/{attr_name_clean}")
-
-                    # Generate property based on specificity
-                    if specificity == 'Low':
-                        property_name = "hasAttribute"
-                    elif specificity == 'Medium':
-                        property_name = f"has{attr_name_clean}Attribute"
-                    else:  # High
-                        property_name = f"has{component_type}{attr_name_clean}Attribute"
-
-                    ttl_lines.append(f"    dici_onto:{property_name} <{attr_uri}> ;")
-
-            # Close component declaration
-            ttl_lines.append(f'    dici_onto:usedInScenario <{scenario_uri}> .')
-            ttl_lines.append("")
-
-            # Generate attribute declarations
-            for attr_name, attr_data in component.get('attributes', {}).items():
-                if attr_name not in ['URI', 'label'] and isinstance(attr_data, dict):
-                    generate_enhanced_attribute_declaration(
-                        ttl_lines, attr_data, attr_name, component, scenario_uri
-                    )
-
-    # Add component links if present
-    if component_links:
-        ttl_lines.extend([
-            "# Component links",
-            ""
-        ])
-
-        link_counter = 1
-        for link in component_links:
-            link_uri = f"{scenario_uri}/ComponentLink_{link_counter}"
-            ttl_lines.extend([
-                f"<{link_uri}> a dici_onto:ComponentLink ;",
-                f"    dici_onto:hasInputEntity <{link.get('source', '')}> ;",
-                f"    dici_onto:linksInputyEntityTo <{link.get('target', '')}> ;",
-                f"    dici_onto:usedInScenario <{scenario_uri}> .",
-                ""
-            ])
-            link_counter += 1
-
-    return "\n".join(ttl_lines)
-
-
-def generate_enhanced_attribute_declaration(ttl_lines, attr_data, attr_name, component, scenario_uri):
-    """Generate attribute declaration using scenario_builder patterns"""
-    attr_uri = attr_data.get('uri', '')
-    attr_type = attr_data.get('attribute_type', 'PhysicalAttribute')
-    category = attr_data.get('category', 'unknown')
-    component_source = component.get('source', 'unknown')
-
-    # Start attribute declaration
-    attr_name_clean = attr_name.replace('_', '').replace(' ', '').replace('.', '')
-    ttl_lines.append(f"<{attr_uri}> a dici_onto:{attr_name_clean} ;")
-    ttl_lines.append(f"    a dici_onto:{attr_type} ;")
-    ttl_lines.append(f'    dici_onto:sourceType "{component_source}" ;')
-
-    # Add value based on attribute type
-    value = attr_data.get('value')
-    if value is not None:
-        if category in ['physical', 'cost', 'geospatial']:
-            try:
-                float_value = float(value)
-                ttl_lines.append(f'    qudt:value "{float_value}"^^xsd:decimal ;')
-            except (ValueError, TypeError):
-                ttl_lines.append(f'    qudt:value "{value}"^^xsd:string ;')
-        elif category == 'categorical':
-            # For categorical, add the category as a type
-            if isinstance(value, str):
-                clean_category = value.replace(' ', '').replace('-', '').replace('_', '')
-                ttl_lines.append(f'    a dici_onto:{clean_category} ;')
-        else:
-            ttl_lines.append(f'    qudt:value "{value}"^^xsd:string ;')
-
-    # Add unit
-    unit = attr_data.get('unit', '')
-    if unit and unit not in ['', 'dimensionless', 'category', 'text']:
-        unit_uri = map_unit_to_uri(unit)
-        ttl_lines.append(f'    qudt:unit {unit_uri} ;')
-
-    # Add currency for cost attributes
-    if category == 'cost' and attr_data.get('currency'):
-        currency = attr_data['currency']
-        ttl_lines.append(f'    dici_onto:currency cur:{currency} ;')
-
-    # Close attribute declaration
-    ttl_lines.append(f'    dici_onto:usedInScenario <{scenario_uri}> .')
-    ttl_lines.append("")
-
-
-def map_unit_to_uri(unit_str):
-    """Map unit strings to QUDT URIs"""
-    unit_mapping = {
-        'MW': '<http://qudt.org/vocab/unit/MegaW>',
-        'kW': '<http://qudt.org/vocab/unit/KiloW>',
-        'kWh': '<http://qudt.org/vocab/unit/KiloW-HR>',
-        'm': '<http://qudt.org/vocab/unit/M>',
-        'm/s': '<http://qudt.org/vocab/unit/M-PER-SEC>',
-        '°': '<http://qudt.org/vocab/unit/DEG>',
-        'CHF': '<http://qudt.org/vocab/unit/CHF>',
-        'EUR': '<http://qudt.org/vocab/unit/EUR>',
-    }
-    return unit_mapping.get(unit_str, f'<http://qudt.org/vocab/unit/{unit_str.replace("/", "-PER-").replace("²", "2").replace(" ", "-")}>')
+    from backend.assumptions.thin_scenario_ttl import build_thin_scenario_ttl
+    return build_thin_scenario_ttl(scenario_data)
 
 
 def tab_export_results():

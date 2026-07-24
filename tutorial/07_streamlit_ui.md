@@ -119,19 +119,35 @@ You should see the same component counts the notebook produced.
 
 ### 6. Assumptions Module — *maps to `04_assumptions.ipynb`*
 
-**What it is.** Applies parameterised modifications on top of a baseline. Three flavours:
+> Archived module — tick **"Show archived modules"** in the sidebar to reveal it.
 
-- **Single**: one-off edit (e.g. "swap every gas boiler for an air-source heat pump").
-- **Series**: sweep a parameter (e.g. "vary battery size from 5 to 50 kWh").
-- **Manual**: free-form edit of individual attribute values.
+**What it is.** Generates *what-if* variants of an existing scenario: load a baseline,
+change a few attributes, and it writes a new scenario. Three ways to change things:
+
+- **Single**: apply one predefined rule (e.g. *"increase wind turbine power by 50%"*).
+- **Series**: sweep a parameter over timesteps (e.g. a cost learning curve).
+- **Manual**: edit individual attribute values on the components you pick. Categorical
+  attributes are constrained to the ontology's valid values (named individuals /
+  subclasses), the same as the Replica Builder.
+
+**What it writes.** A **thin** scenario — it references the baseline's replica components
+and carries only `dici_onto:supersedesAttribute` overrides for what you changed, the
+same shape as a Scenario Builder / hand-authored scenario (see
+`demo_workspaces/energy-simulation/scenarios/energy_sim_retrofit.ttl`). Unchanged
+attributes inherit from the replica when the scenario is materialised, so even a
+one-attribute edit produces a complete, submittable scenario.
 
 **Try it.**
 
-1. Load the baseline TTL you just created.
-2. Choose **Single** → pick an assumption rule like *"double PV capacity"*.
-3. Preview the modified TTL. Each change is a diff against the baseline, so you can see exactly what the assumption did.
+1. Load a baseline (e.g. *Energy Sim - Baseline (MFH)*).
+2. **Manual** → pick a component → set *HeatingSupply* to *Air / heat pump* → apply → generate.
+3. **View Scenarios → View TTL**: one override, everything else inherited.
+4. **Export → Upload to Workspace** → it appears in the workspace `scenarios/` list,
+   ready for the API Submission tab.
 
-The notebook walks through the same engines (`backend.assumptions.single`, `backend.assumptions.series`) — the UI is a thin wrapper.
+The engines are `backend.assumptions.assumption_engine` (single + series),
+`backend.assumptions.manual_modification_engine` (manual), and
+`backend.assumptions.thin_scenario_ttl` (the TTL writer) — the UI is a thin wrapper.
 
 ### 7. Data Products — *maps to `05_data_products.ipynb`*
 

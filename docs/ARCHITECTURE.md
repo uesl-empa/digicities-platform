@@ -46,7 +46,7 @@ The tutorial notebooks under `tutorial/` exercise this directly — they import 
 | `backend/ontology_manager/` | `components/ontology_manager/` | **Thin shell.** UI delegates every CRUD call to `OntologyFunctions`. |
 | `backend/replica_builder/` | `components/replica_builder/` | **Mostly thin.** TTL generation (`process_excel_to_ttl`, `generate_attribute_ttl`) lives in backend. Some attribute-form rendering helpers in the UI build small TTL fragments inline. |
 | `backend/scenario_builder/` | `components/scenario_builder/` | **Mostly thin.** Headless scenario TTL generation (`build_scenario_ttl`) lives in backend; the interactive scenario-editing forms are in the UI shell. |
-| `backend/assumptions/` | `components/assumptions/` | **Medium.** Predefined assumption construction lives in backend; the per-row "modify this assumption" form inlines some validation. |
+| `backend/assumptions/` | `components/assumptions/` | **Mostly thin.** The assumption/manual-modification engines and thin-scenario TTL generation (`thin_scenario_ttl.py`, emitting `supersedesAttribute` overrides) live in backend; the UI shell is the load-baseline / apply / export forms. |
 | `backend/data_products/` | `components/data_products/` | **Medium.** TTL parsing is in backend; NextCloud I/O and path resolution are in the UI shell. |
 | `backend/api_submission/` | `components/api_submission_module/` | **Medium.** Generic HTTP/Redis transports + the TTL→payload converter are in backend (`transports.py`, `ttl_converter.py`); the UI inlines service registration and result rendering. |
 

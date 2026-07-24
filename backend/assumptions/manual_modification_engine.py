@@ -60,6 +60,9 @@ def apply_manual_modifications(baseline_data, target_component_uri, modification
         'modified_count': len(modifications),
         'modification_log': modification_log,
         'namespace': namespace,
+        'based_on': baseline_data.get('scenario_uri'),
+        'service': baseline_data.get('service'),
+        'workspace': baseline_data.get('workspace'),
         'target_component_uri': target_component_uri,
         'manual_modifications': modifications
     }
@@ -90,13 +93,20 @@ def create_manually_modified_component(component, modifications, modification_id
             new_value = mod_data['new_value']
             old_value = mod_data['old_value']
 
+            # Thin override: fresh URI carrying the new value, superseding the
+            # replica attribute (attr_data['uri']).
             modified_component['attributes'][attr_name] = {
-                'uri': f"{modified_component['uri']}/{attr_name}",
+                'uri': f"{component['uri']}/{attr_name}_{modification_id}",
+                'original_uri': attr_data.get('uri'),
+                'is_modified': True,
+                'attr_class': attr_name,
+                'category_value': str(new_value),
                 'type': attr_data.get('type', 'PhysicalAttribute'),
                 'value': str(new_value),
                 'unit': attr_data.get('unit', ''),
                 'attribute_type': attr_data.get('attribute_type', 'PhysicalAttribute'),
-                'category': attr_data.get('category', 'physical')
+                'category': attr_data.get('category', 'physical'),
+                'currency': attr_data.get('currency')
             }
 
             try:
@@ -122,9 +132,11 @@ def create_manually_modified_component(component, modifications, modification_id
                 })
         else:
             modified_component['attributes'][attr_name] = {
-                'uri': f"{modified_component['uri']}/{attr_name}",
+                'uri': attr_data.get('uri'),
+                'original_uri': attr_data.get('uri'),
+                'is_modified': False,
                 'type': attr_data.get('type', 'PhysicalAttribute'),
-                'value': attr_data['value'],
+                'value': attr_data.get('value'),
                 'unit': attr_data.get('unit', ''),
                 'attribute_type': attr_data.get('attribute_type', 'PhysicalAttribute'),
                 'category': attr_data.get('category', 'unknown')
@@ -153,9 +165,11 @@ def create_unmodified_component(component, namespace):
             continue
 
         unmodified_component['attributes'][attr_name] = {
-            'uri': f"{unmodified_component['uri']}/{attr_name}",
+            'uri': attr_data.get('uri'),
+            'original_uri': attr_data.get('uri'),
+            'is_modified': False,
             'type': attr_data.get('type', 'PhysicalAttribute'),
-            'value': attr_data['value'],
+            'value': attr_data.get('value'),
             'unit': attr_data.get('unit', ''),
             'attribute_type': attr_data.get('attribute_type', 'PhysicalAttribute'),
             'category': attr_data.get('category', 'unknown')
@@ -218,6 +232,9 @@ def apply_batch_manual_modifications(baseline_data, component_modifications, new
         'modified_components': len(component_modifications),
         'modification_log': modification_log,
         'namespace': namespace,
+        'based_on': baseline_data.get('scenario_uri'),
+        'service': baseline_data.get('service'),
+        'workspace': baseline_data.get('workspace'),
         'manual_modifications': component_modifications
     }
 

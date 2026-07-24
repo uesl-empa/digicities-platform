@@ -924,11 +924,11 @@ class NextCloudTTLUseCaseLoader:
              ``unit:KiloW-HR``                     -> ``KiloW-HR``.
 
         Previously this down-mapped to lossy display abbreviations
-        (``KiloW`` -> ``kW``, ``KiloW-HR`` -> ``kW-HR``), which the scenario/
-        assumptions TTL emitter (``map_unit_to_uri``) could not turn back into a
-        valid ``qudt:unit <.../KiloW>`` IRI — yielding ``<.../kW-HR>`` or
-        ``UNITLESS``. Keeping the QUDT code round-trips cleanly; the replica
-        also carries ``dici_onto:hasUnitLabel`` for friendly UI display.
+        (``KiloW`` -> ``kW``, ``KiloW-HR`` -> ``kW-HR``), which downstream TTL
+        emitters could not turn back into a valid ``qudt:unit <.../KiloW>`` IRI —
+        yielding ``<.../kW-HR>`` or ``UNITLESS``. Keeping the QUDT code
+        round-trips cleanly; the replica also carries ``dici_onto:hasUnitLabel``
+        for friendly UI display.
         """
         if unit_uri.startswith('unit:'):
             return unit_uri.replace('unit:', '')

@@ -69,7 +69,10 @@ def apply_single_assumption(baseline_data, assumption, new_scenario_name, namesp
         'type': 'single',
         'modified_count': modified_count,
         'modification_log': modification_log,
-        'namespace': namespace
+        'namespace': namespace,
+        'based_on': baseline_data.get('scenario_uri'),
+        'service': baseline_data.get('service'),
+        'workspace': baseline_data.get('workspace')
     }
 
 
@@ -137,7 +140,10 @@ def apply_series_assumption(baseline_data, assumption, base_scenario_name, names
             'series_index': i,
             'modified_count': modified_count,
             'modification_log': modification_log,
-            'namespace': namespace
+            'namespace': namespace,
+            'based_on': baseline_data.get('scenario_uri'),
+            'service': baseline_data.get('service'),
+            'workspace': baseline_data.get('workspace')
         })
 
     return scenarios
@@ -174,14 +180,19 @@ def apply_modification_to_component(original_component, modified_component, assu
         else:
             new_value = modifier_value
 
-        # Create modified attribute
+        # Create modified attribute as a thin override: a fresh URI carrying the
+        # new value that supersedes the replica attribute (attr_info['uri']).
         modified_component['attributes'][target_attr_name] = {
-            'uri': f"{modified_component['uri']}/{target_attr_name}",
+            'uri': f"{original_component['uri']}/{target_attr_name}_{modified_component['modification_id']}",
+            'original_uri': attr_info.get('uri'),
+            'is_modified': True,
+            'attr_class': target_attr_name,
             'type': attr_info.get('type', 'PhysicalAttribute'),
             'value': str(new_value),
             'unit': attr_info.get('unit', ''),
             'attribute_type': attr_info.get('attribute_type', 'PhysicalAttribute'),
-            'category': attr_info.get('category', 'physical')
+            'category': attr_info.get('category', 'physical'),
+            'currency': attr_info.get('currency')
         }
 
         # Copy other attributes
@@ -233,14 +244,18 @@ def apply_series_modification(original_component, modified_component, assumption
                 elif modifier == '-':
                     new_value = new_value - modifier_value
 
-        # Create modified attribute
+        # Create modified attribute as a thin override (see apply_modification_to_component).
         modified_component['attributes'][target_attr_name] = {
-            'uri': f"{modified_component['uri']}/{target_attr_name}",
+            'uri': f"{original_component['uri']}/{target_attr_name}_{modified_component['modification_id']}",
+            'original_uri': attr_info.get('uri'),
+            'is_modified': True,
+            'attr_class': target_attr_name,
             'type': attr_info.get('type', 'PhysicalAttribute'),
             'value': str(new_value),
             'unit': attr_info.get('unit', ''),
             'attribute_type': attr_info.get('attribute_type', 'PhysicalAttribute'),
-            'category': attr_info.get('category', 'physical')
+            'category': attr_info.get('category', 'physical'),
+            'currency': attr_info.get('currency')
         }
 
         # Copy other attributes
@@ -290,12 +305,14 @@ def find_target_attribute(component, target_attribute):
 
 
 def copy_all_attributes_unchanged(original_component, modified_component):
-    """Copy all attributes unchanged"""
+    """Record all attributes as unchanged (they inherit from the replica)."""
     for attr_name, attr_info in original_component.get('attributes', {}).items():
         modified_component['attributes'][attr_name] = {
-            'uri': f"{modified_component['uri']}/{attr_name}",
+            'uri': attr_info.get('uri'),
+            'original_uri': attr_info.get('uri'),
+            'is_modified': False,
             'type': attr_info.get('type', 'PhysicalAttribute'),
-            'value': attr_info['value'],
+            'value': attr_info.get('value'),
             'unit': attr_info.get('unit', ''),
             'attribute_type': attr_info.get('attribute_type', 'PhysicalAttribute'),
             'category': attr_info.get('category', 'unknown')
@@ -303,13 +320,15 @@ def copy_all_attributes_unchanged(original_component, modified_component):
 
 
 def copy_other_attributes_unchanged(original_component, modified_component, modified_attr_name):
-    """Copy all attributes except the modified one"""
+    """Record all attributes except the modified one as unchanged."""
     for attr_name, attr_info in original_component.get('attributes', {}).items():
         if attr_name != modified_attr_name:
             modified_component['attributes'][attr_name] = {
-                'uri': f"{modified_component['uri']}/{attr_name}",
+                'uri': attr_info.get('uri'),
+                'original_uri': attr_info.get('uri'),
+                'is_modified': False,
                 'type': attr_info.get('type', 'PhysicalAttribute'),
-                'value': attr_info['value'],
+                'value': attr_info.get('value'),
                 'unit': attr_info.get('unit', ''),
                 'attribute_type': attr_info.get('attribute_type', 'PhysicalAttribute'),
                 'category': attr_info.get('category', 'unknown')

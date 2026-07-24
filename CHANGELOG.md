@@ -4,6 +4,11 @@ All notable changes to the Digicities platform are recorded here. The project fo
 
 ## [Unreleased]
 
+### Changed
+- **Assumptions module now emits *thin* scenarios.** What-if variants reference the replica's components and carry only `dici_onto:supersedesAttribute` overrides for the attributes you changed — the same shape as Scenario Builder / hand-authored scenarios — instead of re-serialising every attribute into a self-contained copy. Unchanged attributes (including resource data paths, curves, and categorical values) inherit from the replica via `materialize_scenario_graphs`, so a partial edit still yields a complete, submittable scenario. Generation is now a single backend serialiser (`backend/assumptions/thin_scenario_ttl.py`); three dead modules were removed.
+- **Manual categorical edits are constrained to the ontology's valid values** (named individuals *and* subclass values), matching the Replica Builder, instead of free text. New query `backend.graphdb.queries.ontology.get_categorical_value_options`.
+- The Assumptions "Select Components to Modify" list now shows only real replica components (attribute / link / value-class nodes were leaking in).
+
 ### Fixed
 - **Scenario and assumptions TTL now emit correct QUDT units instead of `UNITLESS`.** The workspace TTL loader was down-converting `qudt:unit` IRIs to lossy display abbreviations (`KiloW` → `kW`, `KiloW-HR` → `kW-HR`) that the TTL emitter could not turn back into valid QUDT IRIs. `_map_unit_uri_to_string` now returns the QUDT code, so units round-trip cleanly (`qudt:unit unit:KiloW`); `UNITLESS` is emitted only for genuinely unit-less attributes.
 
