@@ -52,6 +52,13 @@ extension, a replica, scenarios, and a service template.
 - **Query the graph semantically.** Resolve types via `rdfs:subClassOf*` /
   `rdfs:subPropertyOf*` over the ontology — never string-match on a class-name
   suffix like `…Attribute`. Extension classes won't match string patterns.
+- **Map new concepts by annotations, not names.** Core terms carry
+  `rdfs:comment` / `skos:definition` / `skos:altLabel` (synonyms) /
+  `skos:example` / `skos:scopeNote`. When deciding which core class a new
+  extension term hangs off (e.g. a *WindPark* is a `dici_onto:Location` —
+  altLabel "Site"), consult the ontology repo's generated term index
+  (`docs/term-index.{json,md}`) and its `docs/AGENT_MAPPING_GUIDE.md`, or query
+  the annotations via SPARQL. Annotate your own extension terms the same way.
 - A component type must be `rdfs:subClassOf* dici_onto:Component` or it won't show
   in the Explorer / Scenario Builder.
 - The converter reads attribute values from **`qudt:value`** only.

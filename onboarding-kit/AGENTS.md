@@ -65,10 +65,20 @@ its data. There is no prescribed answer.
    ontology** before inventing anything — many concepts already exist. Use the
    **Ontology Manager** and **Digital Replica Explorer** to browse the existing
    component and attribute classes (or query the graph).
+   **Map semantically, not by name:** every core term carries machine-readable
+   annotations (`rdfs:comment`, `skos:definition`, `skos:altLabel` synonyms,
+   `skos:example`, `skos:scopeNote`). Before deciding where a domain concept
+   hangs (e.g. a *WindPark* → `dici_onto:Location`, whose altLabels include
+   "Site"), consult the ontology repo's generated **term index**
+   (`docs/term-index.json` / `docs/term-index.md`) and follow the procedure in
+   its **`docs/AGENT_MAPPING_GUIDE.md`** — or query the annotations via SPARQL.
 4. **Decide and propose the missing vocabulary.** For what core doesn't cover,
    decide the new component types, the attribute classes (physical / categorical
    / dynamic / cost / …), the categories' allowed values, and how components link.
    Author them as this workspace's ontology extension with the **Ontology Manager**.
+   Give every new term the same annotations (`rdfs:comment` at minimum; ideally
+   `skos:altLabel` / `skos:example`) so the next mapping over your extension
+   works too — `tools/validate_extension.py` in the ontology repo enforces this.
 5. **Build the replica.** Load the actual instances with the **Replica Builder**
    (Excel import is usually fastest).
 6. **Describe the payload.** Build the service requirements template with the
