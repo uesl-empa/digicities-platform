@@ -103,7 +103,7 @@ list also answers "what am I choosing here?".
    - **No — start fresh:** skip it. Create one from the landing page's "Create a new
      workspace" form, or onboard a model + its data with
      [`docs/ONBOARDING_A_USECASE.md`](docs/ONBOARDING_A_USECASE.md).
-   - Either way the two bundled demos always appear (independent of the mount).
+   - Either way the bundled demo always appears (independent of the mount).
 
 2. **Where should workspace files live? — storage backend.**
    - **Local filesystem** (default): files on disk under the mounted dir; no extra
