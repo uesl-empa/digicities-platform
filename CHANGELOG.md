@@ -2,7 +2,12 @@
 
 All notable changes to the Digicities platform are recorded here. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] — 2026-07-28
+
+Ontology-alignment release: the platform now runs on the self-describing core ontology v0.2.0, with every term it writes or requires declared upstream, and the assumptions module emits thin scenarios.
+
+### Added
+- **Serialiser regression tests** — `tests/test_thin_scenario_ttl.py` locks the thin-scenario contract (override shape, anchoring, historical `linksInputyEntityTo` spelling, full materialisation round-trip with replica inheritance); `tests/test_unit_code_roundtrip.py` pins the QUDT unit-code fix.
 
 ### Changed
 - **Vendored core ontology synced to v0.2.0** (`data/ontology/` + `services/graphdb/ontology/`, byte-identical mirrors of `digicities-ontology` core). v0.2.0 is the annotation release: every term self-describes via `rdfs:label`/`rdfs:comment` (+ SKOS on mapping-decision classes), the TTL declares `owl:versionInfo "0.2.0"`, and **every term the platform writes or requires is now declared in core** — including `supersedesAttribute`/`basedOn` (thin scenarios), `hasDefaultTemporalPrecision`, `AnnotationAttribute`/`hasAnnotationValue`, and `Reference`/`ReferenceType`/`hasReferenceType`/`DOI`. Domain concepts should be mapped to classes by these annotations (see the ontology repo's `docs/AGENT_MAPPING_GUIDE.md` and `docs/term-index.json`), not by name-matching.
