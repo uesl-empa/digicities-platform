@@ -50,23 +50,27 @@ except ImportError:
 def _local_template_bytes() -> Optional[bytes]:
     """The vendored Excel template bytes, or None if not present locally.
 
-    Path from ``REPLICA_BUILDER_TEMPLATE_FILE`` (default
-    ``data/global_replica_builder/replica_builder_template.xlsx``). This is the
-    local counterpart to the NextCloud ``global/replica_builder/...`` template, so
-    the template works without NextCloud — the same pattern the service catalog
-    uses for ``data/global_services``.
+    Candidates, in order: ``REPLICA_BUILDER_TEMPLATE_FILE`` (env override),
+    the NextCloud-mirroring drop-in path
+    ``data/global_replica_builder/replica_builder_template.xlsx``, and finally
+    the canonical tracked workbook ``data/ingestion_template/
+    data_ingestion_template.xlsx`` — so a fresh clone serves the template fully
+    offline without duplicating the binary in the repo. Same pattern the
+    service catalog uses for ``data/global_services``.
     """
     from pathlib import Path
-    candidate = os.environ.get(
-        "REPLICA_BUILDER_TEMPLATE_FILE",
+    override = os.environ.get("REPLICA_BUILDER_TEMPLATE_FILE")
+    candidates = [override] if override else [
         "data/global_replica_builder/replica_builder_template.xlsx",
-    )
-    try:
-        p = Path(candidate)
-        if p.is_file():
-            return p.read_bytes()
-    except Exception as e:
-        print(f"[replica_builder] local template read skipped: {e}")
+        "data/ingestion_template/data_ingestion_template.xlsx",
+    ]
+    for candidate in candidates:
+        try:
+            p = Path(candidate)
+            if p.is_file():
+                return p.read_bytes()
+        except Exception as e:
+            print(f"[replica_builder] local template read skipped ({candidate}): {e}")
     return None
 
 
@@ -95,8 +99,9 @@ def download_excel_template():
     if not NEXTCLOUD_GLOBAL_AVAILABLE:
         st.error("❌ No local template found and NextCloud is not available.")
         st.info(
-            "Add a template at `data/global_replica_builder/replica_builder_template.xlsx` "
-            "(or set `REPLICA_BUILDER_TEMPLATE_FILE`), or enable NextCloud access."
+            "Expected the tracked template at `data/ingestion_template/data_ingestion_template.xlsx` "
+            "(or a drop-in at `data/global_replica_builder/replica_builder_template.xlsx`, "
+            "or set `REPLICA_BUILDER_TEMPLATE_FILE`), or enable NextCloud access."
         )
         return
 

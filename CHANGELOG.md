@@ -2,6 +2,11 @@
 
 All notable changes to the Digicities platform are recorded here. The project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Global asset libraries vendored — a fresh clone shows content fully offline.** `data/global_open_data_products/` ships the **MotelDB** starter product (technology reference database with DOI-cited cost/efficiency attributes, generated from `data/ingestion/input/MotelDB.xlsx`), and the Replica Builder's "Get Template" lookup now falls back to the tracked `data/ingestion_template/data_ingestion_template.xlsx` (no binary duplication; `REPLICA_BUILDER_TEMPLATE_FILE` and a `data/global_replica_builder/` drop-in still take precedence). `.env.example` documents `GLOBAL_SERVICES_DIR` / `GLOBAL_DATA_PRODUCTS_DIR` / `REPLICA_BUILDER_TEMPLATE_FILE`; guarded by `tests/test_global_assets.py`.
+
 ## [0.4.0] — 2026-07-28
 
 Ontology-alignment release: the platform now runs on the self-describing core ontology v0.2.0, with every term it writes or requires declared upstream, and the assumptions module emits thin scenarios.
