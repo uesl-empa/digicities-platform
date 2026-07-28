@@ -3,7 +3,7 @@
 This guide walks you through:
 
 - **Part A**: first-time platform setup on your machine (do once)
-- **Part B**: register an existing usecase repo (or one of the bundled demos) as a workspace
+- **Part B**: register an existing usecase repo (or the bundled demo) as a workspace
 - **Part C**: build a brand-new usecase from scratch using the template
 - **Part D**: what's wired today and what isn't (set expectations before you test)
 
@@ -86,7 +86,7 @@ Open **http://localhost:8501** in your browser. You'll see the *Your Workspaces*
 
 # Part B: add an existing usecase as a workspace (2 minutes)
 
-This is the fastest way to verify everything works. Use one of the bundled demos.
+This is the fastest way to verify everything works. Use the bundled demo.
 
 ## B1. Clone the demo into `usecases/`
 
@@ -96,7 +96,7 @@ cd $ROOT/usecases
 git clone https://github.com/uesl-empa/digicities-usecase-energy-simulation.git energy-simulation
 ```
 
-> If those repos don't exist yet, you can copy the bundled demos directly from `digicities-platform/demo_workspaces/`. See Part D for the current status.
+> If those repos don't exist yet, you can copy the bundled demo directly from `digicities-platform/demo_workspaces/`. See Part D for the current status.
 
 ## B2. Reload the browser
 

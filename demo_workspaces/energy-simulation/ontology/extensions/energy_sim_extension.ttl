@@ -1,81 +1,111 @@
 @prefix dici_onto: <https://digicities.info/ontology#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 
 dici_onto:AirHeated rdfs:label "Air / heat pump" ;
+    rdfs:comment "Heat supplied by an air-source heat pump"@en ;
     rdfs:subClassOf dici_onto:DHWSupply,
         dici_onto:HeatingSupply .
 
 dici_onto:Building a owl:Class ;
     rdfs:label "Building" ;
+    rdfs:comment "A single building whose energy demand is simulated"@en ;
+    skos:altLabel "House"@en, "Structure"@en ;
+    skos:example "A multi-family house in the alpine village replica"@en ;
     rdfs:subClassOf dici_onto:Component .
 
 dici_onto:BuildingAge a owl:Class ;
     rdfs:label "Building Age (construction year)" ;
+    rdfs:comment "The year the building was constructed; drives the simulator's envelope assumptions"@en ;
+    skos:altLabel "Construction Year"@en, "Year Built"@en ;
     rdfs:subClassOf dici_onto:BuildingAttribute,
         dici_onto:PhysicalAttribute ;
     dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/YR> .
 
 dici_onto:DistrictHeated rdfs:label "District heated" ;
+    rdfs:comment "Heat supplied from a district heating network"@en ;
     rdfs:subClassOf dici_onto:DHWSupply,
         dici_onto:HeatingSupply .
 
 dici_onto:ElectricallyHeated rdfs:label "Electrically heated" ;
+    rdfs:comment "Heat supplied by direct electric heating"@en ;
     rdfs:subClassOf dici_onto:DHWSupply,
         dici_onto:HeatingSupply .
 
 dici_onto:GasHeated rdfs:label "Gas heated" ;
+    rdfs:comment "Heat supplied by a gas boiler"@en ;
     rdfs:subClassOf dici_onto:DHWSupply,
         dici_onto:HeatingSupply .
 
 dici_onto:GroundFloorArea a owl:Class ;
     rdfs:label "Ground Floor Area" ;
+    rdfs:comment "Footprint area of the building's ground floor"@en ;
+    skos:altLabel "Footprint Area"@en, "Floor Area"@en ;
     rdfs:subClassOf dici_onto:BuildingAttribute,
         dici_onto:PhysicalAttribute ;
     dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/M2> .
 
 dici_onto:MFH rdfs:label "Multi-family house" ;
+    rdfs:comment "Residential building with multiple dwelling units"@en ;
     rdfs:subClassOf dici_onto:SIA2024BuildingType .
 
 dici_onto:NumberOfFloors a owl:Class ;
     rdfs:label "Number of Floors" ;
+    rdfs:comment "Count of storeys in the building"@en ;
+    skos:altLabel "Storeys"@en ;
     rdfs:subClassOf dici_onto:BuildingAttribute,
         dici_onto:PhysicalAttribute ;
     dici_onto:hasDefaultUnit <http://qudt.org/vocab/unit/COUNT> .
 
 dici_onto:Office rdfs:label "Office" ;
+    rdfs:comment "Office use per the SIA 2024 room usage standard"@en ;
     rdfs:subClassOf dici_onto:SIA2024BuildingType .
 
 dici_onto:OilHeated rdfs:label "Oil heated" ;
+    rdfs:comment "Heat supplied by an oil boiler"@en ;
     rdfs:subClassOf dici_onto:DHWSupply,
         dici_onto:HeatingSupply .
 
 dici_onto:Retail rdfs:label "Retail" ;
+    rdfs:comment "Retail use per the SIA 2024 room usage standard"@en ;
     rdfs:subClassOf dici_onto:SIA2024BuildingType .
 
 dici_onto:SFH rdfs:label "Single-family house" ;
+    rdfs:comment "Residential building with one dwelling unit"@en ;
     rdfs:subClassOf dici_onto:SIA2024BuildingType .
 
 dici_onto:WeatherEPW a owl:Class ;
     rdfs:label "Weather EPW file" ;
+    rdfs:comment "Reference to the EnergyPlus weather file (.epw) the simulation runs against"@en ;
+    skos:altLabel "Weather File"@en, "Climate File"@en ;
     rdfs:subClassOf dici_onto:ResourceAttribute .
 
 dici_onto:SIA2024BuildingType a owl:Class ;
     rdfs:label "SIA 2024 Building Type" ;
+    rdfs:comment "Building usage category following the Swiss SIA 2024 standard; allowed values are its subclasses"@en ;
+    skos:altLabel "Usage Type"@en, "Building Category"@en ;
+    skos:example "Multi-family house, single-family house, office, retail"@en ;
     rdfs:subClassOf dici_onto:BuildingAttribute,
         dici_onto:CategoricalAttribute .
 
 dici_onto:DHWSupply a owl:Class ;
     rdfs:label "Domestic Hot Water Supply" ;
+    rdfs:comment "How the building's domestic hot water is produced; allowed values are its subclasses"@en ;
+    skos:altLabel "DHW System"@en, "Hot Water System"@en ;
+    skos:example "District heated, gas heated, air / heat pump"@en ;
     rdfs:subClassOf dici_onto:BuildingAttribute,
         dici_onto:CategoricalAttribute .
 
 dici_onto:HeatingSupply a owl:Class ;
     rdfs:label "Space Heating Supply" ;
+    rdfs:comment "How the building's space heating is produced; allowed values are its subclasses"@en ;
+    skos:altLabel "Heating System"@en ;
+    skos:example "District heated, oil heated, electrically heated"@en ;
     rdfs:subClassOf dici_onto:BuildingAttribute,
         dici_onto:CategoricalAttribute .
 
 dici_onto:BuildingAttribute a owl:Class ;
     rdfs:label "Building Attribute" ;
+    rdfs:comment "Typing marker grouping attributes that apply to a Building"@en ;
     rdfs:subClassOf dici_onto:Attribute .
-

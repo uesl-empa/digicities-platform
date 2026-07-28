@@ -84,6 +84,16 @@ the graph — see [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md)). The core already
 defines, among others: `Component`, `Location`, `LocationAttribute`, `Attribute`,
 `PhysicalAttribute`, `CategoricalAttribute`, `StaticAttribute`, `DynamicAttribute`.
 
+**Map by meaning, not by name.** Every core term is annotated with a description
+(`rdfs:comment`), a precise definition (`skos:definition`), synonyms
+(`skos:altLabel` — e.g. `Location` lists "Site", "Area", "Zone"), examples
+(`skos:example` — "a wind park, a city district, a campus"), and disambiguation
+notes (`skos:scopeNote`). Use them: the ontology repo ships a generated lookup at
+`docs/term-index.json` / `docs/term-index.md` and a decision procedure in
+`docs/AGENT_MAPPING_GUIDE.md`. A concept whose name matches nothing in core
+(a *WindPark*) usually still has an exact home (`Location`) — the synonyms and
+examples are how you find it.
+
 **Then decide the vocabulary this usecase needs** for whatever the core doesn't
 cover: the new component types, which attributes each carries, whether each is
 physical / categorical / dynamic / cost / …, the allowed values for categoricals,
@@ -99,25 +109,35 @@ You need to know *how* the platform represents these things — the rules below.
 is a complete worked example to learn the shape from.
 
 ```turtle
-# 1. the component type — MUST be under Component or it won't appear in the UI
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+# 1. the component type — MUST be under Component or it won't appear in the UI.
+#    Annotate it: the comment/synonyms/examples are how the next agent (or
+#    partner) maps onto YOUR term instead of minting a duplicate.
 dici_onto:RoadSegment a owl:Class ;
-    rdfs:subClassOf dici_onto:Component ; rdfs:label "Road Segment" .
+    rdfs:subClassOf dici_onto:Component ; rdfs:label "Road Segment" ;
+    rdfs:comment "A stretch of road between two junctions, carrying traffic flow"@en ;
+    skos:altLabel "Road Link"@en ; skos:example "A 400 m arterial segment between two intersections"@en .
 
 # 2. an attribute-group class for that component, under Attribute.
 #    THIS IS THE STEP PEOPLE MISS: the group class must be defined before you use it.
 dici_onto:RoadSegmentAttribute a owl:Class ;
-    rdfs:subClassOf dici_onto:Attribute ; rdfs:label "Road Segment Attribute" .
+    rdfs:subClassOf dici_onto:Attribute ; rdfs:label "Road Segment Attribute" ;
+    rdfs:comment "Typing marker grouping attributes that apply to a Road Segment"@en .
 
 # 3. each attribute — subclass of its KIND (Physical / Categorical / …) AND the group
 dici_onto:SegmentCapacity a owl:Class ;
     rdfs:subClassOf dici_onto:PhysicalAttribute, dici_onto:RoadSegmentAttribute ;
-    rdfs:label "Segment Capacity" .
+    rdfs:label "Segment Capacity" ;
+    rdfs:comment "Maximum vehicle throughput of the segment, in vehicles per hour"@en .
 
 # 4. a categorical attribute also declares its allowed values as subclasses
 dici_onto:InsulationClass a owl:Class ;
     rdfs:subClassOf dici_onto:CategoricalAttribute, dici_onto:RoomAttribute ;
-    rdfs:label "Insulation Class" .
-dici_onto:Poor a owl:Class ; rdfs:subClassOf dici_onto:InsulationClass ; rdfs:label "Poor" .
+    rdfs:label "Insulation Class" ;
+    rdfs:comment "Thermal insulation quality category of a room"@en .
+dici_onto:Poor a owl:Class ; rdfs:subClassOf dici_onto:InsulationClass ; rdfs:label "Poor" ;
+    rdfs:comment "Poor insulation: significant heat loss"@en .
 ```
 
 (Reuse `dici_onto:Location` from core as the top-level container — that's how the

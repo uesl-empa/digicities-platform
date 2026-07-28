@@ -40,7 +40,7 @@ Fuseki, login disabled) work as-is, so you can leave `.env` untouched unless you
 one of the options below.
 
 **2. (Optional) Load your own local workspaces — do this *before* starting.**
-Out of the box you get the two bundled demos (below). To *also* load your own
+Out of the box you get the bundled demo (below). To *also* load your own
 workspaces — any folder that follows the workspace template layout — point
 `USECASES_HOST_PATH` at the directory that **contains** them. Set it in `.env`
 (absolute path; forward slashes on Windows):
@@ -52,11 +52,11 @@ USECASES_HOST_PATH=/path/to/my-workspaces
 
 Every template-structured subfolder — one with a `workspace_meta/` folder plus an
 `ontology/extensions/`, `scenarios/`, or `ingestion/output/` dir — is auto-discovered
-and appears in the landing window next to the demos. The folder is mounted
+and appears in the landing window next to the demo. The folder is mounted
 **read-write** at `/app/data/usecases`, so edits you make in the app write straight
 back to those folders on disk. Because the app runs in Docker it can only see paths
 mounted this way, which is why this is set before `docker compose up`. Skip this step
-to just use the bundled demos.
+to just use the bundled demo.
 
 **3. Start the stack:**
 
