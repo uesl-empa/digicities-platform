@@ -5,6 +5,7 @@ All notable changes to the Digicities platform are recorded here. The project fo
 ## [Unreleased]
 
 ### Added
+- **Ontology term index vendored** at `data/ontology/term-index.{json,md}` (generated from core v0.2.0 in `digicities-ontology`), so agents and humans can map domain concepts by annotations without network access or an ontology-repo clone. The agent-facing docs (`AGENTS.md`, `onboarding-kit/AGENTS.md`, `docs/ONBOARDING_A_USECASE.md`) now point at the local copy and give the ontology repo's URL (previously referenced "the ontology repo" with no address).
 - **Global asset libraries vendored — a fresh clone shows content fully offline.** `data/global_open_data_products/` ships the **MotelDB** starter product (technology reference database with DOI-cited cost/efficiency attributes, generated from `data/ingestion/input/MotelDB.xlsx`), and the Replica Builder's "Get Template" lookup now falls back to the tracked `data/ingestion_template/data_ingestion_template.xlsx` (no binary duplication; `REPLICA_BUILDER_TEMPLATE_FILE` and a `data/global_replica_builder/` drop-in still take precedence). `.env.example` documents `GLOBAL_SERVICES_DIR` / `GLOBAL_DATA_PRODUCTS_DIR` / `REPLICA_BUILDER_TEMPLATE_FILE`; guarded by `tests/test_global_assets.py`.
 
 ## [0.4.0] — 2026-07-28
