@@ -160,3 +160,7 @@ demo_workspaces/*/results/
 
 # Local scratch/test workspaces created while exercising the UI — not shipped.
 demo_workspaces/empa-campus-test/
+
+# External modules dropped into the bundled mount point (cloned repos) - not shipped.
+modules/*
+!modules/README.md

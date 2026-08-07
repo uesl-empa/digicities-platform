@@ -14,17 +14,29 @@ services:
       # own workspaces directory to use those instead,
       # e.g. USECASES_HOST_PATH=../my-workspaces.
       - ${USECASES_HOST_PATH:-./demo_workspaces}:/app/data/usecases
+      # Mount external UI modules (folders carrying a module.yaml manifest) —
+      # each becomes a sidebar nav entry. Point MODULES_HOST_PATH at a cloned
+      # module repo (or a folder of module repos), e.g.
+      # MODULES_HOST_PATH=../digicities-onboarding-agent. Defaults to the empty
+      # bundled ./modules. See docs/EXTERNAL_MODULES.md.
+      - ${MODULES_HOST_PATH:-./modules}:/app/data/modules
     environment:
       USECASES_DIR: /app/data/usecases
       # Host-side location of the mount above, so the UI can translate the
       # container path (/app/data/usecases/...) back to a path on your machine.
       USECASES_HOST_PATH: ${USECASES_HOST_PATH:-./demo_workspaces}
-    command: >
-      streamlit run apps/streamlit/app.py
-      --server.port=8501
-      --server.address=0.0.0.0
-      --server.runOnSave=true
-      --server.fileWatcherType=poll
+      MODULES_DIR: /app/data/modules
+    # Before launching, install any mounted module's extra dependencies (each
+    # module ships its own requirements.txt; a stock install has none, so the
+    # loop is a no-op). Then start Streamlit exactly as before.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        for r in /app/data/modules/requirements.txt /app/data/modules/*/requirements.txt; do
+          if [ -f "$$r" ]; then echo "[modules] installing $$r"; pip install -q -r "$$r"; fi
+        done
+        exec streamlit run apps/streamlit/app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true --server.fileWatcherType=poll
 
   fuseki:
     # Local-dev only: make the triplestore anonymous so the Fuseki web UI on
