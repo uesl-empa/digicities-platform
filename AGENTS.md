@@ -56,9 +56,11 @@ extension, a replica, scenarios, and a service template.
   `rdfs:comment` / `skos:definition` / `skos:altLabel` (synonyms) /
   `skos:example` / `skos:scopeNote`. When deciding which core class a new
   extension term hangs off (e.g. a *WindPark* is a `dici_onto:Location` —
-  altLabel "Site"), consult the ontology repo's generated term index
-  (`docs/term-index.{json,md}`) and its `docs/AGENT_MAPPING_GUIDE.md`, or query
-  the annotations via SPARQL. Annotate your own extension terms the same way.
+  altLabel "Site"), consult the vendored term index at
+  `data/ontology/term-index.{json,md}` and the
+  [ontology repo](https://github.com/uesl-empa/digicities-ontology)'s
+  `docs/AGENT_MAPPING_GUIDE.md`, or query the annotations via SPARQL. Annotate
+  your own extension terms the same way.
 - A component type must be `rdfs:subClassOf* dici_onto:Component` or it won't show
   in the Explorer / Scenario Builder.
 - The converter reads attribute values from **`qudt:value`** only.

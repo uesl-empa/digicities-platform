@@ -69,9 +69,11 @@ its data. There is no prescribed answer.
    annotations (`rdfs:comment`, `skos:definition`, `skos:altLabel` synonyms,
    `skos:example`, `skos:scopeNote`). Before deciding where a domain concept
    hangs (e.g. a *WindPark* → `dici_onto:Location`, whose altLabels include
-   "Site"), consult the ontology repo's generated **term index**
-   (`docs/term-index.json` / `docs/term-index.md`) and follow the procedure in
-   its **`docs/AGENT_MAPPING_GUIDE.md`** — or query the annotations via SPARQL.
+   "Site"), consult the generated **term index** — vendored in the platform
+   clone at `data/ontology/term-index.{json,md}`, no network needed — and follow
+   the procedure in the ontology repo's **`docs/AGENT_MAPPING_GUIDE.md`**
+   (<https://github.com/uesl-empa/digicities-ontology>) — or query the
+   annotations via SPARQL.
 4. **Decide and propose the missing vocabulary.** For what core doesn't cover,
    decide the new component types, the attribute classes (physical / categorical
    / dynamic / cost / …), the categories' allowed values, and how components link.

@@ -88,8 +88,10 @@ defines, among others: `Component`, `Location`, `LocationAttribute`, `Attribute`
 (`rdfs:comment`), a precise definition (`skos:definition`), synonyms
 (`skos:altLabel` — e.g. `Location` lists "Site", "Area", "Zone"), examples
 (`skos:example` — "a wind park, a city district, a campus"), and disambiguation
-notes (`skos:scopeNote`). Use them: the ontology repo ships a generated lookup at
-`docs/term-index.json` / `docs/term-index.md` and a decision procedure in
+notes (`skos:scopeNote`). Use them: a generated lookup is vendored in this repo
+at `data/ontology/term-index.json` / `data/ontology/term-index.md`, and the
+[ontology repo](https://github.com/uesl-empa/digicities-ontology) (its source)
+ships the decision procedure in
 `docs/AGENT_MAPPING_GUIDE.md`. A concept whose name matches nothing in core
 (a *WindPark*) usually still has an exact home (`Location`) — the synonyms and
 examples are how you find it.
