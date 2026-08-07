@@ -28,10 +28,11 @@ services:
       MODULES_DIR: /app/data/modules
     # Before launching, install any mounted module's extra dependencies (each
     # module ships its own requirements.txt; a stock install has none, so the
-    # loop is a no-op). Then start Streamlit exactly as before.
+    # loop is a no-op). Then start Streamlit exactly as before. The entrypoint
+    # must be reset here: the image's ENTRYPOINT is `streamlit run ...`, which
+    # would swallow a bare `command` as script args.
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - /bin/sh
-      - -c
       - |
         for r in /app/data/modules/requirements.txt /app/data/modules/*/requirements.txt; do
           if [ -f "$$r" ]; then echo "[modules] installing $$r"; pip install -q -r "$$r"; fi
