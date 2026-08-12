@@ -1306,6 +1306,16 @@ def render_module_selector():
     if not show_archived:
         base_tab_options = [t for t in base_tab_options if t not in ARCHIVED_MODULES]
 
+    # External modules (mounted at MODULES_DIR with a module.yaml manifest) get a
+    # nav entry after the built-ins. See external_modules.py / docs/EXTERNAL_MODULES.md.
+    try:
+        from external_modules import discover_external_modules
+        base_tab_options.extend(
+            m["label"] for m in discover_external_modules() if m["label"] not in base_tab_options
+        )
+    except Exception as e:
+        print(f"[external_modules] discovery failed: {e}")
+
     tab_options = base_tab_options
 
     # Ensure valid active tab
@@ -1442,6 +1452,22 @@ def render_active_module():
             data_products_module(st.session_state.current_workspace)
         except Exception as e:
             handle_module_error("Data Products", e)
+
+    else:
+        # Not a built-in — try the external modules mounted at MODULES_DIR.
+        try:
+            from external_modules import find_external_module, render_external_module
+            manifest = find_external_module(active_tab)
+        except Exception as e:
+            manifest = None
+            print(f"[external_modules] lookup failed: {e}")
+        if manifest:
+            try:
+                render_external_module(manifest, client)
+            except Exception as e:
+                handle_module_error(manifest["label"], e)
+        else:
+            st.error(f"Unknown module: {active_tab}")
 
 
 def handle_module_error(module_name: str, error: Exception, needs_graphdb: bool = False):

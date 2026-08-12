@@ -51,6 +51,7 @@ To start your own workspace from scratch, use the [`digicities-usecase-template`
 | [`docs/USECASE_QUICKSTART.md`](docs/USECASE_QUICKSTART.md) | Reference for building a usecase end-to-end |
 | [`docs/INFERENCE.md`](docs/INFERENCE.md) | How RDFS-Plus inference is materialised at workspace open |
 | [`docs/INTEGRATING_A_SERVICE.md`](docs/INTEGRATING_A_SERVICE.md) | Onboard a model/service for scenario submission |
+| [`docs/EXTERNAL_MODULES.md`](docs/EXTERNAL_MODULES.md) | Load UI modules from their own repos (e.g. the Onboarding Agent) |
 | [`AGENTS.md`](AGENTS.md) | Orientation + tool/doc index for automated agents |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute back to this repo |
 
