@@ -494,6 +494,12 @@ class TTLParser:
 
     def _map_unit_uri_to_string(self, unit_uri: str) -> str:
         """Map QUDT unit URIs to readable strings"""
+        # An absence must render as nothing, not as the word "None" — see
+        # backend.units for the shapes a missing unit arrives in.
+        from backend.units import is_missing_unit
+        if is_missing_unit(unit_uri):
+            return ''
+
         unit_mapping = {
             'http://qudt.org/vocab/unit/MegaW': 'MW',
             'http://qudt.org/vocab/unit/KiloW': 'kW',

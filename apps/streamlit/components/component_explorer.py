@@ -201,29 +201,21 @@ def extract_readable_instance_name(uri: str) -> str:
     return uri
 
 
-# Values that mean "no unit" but arrive looking like one. `unit:None` was written
-# for years by the Excel ingestion whenever a unit header row was blank (it
-# interpolated a missing value straight into the IRI), so existing graphs are full
-# of it; the bare namespace comes from the Replica Builder when the unit field is
-# left empty. Rendering either as an axis label shows the user a lie.
-_UNIT_POISON = {
-    '', 'none', 'null', 'nan', 'unit:none', 'unit:',
-    'http://qudt.org/vocab/unit/', 'http://qudt.org/vocab/unit/none',
-}
-
-
 def clean_unit(unit_value: str) -> str:
-    """A displayable unit string, or '' when the value is absent or poisoned."""
-    if not unit_value:
+    """A displayable unit string, or '' when there is no unit.
+
+    ``unit:None``, the bare QUDT namespace and friends are absences dressed up as
+    units (backend.units explains where each comes from); rendering one as an axis
+    label shows the user something that isn't true.
+    """
+    from backend.units import is_missing_unit
+    if is_missing_unit(unit_value):
         return ''
-    raw = str(unit_value).strip()
-    if raw.lower() in _UNIT_POISON:
-        return ''
-    text = map_unit_uri_to_string(raw)
+    text = map_unit_uri_to_string(str(unit_value).strip())
     # A bare IRI that mapped to nothing still leaves the local name to show.
     if text.startswith('http'):
         text = text.rstrip('/').rsplit('/', 1)[-1]
-    return '' if text.lower() in _UNIT_POISON else text
+    return '' if is_missing_unit(text) else text
 
 
 def curve_axis_units(props: Dict) -> Tuple[str, str]:
