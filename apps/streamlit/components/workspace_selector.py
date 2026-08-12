@@ -333,8 +333,14 @@ def render_workspace_actions(workspace: dict) -> None:
             show_workspace_details(workspace)
 
     with col4:
+        # Toggled, not transient: the Settings panel now contains forms whose own
+        # buttons trigger a rerun, and a panel rendered straight from the click
+        # would disappear on that rerun before it could be used.
+        panel = f"show_settings_{workspace['id']}"
         if st.button(f"🔧 Settings", key=f"settings_{workspace['id']}", use_container_width=True):
-            show_workspace_settings(workspace)
+            st.session_state[panel] = not st.session_state.get(panel, False)
+    if st.session_state.get(f"show_settings_{workspace['id']}", False):
+        show_workspace_settings(workspace)
 
 
 def show_workspace_stats(workspace: dict) -> None:
@@ -460,6 +466,134 @@ def show_workspace_settings(workspace: dict) -> None:
             )
 
         st.info("💡 Settings are saved automatically per user session")
+
+        render_danger_zone(workspace)
+
+
+def _is_open_workspace(ws_id: str) -> bool:
+    current = st.session_state.get("current_workspace")
+    if isinstance(current, dict):
+        return current.get("id") == ws_id
+    return current == ws_id
+
+
+def _close_workspace_if_open(ws_id: str) -> None:
+    """Drop the session's handle on a workspace we just emptied or removed, so the
+    app can't keep querying a dataset that no longer holds what it expects."""
+    if _is_open_workspace(ws_id):
+        for key in ("current_workspace", "workspace_client", "workspace_context"):
+            st.session_state.pop(key, None)
+
+
+def render_danger_zone(workspace: dict) -> None:
+    """Clear the contents of a workspace, or delete it outright.
+
+    Both are irreversible, so both require the workspace id to be typed back
+    before the button does anything.
+    """
+    ws_id = workspace["id"]
+    is_demo = "demo" in (workspace.get("tags") or [])
+
+    st.markdown("---")
+    st.markdown("### ⚠️ Danger zone")
+
+    if is_demo:
+        st.caption(
+            "This is a bundled demo workspace that ships with the platform, so it "
+            "can't be cleared or deleted. Create your own workspace to experiment in."
+        )
+        return
+
+    clear_col, delete_col = st.columns(2)
+
+    with clear_col:
+        st.markdown("**🧹 Clear contents**")
+        st.caption(
+            "Deletes every file in the workspace (ontology extensions, replica, "
+            "scenarios, services, queries, data products) and empties its triplestore, "
+            "then reloads the core ontology. The workspace itself stays, ready to reuse."
+        )
+        typed = st.text_input(
+            f"Type `{ws_id}` to confirm",
+            key=f"clear_confirm_{ws_id}",
+            placeholder=ws_id,
+            label_visibility="visible",
+        )
+        if st.button("🧹 Clear this workspace", key=f"do_clear_{ws_id}",
+                     disabled=typed.strip() != ws_id, use_container_width=True):
+            _do_clear(ws_id)
+
+    with delete_col:
+        st.markdown("**🗑️ Delete workspace**")
+        st.caption(
+            "Removes the workspace folder, drops its triplestore dataset and "
+            "unregisters it. This cannot be undone."
+        )
+        typed_d = st.text_input(
+            f"Type `{ws_id}` to confirm",
+            key=f"delete_confirm_{ws_id}",
+            placeholder=ws_id,
+            label_visibility="visible",
+        )
+        keep_data = st.checkbox("Keep the triplestore dataset", key=f"keep_ds_{ws_id}", value=False)
+        if st.button("🗑️ Delete permanently", key=f"do_delete_{ws_id}",
+                     disabled=typed_d.strip() != ws_id, use_container_width=True, type="primary"):
+            _do_delete(ws_id, drop_dataset=not keep_data)
+
+
+def _do_clear(ws_id: str) -> None:
+    from backend.workspace import WorkspaceProtected, clear_workspace
+    ctx = _registry_context(ws_id)
+    if ctx is None:
+        st.error(f"Couldn't resolve workspace '{ws_id}' — nothing was changed.")
+        return
+    try:
+        with st.spinner(f"Clearing {ws_id}…"):
+            result = clear_workspace(ctx)
+    except WorkspaceProtected as exc:
+        st.warning(str(exc))
+        return
+    except Exception as exc:
+        st.error(f"Clearing '{ws_id}' failed: {exc}")
+        return
+
+    if not result["graphs_cleared"]:
+        st.warning(
+            f"Removed {result['files_deleted']} file(s), but the triplestore didn't "
+            "confirm the clear — check the dataset before reusing this workspace."
+        )
+        return
+    _close_workspace_if_open(ws_id)
+    st.success(
+        f"✅ Cleared `{ws_id}`: {result['files_deleted']} file(s) removed and the graph emptied"
+        + (", core ontology reloaded." if result["core_reloaded"] else ".")
+    )
+    st.rerun()
+
+
+def _do_delete(ws_id: str, drop_dataset: bool = True) -> None:
+    from backend.workspace import WorkspaceProtected, delete_workspace
+    try:
+        with st.spinner(f"Deleting {ws_id}…"):
+            result = delete_workspace(ws_id, drop_dataset=drop_dataset)
+    except WorkspaceProtected as exc:
+        st.warning(str(exc))
+        return
+    except Exception as exc:
+        st.error(f"Deleting '{ws_id}' failed: {exc}")
+        return
+
+    if not result["files_removed"]:
+        st.error(
+            f"Couldn't remove the folder for '{ws_id}' — nothing else was changed. "
+            "It may be open in another program."
+        )
+        return
+    _close_workspace_if_open(ws_id)
+    st.session_state.pop(f"show_settings_{ws_id}", None)
+    note = " (triplestore dataset kept)" if not drop_dataset else ""
+    st.success(f"🗑️ Deleted workspace `{ws_id}`{note}.")
+    st.rerun()
 
 
 def workspace_selector():

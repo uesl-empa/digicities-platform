@@ -82,6 +82,34 @@ def create_repository(repo_id: str, label: str, base_url: Optional[str] = None) 
     return get_backend().create_dataset(repo_id, label=label)
 
 
+def delete_repository(repo_id: str, base_url: Optional[str] = None) -> bool:
+    return get_backend().delete_dataset(repo_id)
+
+
+def clear_all_graphs(repo_id: str, base_url: Optional[str] = None) -> bool:
+    """Empty a dataset completely: the default graph AND every named graph.
+
+    ``CLEAR ALL`` is standard SPARQL 1.1 and behaves the same on both backends.
+    The dataset itself survives, so the workspace stays open and usable; callers
+    that want the core ontology back afterwards re-run ``ensure_workspace_repo``.
+    """
+    backend = get_backend()
+    try:
+        r = requests.post(
+            backend.update_url(repo_id),
+            data={"update": "CLEAR ALL"},
+            auth=getattr(backend, "auth", None),
+            timeout=120,
+        )
+        if r.status_code in (200, 204):
+            return True
+        print(f"[graphdb_provisioning] CLEAR ALL on {repo_id} returned HTTP {r.status_code}: {r.text[:200]}")
+        return False
+    except requests.RequestException as exc:
+        print(f"[graphdb_provisioning] CLEAR ALL on {repo_id} failed: {exc}")
+        return False
+
+
 def upload_ttl_to_graph(
     repo_id: str,
     graph_iri: str,

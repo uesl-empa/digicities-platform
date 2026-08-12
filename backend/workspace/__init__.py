@@ -17,15 +17,19 @@ both local-filesystem and NextCloud workspaces.
 
 from .context import WorkspaceContext
 from .creation import create_workspace, slugify, workspace_id_exists
+from .deletion import WorkspaceProtected, clear_workspace, delete_workspace
 from .graphdb_provisioning import ensure_workspace_repo
 from .registry import WorkspaceRegistry, load_registry
 from .storage import WorkspaceStorage
 
 __all__ = [
     "WorkspaceContext",
+    "WorkspaceProtected",
     "WorkspaceRegistry",
     "WorkspaceStorage",
+    "clear_workspace",
     "create_workspace",
+    "delete_workspace",
     "ensure_workspace_repo",
     "load_registry",
     "slugify",

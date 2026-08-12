@@ -68,6 +68,32 @@ class FusekiBackend:
             print(f"[triplestore.fuseki] create_dataset({dataset}) failed: {exc}")
             return False
 
+    def delete_dataset(self, dataset: str) -> bool:
+        """Remove the dataset from the server AND delete its TDB2 files.
+
+        Fuseki historically had two admin calls here: ``DELETE /$/datasets/<n>``
+        takes the dataset offline while leaving its files on disk (so recreating
+        the same name can resurrect the old data), and ``?state=delete`` removes
+        the database itself. Newer builds fold both into the plain DELETE, so try
+        the explicit form first and fall back.
+        """
+        if not self.dataset_exists(dataset):
+            return True                       # already gone
+        for url in (f"{self.base_url}/$/datasets/{dataset}?state=delete",
+                    f"{self.base_url}/$/datasets/{dataset}"):
+            try:
+                r = requests.delete(url, auth=self._auth, timeout=30)
+                if r.status_code not in (200, 204, 404):
+                    print(f"[triplestore.fuseki] delete_dataset({dataset}) HTTP "
+                          f"{r.status_code}: {r.text[:200]}")
+                    continue
+                if not self.dataset_exists(dataset):
+                    return True
+            except requests.RequestException as exc:
+                print(f"[triplestore.fuseki] delete_dataset({dataset}) failed: {exc}")
+                return False
+        return not self.dataset_exists(dataset)
+
     def dataset_path(self, dataset: str) -> str:
         return f"/{dataset}"
 

@@ -72,6 +72,21 @@ class GraphDBBackend:
             print(f"[triplestore.graphdb] create_dataset({dataset}) failed: {exc}")
             return False
 
+    def delete_dataset(self, dataset: str) -> bool:
+        """Drop the repository and its data via the GraphDB REST API."""
+        if not self.dataset_exists(dataset):
+            return True                       # already gone
+        try:
+            r = requests.delete(f"{self.base_url}/rest/repositories/{dataset}", timeout=30)
+            if r.status_code in (200, 204, 404):
+                return True
+            print(f"[triplestore.graphdb] delete_dataset({dataset}) HTTP "
+                  f"{r.status_code}: {r.text[:200]}")
+            return False
+        except requests.RequestException as exc:
+            print(f"[triplestore.graphdb] delete_dataset({dataset}) failed: {exc}")
+            return False
+
     def dataset_path(self, dataset: str) -> str:
         return f"/repositories/{dataset}"
 

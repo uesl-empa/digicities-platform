@@ -28,6 +28,13 @@ class TriplestoreBackend(Protocol):
         """Create a persistent dataset. Returns True on success, False on failure."""
         ...
 
+    def delete_dataset(self, dataset: str) -> bool:
+        """Drop a dataset (Fuseki) / repository (GraphDB) and everything in it.
+
+        Idempotent: deleting something that is already gone counts as success.
+        """
+        ...
+
     def dataset_path(self, dataset: str) -> str:
         """URL fragment for SPARQL endpoints.
 

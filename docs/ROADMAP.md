@@ -60,10 +60,13 @@ panel) for other backends, so none of them need env editing:
 
 ## 3. Workspace management
 
-- **Delete or archive a workspace** from the landing page, to clean up test workspaces
-  (removes the folder, the triplestore dataset, and any registry entry). Handy now that
-  workspaces can be created from the GUI.
+- ~~**Delete or archive a workspace** from the landing page~~ — done. The Settings panel
+  on each workspace card has a Danger zone with **Clear contents** (empties the files and
+  the triplestore, keeps the workspace) and **Delete workspace** (removes the folder, the
+  dataset and any registry entry). Both need the workspace id typed to confirm; bundled
+  demo workspaces are protected.
 - Optionally an **edit-metadata** action (rename, change description, tags).
+- **Archive** (as opposed to delete): export a workspace to a single file and restore it.
 
 ## 4. Local NextCloud: service-only overlay
 
