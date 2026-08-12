@@ -954,7 +954,7 @@ def render_groups_as_workspaces(groups):
             """, unsafe_allow_html=True)
 
         # Action buttons - simplified
-        col1, col2, col3 = st.columns([1, 1, 4])
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
 
         with col1:
             if st.button(f"📂 Open", key=f"open_{workspace['id']}", use_container_width=True):
@@ -964,6 +964,17 @@ def render_groups_as_workspaces(groups):
             # Use a simpler info display to reduce complexity
             with st.popover(f"ℹ️ Info", use_container_width=True):
                 render_workspace_info(workspace, metadata)
+
+        with col3:
+            from components.workspace_admin import render_manage_button
+            render_manage_button(workspace_id)
+
+        # Clear-contents / delete live in a panel under the card rather than in a
+        # popover: they carry a type-to-confirm field, and a popover collapses on
+        # the rerun its own widgets trigger.
+        from components.workspace_admin import manage_toggle_key, render_danger_zone
+        if st.session_state.get(manage_toggle_key(workspace_id), False):
+            render_danger_zone(workspace, is_demo=workspace_id in demo_ids)
 
     if rendered == 0:
         st.caption("No workspaces match this filter.")
