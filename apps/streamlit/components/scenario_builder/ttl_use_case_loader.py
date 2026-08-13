@@ -929,11 +929,13 @@ class NextCloudTTLUseCaseLoader:
         yielding ``<.../kW-HR>`` or ``UNITLESS``. Keeping the QUDT code
         round-trips cleanly; the replica also carries ``dici_onto:hasUnitLabel``
         for friendly UI display.
-        """
-        if unit_uri.startswith('unit:'):
-            return unit_uri.replace('unit:', '')
 
-        return unit_uri.rstrip('/').split('/')[-1]
+        An absent unit returns '' rather than a made-up code: the local-name split
+        used to turn the bare namespace into the word ``unit``, and ``unit:None``
+        into ``None``. See backend.units.
+        """
+        from backend.units import unit_local_name
+        return unit_local_name(unit_uri)
 
     def _map_currency_uri_to_string(self, currency_uri: str) -> str:
         """Map currency URIs to readable strings"""

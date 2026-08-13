@@ -344,7 +344,14 @@ class GraphDBComponentLoader:
         return uri
 
     def _extract_unit(self, unit_uri: str) -> str:
-        """Extract unit from URI"""
+        """Extract unit from URI, or '' when there is no unit.
+
+        ``unit:None`` and the bare QUDT namespace are absences, not units, and
+        must not reach a scenario as if they were real — see backend.units.
+        """
+        from backend.units import is_missing_unit
+        if is_missing_unit(unit_uri):
+            return ''
         if '/unit/' in unit_uri:
             return unit_uri.split('/unit/')[-1]
         return self._extract_fragment(unit_uri)

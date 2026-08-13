@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 import ast
 import json
+import math
 import re
 from typing import Dict, List, Any, Optional, Tuple
 
@@ -200,6 +201,35 @@ def extract_readable_instance_name(uri: str) -> str:
     return uri
 
 
+def clean_unit(unit_value: str) -> str:
+    """A displayable unit string, or '' when there is no unit.
+
+    ``unit:None``, the bare QUDT namespace and friends are absences dressed up as
+    units (backend.units explains where each comes from); rendering one as an axis
+    label shows the user something that isn't true.
+    """
+    from backend.units import is_missing_unit
+    if is_missing_unit(unit_value):
+        return ''
+    text = map_unit_uri_to_string(str(unit_value).strip())
+    # A bare IRI that mapped to nothing still leaves the local name to show.
+    if text.startswith('http'):
+        text = text.rstrip('/').rsplit('/', 1)[-1]
+    return '' if is_missing_unit(text) else text
+
+
+def curve_axis_units(props: Dict) -> Tuple[str, str]:
+    """(x_unit, y_unit) for a curve, preferring the string labels over the IRIs.
+
+    Both are optional and independently so: the Replica Builder writes only the
+    IRIs, the Excel ingestion writes both, and a dimensionless axis (a thrust
+    coefficient) legitimately has neither.
+    """
+    x = clean_unit(props.get('xUnitLabel', '')) or clean_unit(props.get('xUnit', ''))
+    y = clean_unit(props.get('yUnitLabel', '')) or clean_unit(props.get('yUnit', ''))
+    return x, y
+
+
 def map_unit_uri_to_string(unit_uri: str) -> str:
     """Map QUDT unit URIs to readable strings, including custom ratios - ENHANCED"""
     if not unit_uri:
@@ -277,36 +307,83 @@ def map_currency_uri_to_string(currency_uri: str) -> str:
     return extract_uri_fragment(currency_uri)
 
 
+# Hidden column prefix carrying a curve's parsed points + units next to its
+# human-readable summary. Underscore-prefixed columns are filtered out of the
+# table by get_visible_columns.
+CURVE_META_PREFIX = '_curve__'
+
+# A number as any writer or hand-authored file can spell it: sign, decimals,
+# leading dot, exponent. The old pattern was `[0-9.-]+`, which silently dropped
+# negatives written as `- 5`, `+1.2`, and anything in scientific notation.
+_NUM = r'[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?'
+_PAIR_BRACKET = re.compile(r'\[\s*(%s)\s*[,;]\s*(%s)\s*\]' % (_NUM, _NUM))
+_PAIR_PAREN = re.compile(r'\(\s*(%s)\s*[,;]\s*(%s)\s*\)' % (_NUM, _NUM))
+
+# hasDataPoints sometimes holds a pointer to an external file instead of points.
+_RESOURCE_HINT = re.compile(r'resources/|\.csv|\.json|\.parquet', re.I)
+
+
+def curve_data_is_reference(curve_data_str: str) -> bool:
+    """True when the literal points at an external file rather than holding points."""
+    s = (curve_data_str or '').strip()
+    return bool(s) and '[' not in s and '(' not in s and bool(_RESOURCE_HINT.search(s))
+
+
 def parse_curve_data(curve_data_str: str) -> List[Tuple[float, float]]:
-    """Parse curve data from string format to list of points"""
+    """Parse a ``hasDataPoints`` literal into [(x, y), …].
+
+    The platform emits several mutually incompatible shapes and none of them is
+    validated on write, so every one has to be tried:
+
+    * ``[  0.0,  1.0]`` newline-separated with NO commas between pairs — what the
+      Excel→TTL ingestion produces, and NOT valid JSON despite the declared range
+    * ``[0.0, 1.0],`` comma-separated — the Replica Builder UI, valid JSON
+    * ``(0.10, 2.5),`` Python tuples — hand-authored files and the tutorial data
+    * ``[(0,0);(1,10)]`` semicolon-separated — the authoring format users type
+    * an external file reference (see ``curve_data_is_reference``)
+
+    Non-finite and unparseable entries are dropped rather than raising, so one bad
+    pair cannot cost the whole curve.
+    """
     if not curve_data_str:
         return []
 
-    try:
-        cleaned = re.sub(r'\s+', ' ', curve_data_str.strip())
-
-        if cleaned.startswith('[') and cleaned.endswith(']'):
+    def _finite(pairs):
+        out = []
+        for x, y in pairs:
             try:
-                points = ast.literal_eval(cleaned)
-                if isinstance(points, list) and all(isinstance(p, (list, tuple)) and len(p) >= 2 for p in points):
-                    return [(float(p[0]), float(p[1])) for p in points]
-            except:
-                pass
+                fx, fy = float(x), float(y)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(fx) and math.isfinite(fy):
+                out.append((fx, fy))
+        return out
 
-        try:
-            points = json.loads(cleaned)
-            if isinstance(points, list) and all(isinstance(p, (list, tuple)) and len(p) >= 2 for p in points):
-                return [(float(p[0]), float(p[1])) for p in points]
-        except:
-            pass
+    try:
+        cleaned = re.sub(r'\s+', ' ', str(curve_data_str).strip())
+        if not cleaned or cleaned in ('[', '[]', '[ ]'):
+            return []
 
-        point_pattern = r'\[\s*([0-9.-]+)\s*,\s*([0-9.-]+)\s*\]'
-        matches = re.findall(point_pattern, cleaned)
-        if matches:
-            return [(float(x), float(y)) for x, y in matches]
+        # Structured parsers first — they preserve pairing exactly.
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                points = loader(cleaned)
+            except Exception:
+                continue
+            if isinstance(points, (list, tuple)):
+                pairs = [(p[0], p[1]) for p in points
+                         if isinstance(p, (list, tuple)) and len(p) >= 2]
+                if pairs:
+                    return _finite(pairs)
 
-    except Exception as e:
-        print(f"Error parsing curve data: {e}")
+        # Regex fallbacks: the comma-less and paren forms are not loadable.
+        for pattern in (_PAIR_BRACKET, _PAIR_PAREN):
+            matches = pattern.findall(cleaned)
+            if matches:
+                return _finite(matches)
+
+    except Exception as e:                      # never let the table/plot die on data
+        print(f"[component_explorer] error parsing curve data: {e}")
 
     return []
 
@@ -330,6 +407,7 @@ class AttributeProcessor:
     def process_instance_attributes(self, attributes: List[Dict]) -> Dict[str, Any]:
         """Process all attributes for a single component instance"""
         processed = {}
+        self.curve_meta = {}          # filled by _process_curve_attribute, per instance
 
         attrs_by_uri = {}
         for attr in attributes:
@@ -352,6 +430,11 @@ class AttributeProcessor:
                     processed[attr_name] = processed_value
             else:
                 processed[attr_name] = self._process_generic_attribute(attr_data, attr_name)
+
+        # Carry the parsed curves alongside their summaries. The leading underscore
+        # keeps these out of the table (get_visible_columns) and out of the CSV.
+        for name, meta in self.curve_meta.items():
+            processed[f"{CURVE_META_PREFIX}{name}"] = meta
 
         return processed
 
@@ -510,25 +593,39 @@ class AttributeProcessor:
         return 'Unknown Category'
 
     def _process_curve_attribute(self, attr_data: Dict, attr_name: str) -> Optional[str]:
-        """Process CurveAttribute with data points"""
+        """Summarise a CurveAttribute for the table, and stash the real points.
+
+        The table cell can only hold a short human summary, but the plot needs the
+        actual series. Previously only the summary survived, so the visualiser was
+        re-parsing "Curve (12 points): kW vs m/s" and could never draw anything.
+        The parsed points and units go into ``self.curve_meta``, which the caller
+        carries into a hidden ``_curve__<name>`` column.
+        """
         props = attr_data.get('properties', {})
         data_points = props.get('hasDataPoints', '')
-        x_unit = props.get('xUnit', '')
-        y_unit = props.get('yUnit', '')
+        if not data_points:
+            return None
 
-        if data_points:
-            x_unit_str = map_unit_uri_to_string(x_unit) if x_unit else ''
-            y_unit_str = map_unit_uri_to_string(y_unit) if y_unit else ''
+        x_unit, y_unit = curve_axis_units(props)
+        axes = f"{y_unit or '?'} vs {x_unit or '?'}"
 
-            try:
-                points = parse_curve_data(data_points)
-                if points:
-                    return f"Curve ({len(points)} points): {y_unit_str} vs {x_unit_str}"
-            except:
-                pass
+        if curve_data_is_reference(data_points):
+            self.curve_meta[attr_name] = {
+                'points': [], 'x_unit': x_unit, 'y_unit': y_unit,
+                'reference': str(data_points).strip(), 'raw': str(data_points),
+            }
+            return f"Curve (external file): {str(data_points).strip()}"
 
-            return f"Curve Data: {y_unit_str} vs {x_unit_str}"
-        return None
+        points = parse_curve_data(data_points)
+        self.curve_meta[attr_name] = {
+            'points': points, 'x_unit': x_unit, 'y_unit': y_unit,
+            'reference': None, 'raw': str(data_points),
+        }
+        if points:
+            return f"Curve ({len(points)} points): {axes}"
+        # Units but nothing parseable — distinct from "no curve here at all", and
+        # usually means the source cell used a shape the ingestion regex rejected.
+        return f"Curve (no points parsed): {axes}"
 
     def _process_dynamic_attribute(self, attr_data: Dict, attr_name: str) -> Optional[str]:
         """Process DynamicAttribute (time series) - ENHANCED"""
@@ -638,72 +735,114 @@ def get_visible_columns(df: pd.DataFrame) -> List[str]:
 # VISUALIZATION FUNCTIONS
 # =============================================================================
 
-def visualize_curve(df: pd.DataFrame, instance_id: str, curve_column: str):
-    """Enhanced curve visualization with better parsing and display"""
+_PLOT_POINT_LIMIT = 5000        # above this, draw a line only and say so
+
+
+def curve_columns(df: pd.DataFrame) -> List[str]:
+    """Curve attribute columns, identified by the metadata the processor attached.
+
+    Detection used to be a substring match on the column name ('curve', 'profile',
+    'datapoints'), which both missed real curves named anything else (Efficiency,
+    PowerOutput) and offered non-curves whose name happened to match.
+    """
+    if df is None or df.empty:
+        return []
+    return [c[len(CURVE_META_PREFIX):] for c in df.columns
+            if c.startswith(CURVE_META_PREFIX)]
+
+
+def _curve_meta(df: pd.DataFrame, instance_id, curve_column: str) -> Optional[Dict]:
+    col = f"{CURVE_META_PREFIX}{curve_column}"
+    if col not in df.columns or instance_id not in df.index:
+        return None
+    meta = df.loc[instance_id, col]
+    return meta if isinstance(meta, dict) else None
+
+
+def visualize_curve(df: pd.DataFrame, instance_id, curve_column: str):
+    """Plot one instance's curve, using the points parsed at load time."""
     try:
-        if instance_id not in df.index:
-            st.error(f"Instance {instance_id} not found in data")
+        meta = _curve_meta(df, instance_id, curve_column)
+        if meta is None:
+            st.error(f"No curve data recorded for '{curve_column}' on this instance.")
             return
 
-        curve_data_str = df.loc[instance_id, curve_column]
-
-        if pd.isna(curve_data_str) or curve_data_str == '':
-            st.error("No curve data available for this instance")
+        if meta.get('reference'):
+            st.info(f"This curve points at an external file rather than holding its "
+                    f"points inline:\n\n`{meta['reference']}`\n\nNothing to plot here — "
+                    f"open the data product to see the series.")
             return
 
-        curve_data = parse_curve_data(str(curve_data_str))
-
-        if not curve_data:
-            st.error("Could not parse curve data")
-            st.text("Raw data:")
-            st.code(str(curve_data_str)[:500])
+        points = meta.get('points') or []
+        if not points:
+            st.warning("This curve has no plottable points.")
+            with st.expander("Show the raw value"):
+                st.code(str(meta.get('raw', ''))[:2000])
+            st.caption("A curve with units but no points usually means the source cell "
+                       "used a number format the ingestion didn't recognise (a space "
+                       "after the comma, a negative, or scientific notation).")
             return
 
-        x_values = [point[0] for point in curve_data]
-        y_values = [point[1] for point in curve_data]
+        # Points are stored in source order and nothing guarantees ascending x, so an
+        # unsorted curve would render as a zigzag. Sort a copy for the line.
+        ordered = sorted(points, key=lambda p: p[0])
+        x_values = [p[0] for p in ordered]
+        y_values = [p[1] for p in ordered]
 
-        fig, ax = plt.subplots(figsize=(12, 8))
-        ax.plot(x_values, y_values, 'o-', linewidth=2, markersize=4, color='#1f77b4')
+        x_unit, y_unit = meta.get('x_unit', ''), meta.get('y_unit', '')
+        x_label = f"X [{x_unit}]" if x_unit else "X (no unit recorded)"
+        y_label = f"{curve_column} [{y_unit}]" if y_unit else f"{curve_column} (no unit recorded)"
 
-        ax.set_title(f"Curve Data: {curve_column} for {instance_id}", fontsize=14, fontweight='bold')
-
-        if 'vs' in curve_column.lower():
-            parts = curve_column.split('vs')
-            if len(parts) == 2:
-                y_label = parts[0].strip()
-                x_label = parts[1].strip()
-                ax.set_xlabel(x_label, fontsize=12)
-                ax.set_ylabel(y_label, fontsize=12)
-            else:
-                ax.set_xlabel("X Values", fontsize=12)
-                ax.set_ylabel("Y Values", fontsize=12)
+        downsampled = len(ordered) > _PLOT_POINT_LIMIT
+        if downsampled:
+            step = len(ordered) // _PLOT_POINT_LIMIT + 1
+            x_plot, y_plot = x_values[::step], y_values[::step]
         else:
-            ax.set_xlabel("X Values", fontsize=12)
-            ax.set_ylabel("Y Values", fontsize=12)
+            x_plot, y_plot = x_values, y_values
 
+        fig, ax = plt.subplots(figsize=(12, 6))
+        if len(ordered) == 1:
+            ax.plot(x_plot, y_plot, 'o', markersize=10, color='#1f77b4')
+        elif downsampled:
+            ax.plot(x_plot, y_plot, '-', linewidth=1.5, color='#1f77b4')
+        else:
+            ax.plot(x_plot, y_plot, 'o-', linewidth=2, markersize=4, color='#1f77b4')
+
+        ax.set_title(f"{curve_column} — {instance_id}", fontsize=14, fontweight='bold')
+        ax.set_xlabel(x_label, fontsize=12)
+        ax.set_ylabel(y_label, fontsize=12)
         ax.grid(True, alpha=0.3)
         ax.tick_params(labelsize=10)
 
-        ax.text(0.02, 0.98, f'Points: {len(curve_data)}', transform=ax.transAxes,
-                verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+        note = f'Points: {len(ordered)}' + (f' (showing {len(x_plot)})' if downsampled else '')
+        ax.text(0.02, 0.98, note, transform=ax.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
 
         plt.tight_layout()
         st.pyplot(fig)
+        plt.close(fig)                       # Streamlit reruns leak figures otherwise
 
-        with st.expander("📊 Curve Statistics"):
+        if len(ordered) == 1:
+            st.caption("A single point — there is no curve to draw through it.")
+        if not x_unit or not y_unit:
+            missing = " and ".join(a for a, u in (("X", x_unit), ("Y", y_unit)) if not u)
+            st.caption(f"No {missing} unit recorded for this curve. That is expected for a "
+                       f"dimensionless axis (a coefficient or ratio); otherwise the unit is "
+                       f"missing from the source data.")
+
+        with st.expander("📊 Curve statistics"):
             col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Data Points", len(curve_data))
-            with col2:
-                st.metric("X Range", f"{min(x_values):.2f} - {max(x_values):.2f}")
-            with col3:
-                st.metric("Y Range", f"{min(y_values):.2f} - {max(y_values):.2f}")
-            with col4:
-                y_mean = np.mean(y_values)
-                st.metric("Y Mean", f"{y_mean:.2f}")
+            col1.metric("Data points", len(ordered))
+            col2.metric(f"X range{f' [{x_unit}]' if x_unit else ''}",
+                        f"{min(x_values):g} – {max(x_values):g}")
+            col3.metric(f"Y range{f' [{y_unit}]' if y_unit else ''}",
+                        f"{min(y_values):g} – {max(y_values):g}")
+            col4.metric("Y mean", f"{np.mean(y_values):g}")
+            st.dataframe(pd.DataFrame(ordered, columns=[x_label, y_label]),
+                         use_container_width=True, height=240)
 
     except Exception as e:
-        st.error(f"Error visualizing curve: {str(e)}")
+        st.error(f"Error visualizing curve: {e}")
 
 
 def display_data_table(df: pd.DataFrame, component_type: str):
@@ -726,8 +865,8 @@ def display_data_table(df: pd.DataFrame, component_type: str):
 
     st.write(f"📊 Showing {len(filtered_df)} instances of {component_type}")
 
-    curve_cols = [col for col in filtered_df.columns
-                 if any(curve_name in col.lower() for curve_name in ['curve', 'profile', 'datapoints'])]
+    # Identified from the attached metadata, not from the column name.
+    curve_cols = [c for c in curve_columns(df) if c in filtered_df.columns]
 
     show_curves = st.checkbox("Show curve data in table", value=False)
 
@@ -764,9 +903,20 @@ def display_data_table(df: pd.DataFrame, component_type: str):
                 st.warning("No instances available to visualize")
                 return
 
+            # The index is positional after reset_index, so show the instance's name
+            # and map back — a list of integers told the user nothing.
+            def _instance_label(idx):
+                for col in ('instance_id', 'label'):
+                    if col in df.columns:
+                        val = df.loc[idx, col]
+                        if isinstance(val, str) and val:
+                            return f"{val}"
+                return str(idx)
+
             selected_instance = st.selectbox(
                 "Select Instance",
                 instance_options,
+                format_func=_instance_label,
                 key="viz_instance_selector"
             )
 
@@ -776,9 +926,11 @@ def display_data_table(df: pd.DataFrame, component_type: str):
                 key="viz_curve_selector"
             )
 
+            # `df`, not `filtered_df`: the parsed points live in hidden columns that
+            # get_visible_columns strips out of the display frame.
             if st.button("📊 Generate Visualization"):
                 with st.spinner("Generating curve visualization..."):
-                    visualize_curve(filtered_df, selected_instance, selected_curve)
+                    visualize_curve(df, selected_instance, selected_curve)
 
 
 # =============================================================================

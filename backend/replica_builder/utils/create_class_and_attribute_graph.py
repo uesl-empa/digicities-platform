@@ -845,20 +845,24 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
 
                     if attr_type == "Curve":
                         # Handle Curve type.
-                        # xUnit / yUnit (ObjectProperties → qudt:Unit IRI) are preserved unchanged.
-                        # xUnitLabel / yUnitLabel (DatatypeProperties → xsd:string) are added alongside
-                        # them so applications can retrieve the unit string without resolving QUDT IRIs.
+                        # xUnit / yUnit (ObjectProperties → qudt:Unit IRI) with their
+                        # xUnitLabel / yUnitLabel (DatatypeProperties → xsd:string) alongside,
+                        # so applications can read the unit string without resolving QUDT IRIs.
+                        #
+                        # Both are OPTIONAL and must be omitted when the header row is blank:
+                        # interpolating a missing value emitted the literal IRI `unit:None`,
+                        # which resolves to nothing and silently poisoned every curve whose
+                        # y-unit row was empty — whether deliberately (a dimensionless thrust
+                        # coefficient) or by omission upstream.
                         attr_lines.extend([
                             f"{attr_uri} a dici_onto:{attr_name} ;",
                             f"\ta dici_onto:CurveAttribute ;",
-                            f"\tdici_onto:xUnit unit:{qudt_unit} ;",
                         ])
-                        # xUnitLabel: string label alongside the IRI
                         if qudt_unit:
+                            attr_lines.append(f"\tdici_onto:xUnit unit:{qudt_unit} ;")
                             attr_lines.append(f'\tdici_onto:xUnitLabel "{qudt_unit}"^^xsd:string ;')
-                        attr_lines.append(f"\tdici_onto:yUnit unit:{qudt_unit_y} ;")
-                        # yUnitLabel: string label alongside the IRI
                         if qudt_unit_y:
+                            attr_lines.append(f"\tdici_onto:yUnit unit:{qudt_unit_y} ;")
                             attr_lines.append(f'\tdici_onto:yUnitLabel "{qudt_unit_y}"^^xsd:string ;')
 
                         attr_lines.append('\tdici_onto:hasDataPoints """[')
