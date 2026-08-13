@@ -161,7 +161,14 @@ def test_explorer_shapes_sources_and_hides_them_until_asked():
     df = pd.DataFrame([{"URI": t1, "instance_id": "T1"},
                        {"URI": f"{PROJ}/WindTurbine/T2", "instance_id": "T2"}])
     out = attach_sources(df, src)
-    assert out.loc[0, SOURCE_COLUMN] == "park_alkmaar.yaml (+1 for individual values)"
+    # The extra file is NAMED — a bare "+1" told the reader nothing. The
+    # derivedFromCatalogue link in the table names the catalogue instance; this
+    # column names the files.
+    assert out.loc[0, SOURCE_COLUMN] == "park_alkmaar.yaml (+ types_yaml for some values)"
+    # 3+ extra files fall back to a count so the cell stays readable.
+    many = {"instance": [{"label": "a.yaml"}],
+            "attributes": {f"Attr{i}": [{"label": f"f{i}.yaml"}] for i in range(3)}}
+    assert summarize_sources(many) == "a.yaml (+3 files for some values)"
     assert out.loc[1, SOURCE_COLUMN] == ""                    # no provenance, no noise
     # The metadata rides hidden, so neither the table nor the CSV export changes.
     assert SOURCE_META_COLUMN in out.columns

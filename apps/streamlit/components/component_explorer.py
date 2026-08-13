@@ -779,16 +779,21 @@ def attach_sources(df: pd.DataFrame, sources: Dict[str, Dict[str, Any]]) -> pd.D
 
 
 def summarize_sources(entry: Optional[Dict[str, Any]]) -> str:
-    """One cell's worth: the record's own source, and a count of any attributes
-    that came from somewhere else."""
+    """One cell's worth: the record's own source, plus any file that supplied some of
+    the row's individual values (e.g. a catalogue file whose spec was copied down).
+    Named, not counted — "+1" told the reader nothing; a count only when 3+ files
+    would crowd the cell. Which attributes came from where is the per-instance panel's
+    job. NB the `derivedFromCatalogue` link in the table is the model-level
+    counterpart: it names the catalogue INSTANCE, this column the files."""
     if not entry:
         return ''
     names = [r['label'] for r in entry.get('instance', [])]
-    extra = {r['label'] for refs in entry.get('attributes', {}).values() for r in refs}
-    extra -= set(names)
+    extra = sorted({r['label'] for refs in entry.get('attributes', {}).values() for r in refs}
+                   - set(names))
     text = ', '.join(names) if names else '—'
     if extra:
-        text += f" (+{len(extra)} for individual values)"
+        text += (f" (+ {', '.join(extra)} for some values)" if len(extra) <= 2
+                 else f" (+{len(extra)} files for some values)")
     return text
 
 
