@@ -18,6 +18,10 @@ The provisioned ontology graph materialises the RDFS closure, which makes
 ``rdfs:subClassOf`` transitively closed. "Direct parent" therefore cannot be
 read off a single triple; the templates recover it with a no-intermediate
 filter, and the instance's "own class" with a no-more-specific filter.
+
+Each recommendation carries an ``ask`` twin — the same WHERE block under an
+ASK — so a caller can pre-flight which recommendations would actually return
+rows (``available_recommendations``) and hide the empty ones.
 """
 
 from __future__ import annotations
@@ -71,43 +75,27 @@ def _validate(instance_uri: str) -> str:
     return uri
 
 
-def recommended_queries(instance_uri: str) -> list[dict]:
-    """The recommended queries for one instance, ready for the Query Manager.
-
-    Returns ``[{"key", "name", "description", "sparql"}, ...]`` in presentation
-    order. Raises ``ValueError`` on anything that is not an absolute IRI, so a
-    malformed value can never be spliced into a query.
-    """
-    uri = _validate(instance_uri)
-    graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)
-    own_class = _OWN_CLASS  # formatted once, inside q(), like the rest of the body
-
-    def q(body: str) -> str:
-        return f"{_PREFIXES}{body.format(uri=uri, graphs=graphs)}"
-
-    return [
-        {
-            "key": "overview",
-            "name": "Everything about this instance",
-            "description": "Every statement the instance appears in, outgoing and incoming.",
-            "sparql": q("""SELECT DISTINCT ?direction ?predicate ?value ?valueLabel
-{graphs}WHERE {{
-  {{ BIND("outgoing →" AS ?direction) <{uri}> ?predicate ?value . }}
+# (key, name, description, SELECT clause, WHERE block, ORDER BY clause).
+# The WHERE block is shared verbatim between the SELECT and its ASK twin.
+_RECOMMENDATIONS = [
+    (
+        "overview",
+        "Everything about this instance",
+        "Every statement the instance appears in, outgoing and incoming.",
+        "?direction ?predicate ?value ?valueLabel",
+        """  {{ BIND("outgoing →" AS ?direction) <{uri}> ?predicate ?value . }}
   UNION
   {{ BIND("← incoming" AS ?direction) ?value ?predicate <{uri}> . }}
-  OPTIONAL {{ ?value rdfs:label ?valueLabel }}
-}}
-ORDER BY DESC(?direction) ?predicate"""),
-        },
-        {
-            "key": "attributes",
-            "name": "Attributes and their values",
-            "description": "The instance's attribute nodes with every recorded property "
-                           "(value, unit, data points), matched via the hasAttribute "
-                           "property hierarchy.",
-            "sparql": q("""SELECT DISTINCT ?attribute ?attributeClass ?property ?value
-{graphs}WHERE {{
-  <{uri}> ?attrPredicate ?attribute .
+  OPTIONAL {{ ?value rdfs:label ?valueLabel }}""",
+        "DESC(?direction) ?predicate",
+    ),
+    (
+        "attributes",
+        "Attributes and their values",
+        "The instance's attribute nodes with every recorded property (value, unit, "
+        "data points), matched via the hasAttribute property hierarchy.",
+        "?attribute ?attributeClass ?property ?value",
+        """  <{uri}> ?attrPredicate ?attribute .
   ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
   ?attribute ?property ?value .
   OPTIONAL {{
@@ -119,18 +107,16 @@ ORDER BY DESC(?direction) ?predicate"""),
       FILTER(?moreSpecific != ?attributeClass)
     }}
   }}
-  FILTER(?property != rdf:type)
-}}
-ORDER BY ?attribute ?property"""),
-        },
-        {
-            "key": "links",
-            "name": "Linked components",
-            "description": "Components connected to this instance in either direction, via "
-                           "any predicate under the core linksComponent hierarchy.",
-            "sparql": q("""SELECT DISTINCT ?direction ?predicate ?component ?componentClass ?componentLabel
-{graphs}WHERE {{
-  {{ BIND("outgoing →" AS ?direction) <{uri}> ?predicate ?component . }}
+  FILTER(?property != rdf:type)""",
+        "?attribute ?property",
+    ),
+    (
+        "links",
+        "Linked components",
+        "Components connected to this instance in either direction, via any "
+        "predicate under the core linksComponent hierarchy.",
+        "?direction ?predicate ?component ?componentClass ?componentLabel",
+        """  {{ BIND("outgoing →" AS ?direction) <{uri}> ?predicate ?component . }}
   UNION
   {{ BIND("← incoming" AS ?direction) ?component ?predicate <{uri}> . }}
   ?predicate rdfs:subPropertyOf* dici_onto:linksComponent .
@@ -144,49 +130,43 @@ ORDER BY ?attribute ?property"""),
       FILTER(?moreSpecific != ?componentClass)
     }}
   }}
-  OPTIONAL {{ ?component rdfs:label ?componentLabel }}
-}}
-ORDER BY DESC(?direction) ?predicate ?component"""),
-        },
-        {
-            "key": "same_class",
-            "name": "Instances of the same class",
-            "description": "Every other instance sharing this instance's (most specific) class.",
-            "sparql": q("""SELECT DISTINCT ?class ?instance ?instanceLabel
-{graphs}WHERE {{
-""" + own_class + """
+  OPTIONAL {{ ?component rdfs:label ?componentLabel }}""",
+        "DESC(?direction) ?predicate ?component",
+    ),
+    (
+        "same_class",
+        "Instances of the same class",
+        "Every other instance sharing this instance's (most specific) class.",
+        "?class ?instance ?instanceLabel",
+        _OWN_CLASS + """
   ?instance a ?class .
   FILTER(?instance != <{uri}>)
-  OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
-}}
-ORDER BY ?class ?instance"""),
-        },
-        {
-            "key": "cousins",
-            "name": "Instances of sibling (cousin) classes",
-            "description": "Instances of the other classes under this instance's direct "
-                           "parent in the class hierarchy — its nearest relatives.",
-            "sparql": q("""SELECT DISTINCT ?parentClass ?cousinClass ?instance ?instanceLabel
-{graphs}WHERE {{
-""" + own_class + "\n"
-                + _direct_edge("?class", "?parentClass", "?mid1") + "\n"
-                + _direct_edge("?cousinClass", "?parentClass", "?mid2") + """
+  OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}""",
+        "?class ?instance",
+    ),
+    (
+        "cousins",
+        "Instances of sibling (cousin) classes",
+        "Instances of the other classes under this instance's direct parent in "
+        "the class hierarchy — its nearest relatives.",
+        "?parentClass ?cousinClass ?instance ?instanceLabel",
+        _OWN_CLASS + "\n"
+        + _direct_edge("?class", "?parentClass", "?mid1") + "\n"
+        + _direct_edge("?cousinClass", "?parentClass", "?mid2") + """
   FILTER(?cousinClass != ?class)
   FILTER NOT EXISTS {{ <{uri}> a ?cousinClass }}
   ?instance a ?cousinClass .
   FILTER(?instance != <{uri}>)
-  OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
-}}
-ORDER BY ?parentClass ?cousinClass ?instance"""),
-        },
-        {
-            "key": "catalogue",
-            "name": "Catalogue derivation",
-            "description": "The catalogue entry this instance was specced from, and any "
-                           "instances specced from this one.",
-            "sparql": q("""SELECT DISTINCT ?relation ?other ?otherLabel
-{graphs}WHERE {{
-  {{
+  OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}""",
+        "?parentClass ?cousinClass ?instance",
+    ),
+    (
+        "catalogue",
+        "Catalogue derivation",
+        "The catalogue entry this instance was specced from, and any instances "
+        "specced from this one.",
+        "?relation ?other ?otherLabel",
+        """  {{
     BIND("specced from catalogue entry" AS ?relation)
     <{uri}> ?p ?other .
     ?p rdfs:subPropertyOf* dici_onto:derivedFromCatalogue .
@@ -197,19 +177,16 @@ ORDER BY ?parentClass ?cousinClass ?instance"""),
     ?other ?p <{uri}> .
     ?p rdfs:subPropertyOf* dici_onto:derivedFromCatalogue .
   }}
-  OPTIONAL {{ ?other rdfs:label ?otherLabel }}
-}}
-ORDER BY ?relation ?other"""),
-        },
-        {
-            "key": "sources",
-            "name": "Data sources (provenance)",
-            "description": "The Reference each value was read from — the record's own "
-                           "source and any per-attribute sources, via the "
-                           "prov:wasDerivedFrom property hierarchy.",
-            "sparql": q("""SELECT DISTINCT ?scope ?attribute ?source ?sourceLabel ?sourceUrl
-{graphs}WHERE {{
-  {{
+  OPTIONAL {{ ?other rdfs:label ?otherLabel }}""",
+        "?relation ?other",
+    ),
+    (
+        "sources",
+        "Data sources (provenance)",
+        "The Reference each value was read from — the record's own source and any "
+        "per-attribute sources, via the prov:wasDerivedFrom property hierarchy.",
+        "?scope ?attribute ?source ?sourceLabel ?sourceUrl",
+        """  {{
     BIND("instance" AS ?scope)
     <{uri}> ?sourcePredicate ?source .
   }}
@@ -225,8 +202,55 @@ ORDER BY ?relation ?other"""),
   # a citable origin, not the catalogue link (which also sits under wasDerivedFrom)
   ?source a dici_onto:Reference .
   OPTIONAL {{ ?source rdfs:label ?sourceLabel }}
-  OPTIONAL {{ ?source schema:url ?sourceUrl }}
-}}
-ORDER BY ?scope ?attribute"""),
-        },
-    ]
+  OPTIONAL {{ ?source schema:url ?sourceUrl }}""",
+        "?scope ?attribute",
+    ),
+]
+
+
+def recommended_queries(instance_uri: str) -> list[dict]:
+    """The recommended queries for one instance, ready for the Query Manager.
+
+    Returns ``[{"key", "name", "description", "sparql", "ask"}, ...]`` in
+    presentation order. Raises ``ValueError`` on anything that is not an
+    absolute IRI, so a malformed value can never be spliced into a query.
+    """
+    uri = _validate(instance_uri)
+    graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)
+    out = []
+    for key, name, description, select, where, order in _RECOMMENDATIONS:
+        body = where.format(uri=uri)
+        out.append({
+            "key": key,
+            "name": name,
+            "description": description,
+            "sparql": f"{_PREFIXES}SELECT DISTINCT {select}\n{graphs}WHERE {{\n"
+                      f"{body}\n}}\nORDER BY {order}",
+            "ask": f"{_PREFIXES}ASK\n{graphs}WHERE {{\n{body}\n}}",
+        })
+    return out
+
+
+def available_recommendations(client, instance_uri: str) -> list[dict]:
+    """``recommended_queries`` filtered to those that would return rows.
+
+    Each candidate's ASK twin is executed first; a recommendation whose pattern
+    matches nothing is dropped, so the UI never offers a query that comes back
+    empty. Fails OPEN: if an ASK cannot be executed (transport error, a store
+    without ASK support), the recommendation is kept — hiding must never lose a
+    working query.
+    """
+    return [r for r in recommended_queries(instance_uri) if _ask(client, r["ask"])]
+
+
+def _ask(client, query: str) -> bool:
+    try:
+        res = client.sparql_api_query(query, out_format="response")
+        if hasattr(res, "json"):
+            res = res.json()
+        if isinstance(res, dict):
+            return bool(res.get("boolean", True))
+        return bool(res)
+    except Exception as exc:
+        print(f"[graphdb.queries.inspector] ASK pre-flight failed (keeping query): {exc}")
+        return True

@@ -320,7 +320,7 @@ def _render_instance_inspector(client, workspace):
     puts it in the ordinary editor, so it can be edited, run, and saved like any
     other query.
     """
-    from backend.graphdb.queries import recommended_queries
+    from backend.graphdb.queries import available_recommendations
 
     inspected = st.session_state.inspected_instance
     with st.container(border=True):
@@ -335,9 +335,14 @@ def _render_instance_inspector(client, workspace):
             st.rerun()
 
         try:
-            recs = recommended_queries(inspected["uri"])
+            # ASK-pre-flighted: recommendations whose pattern matches nothing in
+            # this workspace are hidden rather than offered as dead ends.
+            recs = available_recommendations(client, inspected["uri"])
         except (KeyError, ValueError) as exc:
             st.error(f"Cannot build queries for this instance: {exc}")
+            return
+        if not recs:
+            st.info("The graph records nothing about this instance.")
             return
 
         by_name = {r["name"]: r for r in recs}

@@ -39,7 +39,10 @@ from backend.graphdb.graphs import (  # noqa: E402
     CLASSES_AND_ATTRIBUTES_GRAPH,
     ONTOLOGY_GRAPH,
 )
-from backend.graphdb.queries import recommended_queries  # noqa: E402
+from backend.graphdb.queries import (  # noqa: E402
+    available_recommendations,
+    recommended_queries,
+)
 
 PROJ = "https://digicities.info/proj/t"
 T1 = f"{PROJ}/WindTurbine/T1"
@@ -133,6 +136,14 @@ class _Client:
             [[None if v is None else str(v) for v in row] for row in res],
             columns=[str(v) for v in res.vars])
 
+    def sparql_api_query(self, query: str, out_format: str = "df"):
+        res = self.ds.query(query)
+        if res.type == "ASK":
+            return {"boolean": bool(res.askAnswer)}
+        return pd.DataFrame(
+            [[None if v is None else str(v) for v in row] for row in res],
+            columns=[str(v) for v in res.vars])
+
 
 @pytest.fixture(scope="module")
 def client() -> _Client:
@@ -152,6 +163,9 @@ def test_seven_recommendations_each_named_and_scoped():
     for r in recs:
         assert r["name"] and r["description"]
         assert T1 in r["sparql"] and "FROM" in r["sparql"]
+        # the ASK twin shares the pattern, scoped to the same graphs
+        assert r["ask"].count("FROM") == r["sparql"].count("FROM")
+        assert "ASK" in r["ask"] and T1 in r["ask"]
 
 
 def test_queries_are_ontology_driven_not_name_matched():
@@ -222,6 +236,25 @@ def test_catalogue_derivation_both_ways(client):
     entry = client.run(_q("catalogue", f"{PROJ}/WindTurbine/Cat1"))
     derived = entry[entry["relation"] == "instances specced from this entry"]
     assert set(derived["other"]) == {T1, f"{PROJ}/WindTurbine/T2"}
+
+
+def test_ask_preflight_hides_only_the_empty_recommendations(client):
+    # T1 has links, attributes, a catalogue entry, sources and peers: all seven.
+    assert [r["key"] for r in available_recommendations(client, T1)] == [
+        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources"]
+    # The pump has none of that: no attributes, no links, no catalogue, no
+    # sources, no same-class peers. Its overview (it exists) and its cousins
+    # (Turbine and Location instances beside Pump under Component) remain.
+    pump = available_recommendations(client, f"{PROJ}/Pump/P1")
+    assert [r["key"] for r in pump] == ["overview", "cousins"]
+
+
+def test_ask_preflight_fails_open_when_ask_cannot_run(client):
+    class _Broken:
+        def sparql_api_query(self, query, out_format="df"):
+            raise RuntimeError("no ASK support")
+    # Hiding must never lose a working query: with ASK unavailable, everything stays.
+    assert len(available_recommendations(_Broken(), T1)) == 7
 
 
 def test_sources_are_references_never_the_catalogue_link(client):
