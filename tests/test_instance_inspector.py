@@ -62,7 +62,7 @@ ONTOLOGY = """
 dici_onto:Component a owl:Class ; rdfs:subClassOf dici_onto:Component .
 dici_onto:Turbine a owl:Class ;
     rdfs:subClassOf dici_onto:Turbine, dici_onto:Component .
-dici_onto:WindTurbine a owl:Class ;
+dici_onto:WindTurbine a owl:Class ; rdfs:label "Wind Turbine" ;
     rdfs:subClassOf dici_onto:WindTurbine, dici_onto:Turbine, dici_onto:Component .
 dici_onto:TidalTurbine a owl:Class ;
     rdfs:subClassOf dici_onto:TidalTurbine, dici_onto:Turbine, dici_onto:Component .
@@ -363,3 +363,22 @@ def test_workspace_ask_preflight_hides_missing_sections():
     keys = [r["key"] for r in available_workspace_queries(bare)]
     assert "scenarios" not in keys
     assert "all_components" in keys and "catalogue_instances" in keys
+
+
+def test_shared_platform_queries_exclude_dual_typed_attribute_nodes(client):
+    # The guard lives in the SHARED query layer (components.NOT_ATTRIBUTE_NODE),
+    # so every module — Explorer, loaders, SRB, inspector — sees the same truth
+    # in any workspace, not just where the bug was first noticed.
+    from backend.graphdb.queries import (
+        get_all_component_instances,
+        get_component_instances,
+        get_component_types_with_instances,
+        get_instances_of_type,
+    )
+    tag = f"{PROJ}/Location/Site1/TypeTag"
+    assert tag not in set(get_all_component_instances(client)["instance"])
+    assert tag not in set(get_instances_of_type(client, "WindTurbine")["instance"])
+    assert tag not in set(get_component_instances(client, "Wind Turbine")["instance"])
+    counts = get_component_types_with_instances(client)
+    wt = counts[counts["componentName"] == "Wind Turbine"]
+    assert int(wt.iloc[0]["instanceCount"]) == 3      # T1, T2, Cat1 — not the TypeTag

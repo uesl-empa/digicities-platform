@@ -72,18 +72,11 @@ def _direct_edge(child: str, parent: str, mid: str) -> str:
 
 
 def _not_attribute_node(var: str, escaped: bool = False) -> str:
-    """A component instance is never the OBJECT of a hasAttribute-family edge.
-
-    The dual-typing convention types a Categorical attribute node with its value
-    class — so when that value class is also a component class (a SiteType whose
-    value IS GlobalWindAtlasSite), a bare ``?x a <class>`` picks up the attribute
-    node as a phantom instance. This filter is the rules-driven exclusion.
-    ``escaped`` doubles the braces for WHERE blocks that go through .format().
-    """
-    s = (f"  FILTER NOT EXISTS {{\n"
-         f"    ?attrOwner ?attrEdge {var} .\n"
-         f"    ?attrEdge rdfs:subPropertyOf* dici_onto:hasAttribute .\n"
-         f"  }}")
+    """The platform-wide phantom-instance guard (see ``NOT_ATTRIBUTE_NODE`` in
+    ``components.py`` — single source of truth), rebound to ``var``.
+    ``escaped`` doubles the braces for WHERE blocks that go through .format()."""
+    from backend.graphdb.queries.components import NOT_ATTRIBUTE_NODE
+    s = NOT_ATTRIBUTE_NODE.replace("?instance", var).rstrip("\n")
     return s.replace("{", "{{").replace("}", "}}") if escaped else s
 
 
