@@ -7,5 +7,7 @@ from backend.ontology_manager.functions import (
     OntologyFunctions,
     create_ontology_functions,
 )
+from backend.ontology_manager.instructions import apply_extension_instructions
 
-__all__ = ["OntologyFunctions", "create_ontology_functions"]
+__all__ = ["OntologyFunctions", "create_ontology_functions",
+           "apply_extension_instructions"]
