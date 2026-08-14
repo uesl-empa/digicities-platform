@@ -80,6 +80,8 @@ dici_onto:locatedIn a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:linksComponent .
 dici_onto:hasHubHeightAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
+dici_onto:hasTypeTagAttribute a owl:ObjectProperty ;
+    rdfs:subPropertyOf dici_onto:hasAttribute .
 dici_onto:hasSource a owl:ObjectProperty ;
     rdfs:subPropertyOf prov:wasDerivedFrom .
 dici_onto:derivedFromCatalogue a owl:ObjectProperty ;
@@ -120,7 +122,14 @@ REPLICA = f"""
 <{PROJ}/Pump/P1> a dici_onto:Pump, dici_onto:Component ; rdfs:label "Pump 1" .
 
 <{PROJ}/Location/Site1> a dici_onto:Location, dici_onto:Component ;
-    rdfs:label "Site 1" .
+    rdfs:label "Site 1" ;
+    dici_onto:hasTypeTagAttribute <{PROJ}/Location/Site1/TypeTag> .
+
+# The dual-typing convention: a Categorical attribute node typed with its VALUE
+# class — which here is also a component class. It must never be counted or
+# listed as a WindTurbine instance (the "GlobalWindAtlasSite x4" trap).
+<{PROJ}/Location/Site1/TypeTag> a dici_onto:WindTurbine ;
+    dici_onto:hasValue "WindTurbine" .
 
 <{PROJ}/Reference/park_yaml> a dici_onto:Reference ;
     rdfs:label "park_alkmaar.yaml" ;

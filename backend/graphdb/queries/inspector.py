@@ -71,6 +71,22 @@ def _direct_edge(child: str, parent: str, mid: str) -> str:
             .replace("@MID@", mid))
 
 
+def _not_attribute_node(var: str, escaped: bool = False) -> str:
+    """A component instance is never the OBJECT of a hasAttribute-family edge.
+
+    The dual-typing convention types a Categorical attribute node with its value
+    class — so when that value class is also a component class (a SiteType whose
+    value IS GlobalWindAtlasSite), a bare ``?x a <class>`` picks up the attribute
+    node as a phantom instance. This filter is the rules-driven exclusion.
+    ``escaped`` doubles the braces for WHERE blocks that go through .format().
+    """
+    s = (f"  FILTER NOT EXISTS {{\n"
+         f"    ?attrOwner ?attrEdge {var} .\n"
+         f"    ?attrEdge rdfs:subPropertyOf* dici_onto:hasAttribute .\n"
+         f"  }}")
+    return s.replace("{", "{{").replace("}", "}}") if escaped else s
+
+
 def _validate(instance_uri: str) -> str:
     uri = (instance_uri or "").strip()
     if not uri.startswith(("http://", "https://")) or any(ch in uri for ch in "<> \n\t\""):
@@ -147,6 +163,7 @@ _RECOMMENDATIONS = [
         _OWN_CLASS + """
   ?instance a ?class .
   FILTER(?instance != <{uri}>)
+""" + _not_attribute_node("?instance", escaped=True) + """
   OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}""",
         "?class ?instance",
     ),
@@ -164,6 +181,7 @@ _RECOMMENDATIONS = [
   FILTER NOT EXISTS {{ <{uri}> a ?cousinClass }}
   ?instance a ?cousinClass .
   FILTER(?instance != <{uri}>)
+""" + _not_attribute_node("?instance", escaped=True) + """
   OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}""",
         "?parentClass ?cousinClass ?instance",
     ),
@@ -268,6 +286,7 @@ _WORKSPACE_QUERIES = [
     ?moreSpecific rdfs:subClassOf ?class .
     FILTER(?moreSpecific != ?class)
   }
+""" + _not_attribute_node("?instance") + """
   OPTIONAL { ?instance rdfs:label ?instanceLabel }""",
         "?class ?instance",
         (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
@@ -284,7 +303,8 @@ _WORKSPACE_QUERIES = [
     ?instance a ?moreSpecific .
     ?moreSpecific rdfs:subClassOf ?class .
     FILTER(?moreSpecific != ?class)
-  }""",
+  }
+""" + _not_attribute_node("?instance"),
         "DESC(?instances) ?class",
         (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
         "?class",
