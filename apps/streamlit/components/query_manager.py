@@ -37,6 +37,23 @@ def query_manager(client):
     workspace = st.session_state.current_workspace
     st.write(f"Create, edit, run and manage SPARQL queries for **{workspace['name']}**")
 
+    # A query handed over by another module (the Explorer's "Inspect instance",
+    # or this panel's own Load buttons). Widget state can only be set BEFORE the
+    # editor widget exists in a run, so the text is parked in pending_query_text
+    # and applied here.
+    pending_query = st.session_state.pop("pending_query_text", None)
+    if pending_query is not None:
+        st.session_state.current_query = pending_query
+        st.session_state.query_editor = pending_query
+        # Behave like an unsaved new query, so the saved-query selector does not
+        # clobber the loaded text on the next rerun.
+        st.session_state.create_new_query = True
+
+    # The Instance Inspector: recommended queries for the instance selected in
+    # the Digital Replica Explorer.
+    if st.session_state.get("inspected_instance"):
+        _render_instance_inspector(client, workspace)
+
     # DEBUG: Show connection details in terminal and UI
     debug_connection_info(client, workspace)
 
@@ -293,6 +310,55 @@ def query_manager(client):
     # Display query results area
     if 'query_results' in st.session_state:
         display_query_results(st.session_state.query_results, workspace)
+
+
+def _render_instance_inspector(client, workspace):
+    """Recommended queries for the instance handed over by the Explorer.
+
+    Each recommendation is a plain SPARQL string built by the backend from the
+    core ontology's rules (property hierarchies and class kinship) — loading one
+    puts it in the ordinary editor, so it can be edited, run, and saved like any
+    other query.
+    """
+    from backend.graphdb.queries import recommended_queries
+
+    inspected = st.session_state.inspected_instance
+    with st.container(border=True):
+        head, clear = st.columns([6, 1])
+        head.markdown(
+            f"🔍 **Inspecting:** `{inspected.get('label', '?')}` "
+            f"({inspected.get('component_type', 'instance')})\n\n"
+            f"`{inspected.get('uri', '')}`")
+        if clear.button("✖ Clear", key="inspector_clear",
+                        help="Stop inspecting this instance"):
+            st.session_state.pop("inspected_instance", None)
+            st.rerun()
+
+        try:
+            recs = recommended_queries(inspected["uri"])
+        except (KeyError, ValueError) as exc:
+            st.error(f"Cannot build queries for this instance: {exc}")
+            return
+
+        by_name = {r["name"]: r for r in recs}
+        choice = st.selectbox(
+            "Recommended queries for this instance",
+            list(by_name), key="inspector_recommendation",
+            help="Derived from the core ontology's rules — property hierarchies "
+                 "(linksComponent, hasAttribute, derivedFromCatalogue, "
+                 "prov:wasDerivedFrom) and the class hierarchy — so they work for "
+                 "any workspace's classes.")
+        rec = by_name[choice]
+        st.caption(rec["description"])
+
+        load, run_now = st.columns(2)
+        if load.button("📝 Load into editor", key="inspector_load"):
+            st.session_state.pending_query_text = rec["sparql"]
+            st.rerun()
+        if run_now.button("🚀 Load & run", key="inspector_load_run"):
+            st.session_state.pending_query_text = rec["sparql"]
+            run_query(client, rec["sparql"], workspace)
+            st.rerun()
 
 
 def debug_connection_info(client, workspace):

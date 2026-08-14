@@ -36,8 +36,10 @@ from backend.graphdb.queries.components import (
     get_instance_attributes,
     get_instance_direct_properties,
 )
+from backend.graphdb.queries.inspector import recommended_queries
 
 __all__ = [
+    "recommended_queries",
     "get_component_types_with_instances",
     "get_component_instances",
     "get_component_attributes_comprehensive",

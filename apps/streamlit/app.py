@@ -1298,6 +1298,18 @@ def render_module_selector():
         except:
             pass
 
+    # A module can hand off to another one (Explorer -> "Inspect instance" ->
+    # Query Manager). Widget state can only be set BEFORE the widget exists in a
+    # run, so the request is parked in pending_module_switch and applied here,
+    # ahead of the checkbox and the radio it must steer.
+    pending_switch = st.session_state.pop("pending_module_switch", None)
+    if pending_switch:
+        if pending_switch in ARCHIVED_MODULES:
+            st.session_state.show_archived_modules = True
+        st.session_state.previous_tab = st.session_state.get("active_tab")
+        st.session_state.active_tab = pending_switch
+        st.session_state.module_selector_radio = pending_switch
+
     # Archived modules are hidden by default; a toggle reveals them.
     show_archived = st.checkbox(
         "Show archived modules", value=False, key="show_archived_modules",

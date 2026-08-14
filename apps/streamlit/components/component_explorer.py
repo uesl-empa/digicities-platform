@@ -1089,11 +1089,43 @@ def display_data_table(df: pd.DataFrame, component_type: str):
     if not show_sources and SOURCE_COLUMN in table_df.columns:
         table_df = table_df.drop(columns=[SOURCE_COLUMN])
 
-    st.dataframe(
+    table_event = st.dataframe(
         table_df,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"explorer_table_{component_type}",
     )
+
+    # Inspect the selected instance in the Query Manager. The selection is
+    # positional within table_df; the URI lives in the full df's hidden columns,
+    # reachable because every derived frame shares the original index.
+    selected_rows = getattr(getattr(table_event, "selection", None), "rows", None) or []
+    if selected_rows and "URI" in df.columns:
+        row_idx = table_df.index[selected_rows[0]]
+        uri = df.loc[row_idx, "URI"]
+        label = next((df.loc[row_idx, c] for c in ("instance_id", "label")
+                      if c in df.columns and isinstance(df.loc[row_idx, c], str)
+                      and df.loc[row_idx, c]), None)
+        if isinstance(uri, str) and uri:
+            display = label or uri.rsplit("/", 1)[-1]
+            if st.button(f"🔍 Inspect '{display}' in the Query Manager",
+                         help="Open the Query Manager with recommended queries "
+                              "about this instance — its links, attributes, class "
+                              "relatives, catalogue derivation and data sources."):
+                st.session_state.inspected_instance = {
+                    "uri": uri, "label": display, "component_type": component_type,
+                }
+                st.session_state.pending_module_switch = "Query Manager"
+                # Arrive with the overview query already in the editor.
+                try:
+                    from backend.graphdb.queries import recommended_queries
+                    st.session_state.pending_query_text = \
+                        recommended_queries(uri)[0]["sparql"]
+                except Exception:
+                    pass
+                st.rerun()
 
     # Download functionality
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
