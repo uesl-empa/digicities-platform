@@ -23,11 +23,18 @@ What gets materialized (RDFS-Plus subset, via the `owlrl` library)
 -------------------------------------------------------------------
 - `rdfs:subClassOf` transitive closure
 - `rdfs:subPropertyOf` transitive closure
-- `rdfs:domain` and `rdfs:range` propagation
 - `owl:equivalentClass` and `owl:equivalentProperty` propagation
 - `owl:inverseOf` propagation
-- `owl:sameAs` reasoning
+- `owl:sameAs` reasoning (non-reflexive)
 - `owl:TransitiveProperty` and `owl:SymmetricProperty` handling
+
+Deliberately NOT materialized: `rdfs:domain` / `rdfs:range` propagation. In OWL
+those are typing rules, not constraints — "domain Location" retypes whatever
+uses the predicate as a Location instead of rejecting it. Every replica
+instance is explicitly typed by the converter, so the propagation only mints
+surprise types (a turbine linked via locatedIn became a Location; everything
+touched by hasSource became a Flow). The declarations remain in the stored
+schema as queryable metadata; they are hidden from the reasoner.
 
 What's *not* materialized (out of scope for v0.3)
 -------------------------------------------------
@@ -78,6 +85,20 @@ def materialize(graph: rdflib.Graph, profile: str = "rdfs-plus") -> int:
 
     before = len(graph)
 
+    # rdfs:domain / rdfs:range are set aside BEFORE reasoning and restored after,
+    # so they never fire as inference. In OWL they are not constraints but typing
+    # rules — "domain Location" means "whatever uses this predicate IS a
+    # Location", so a WindTurbine linked via locatedIn was silently retyped as a
+    # Location (and, earlier, everything touched by hasSource became a Flow).
+    # Nothing in this platform needs the types they infer — every replica
+    # instance is explicitly typed by the converter. The declarations stay in
+    # the stored schema as queryable metadata (the SRB/Ontology Manager read
+    # them; the onboarding agent shows them as guidance): USING a link must
+    # never change what a thing is.
+    dr = [t for t in graph if t[1] in (rdflib.RDFS.domain, rdflib.RDFS.range)]
+    for t in dr:
+        graph.remove(t)
+
     if profile == "rdfs":
         owlrl.DeductiveClosure(owlrl.RDFS_Semantics).expand(graph)
     elif profile == "owl-rl":
@@ -86,6 +107,12 @@ def materialize(graph: rdflib.Graph, profile: str = "rdfs-plus") -> int:
         # Combined RDFS + the small OWL-RL slice useful for semantic web work
         # without DL complexity. This is what 90% of practical RDF apps want.
         owlrl.DeductiveClosure(owlrl.RDFS_OWLRL_Semantics).expand(graph)
+
+    for t in dr:
+        graph.add(t)
+    if dr:
+        print(f"[inference] {len(dr)} domain/range declaration(s) kept as metadata, "
+              f"excluded from reasoning")
 
     # owlrl can produce edge-case triples with literal subjects (e.g. from
     # sameAs over equivalent literals). These violate RDF 1.1 and are

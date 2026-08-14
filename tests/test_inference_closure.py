@@ -50,7 +50,16 @@ dici_onto:CurveAttribute a owl:Class ;
                       owl:onProperty dici_onto:yUnit ;
                       owl:someValuesFrom qudt:Unit ] .
 
-<https://digicities.info/proj/t/WindTurbine/T1> a dici_onto:WindTurbine .
+# The booby trap: rdfs:domain is a TYPING rule in OWL, not a constraint. A
+# turbine linked via locatedIn must NOT become a Location because of it.
+dici_onto:Location a owl:Class ; rdfs:subClassOf dici_onto:Component .
+dici_onto:locatedIn a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Location ;
+    rdfs:range dici_onto:Location .
+
+<https://digicities.info/proj/t/WindTurbine/T1> a dici_onto:WindTurbine ;
+    dici_onto:locatedIn <https://digicities.info/proj/t/Location/Site1> .
+<https://digicities.info/proj/t/Location/Site1> a dici_onto:Location .
 <https://digicities.info/proj/t/WindTurbine/T1/PowerCurve> a dici_onto:CurveAttribute .
 """
 
@@ -82,3 +91,20 @@ def test_no_instance_is_typed_with_an_anonymous_class(closed):
     # while the restriction AXIOMS themselves (blank-node subjects) survive
     restriction = rdflib.OWL.Restriction
     assert any(t[2] == restriction for t in closed)
+
+
+def test_domain_range_never_retype_an_instance(closed):
+    # locatedIn declares domain/range Location; the turbine that USES it must
+    # stay a turbine. Using a link never changes what a thing is.
+    t1 = rdflib.URIRef("https://digicities.info/proj/t/WindTurbine/T1")
+    location = rdflib.URIRef(f"{ONTO}Location")
+    assert (t1, rdflib.RDF.type, location) not in closed
+
+
+def test_domain_range_declarations_survive_as_metadata(closed):
+    # The SRB / Ontology Manager / onboarder read these as documentation — they
+    # must remain queryable even though the reasoner ignores them.
+    located_in = rdflib.URIRef(f"{ONTO}locatedIn")
+    location = rdflib.URIRef(f"{ONTO}Location")
+    assert (located_in, rdflib.RDFS.domain, location) in closed
+    assert (located_in, rdflib.RDFS.range, location) in closed
