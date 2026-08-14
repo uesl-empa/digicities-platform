@@ -29,6 +29,8 @@ from __future__ import annotations
 from backend.graphdb.graphs import (
     ONTOLOGY_GRAPH,
     CLASSES_AND_ATTRIBUTES_GRAPH,
+    SYSTEM_DESCRIPTION_GRAPH,
+    SCENARIOS_GRAPH,
     from_clause,
 )
 
@@ -208,6 +210,25 @@ _RECOMMENDATIONS = [
 ]
 
 
+# Replica-built component links live in SYSTEM_DESCRIPTION_GRAPH as well as the
+# instances graph; the link queries read both so neither authoring path is missed.
+_LINK_GRAPHS = (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SYSTEM_DESCRIPTION_GRAPH)
+_INSTANCE_GRAPH_OVERRIDES = {"links": _LINK_GRAPHS}
+
+
+def _compose(key, name, description, select, where, order, graphs, group=None) -> dict:
+    g = from_clause(*graphs)
+    tail = f"\nGROUP BY {group}" if group else ""
+    return {
+        "key": key,
+        "name": name,
+        "description": description,
+        "sparql": f"{_PREFIXES}SELECT {select}\n{g}WHERE {{\n{where}\n}}"
+                  f"{tail}\nORDER BY {order}",
+        "ask": f"{_PREFIXES}ASK\n{g}WHERE {{\n{where}\n}}",
+    }
+
+
 def recommended_queries(instance_uri: str) -> list[dict]:
     """The recommended queries for one instance, ready for the Query Manager.
 
@@ -216,19 +237,135 @@ def recommended_queries(instance_uri: str) -> list[dict]:
     absolute IRI, so a malformed value can never be spliced into a query.
     """
     uri = _validate(instance_uri)
-    graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)
-    out = []
-    for key, name, description, select, where, order in _RECOMMENDATIONS:
-        body = where.format(uri=uri)
-        out.append({
-            "key": key,
-            "name": name,
-            "description": description,
-            "sparql": f"{_PREFIXES}SELECT DISTINCT {select}\n{graphs}WHERE {{\n"
-                      f"{body}\n}}\nORDER BY {order}",
-            "ask": f"{_PREFIXES}ASK\n{graphs}WHERE {{\n{body}\n}}",
-        })
-    return out
+    default_graphs = (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)
+    return [
+        _compose(key, name, description, f"DISTINCT {select}", where.format(uri=uri),
+                 order, _INSTANCE_GRAPH_OVERRIDES.get(key, default_graphs))
+        for key, name, description, select, where, order in _RECOMMENDATIONS
+    ]
+
+
+# Workspace-level recommendations: what someone landing in the Query Manager
+# without a selected instance most likely wants first. Same rules-driven
+# construction, scoped per query to the graphs that hold the answer.
+# (key, name, description, SELECT, WHERE, ORDER BY, graphs, GROUP BY | None)
+_WORKSPACE_QUERIES = [
+    (
+        "all_components",
+        "All components in the replica",
+        "Every component instance with its most specific class and label.",
+        "DISTINCT ?class ?instance ?instanceLabel",
+        """  ?instance a ?class .
+  ?class rdfs:subClassOf* dici_onto:Component .
+  # only the most specific class of each instance
+  FILTER NOT EXISTS {
+    ?instance a ?moreSpecific .
+    ?moreSpecific rdfs:subClassOf ?class .
+    FILTER(?moreSpecific != ?class)
+  }
+  OPTIONAL { ?instance rdfs:label ?instanceLabel }""",
+        "?class ?instance",
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
+        None,
+    ),
+    (
+        "class_counts",
+        "Instance counts per class",
+        "How many instances each (most specific) class has — the replica at a glance.",
+        "?class (COUNT(DISTINCT ?instance) AS ?instances)",
+        """  ?instance a ?class .
+  ?class rdfs:subClassOf* dici_onto:Component .
+  FILTER NOT EXISTS {
+    ?instance a ?moreSpecific .
+    ?moreSpecific rdfs:subClassOf ?class .
+    FILTER(?moreSpecific != ?class)
+  }""",
+        "DESC(?instances) ?class",
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
+        "?class",
+    ),
+    (
+        "component_links",
+        "All component links",
+        "Every component-to-component link, via any predicate under the core "
+        "linksComponent hierarchy.",
+        "DISTINCT ?subject ?predicate ?object",
+        """  ?subject ?predicate ?object .
+  ?predicate rdfs:subPropertyOf* dici_onto:linksComponent .""",
+        "?subject ?predicate ?object",
+        _LINK_GRAPHS,
+        None,
+    ),
+    (
+        "attribute_values",
+        "All attribute values",
+        "Every instance's attribute nodes with every recorded property, matched "
+        "via the hasAttribute property hierarchy.",
+        "DISTINCT ?instance ?attribute ?property ?value",
+        """  ?instance ?attrPredicate ?attribute .
+  ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
+  ?attribute ?property ?value .
+  FILTER(?property != rdf:type)""",
+        "?instance ?attribute ?property",
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
+        None,
+    ),
+    (
+        "scenarios",
+        "All scenarios",
+        "Every scenario in the workspace (dici_onto:Scenario and subclasses).",
+        "DISTINCT ?scenario ?scenarioLabel",
+        """  ?scenario rdf:type/rdfs:subClassOf* dici_onto:Scenario .
+  OPTIONAL { ?scenario rdfs:label ?scenarioLabel }""",
+        "?scenario",
+        (ONTOLOGY_GRAPH, SCENARIOS_GRAPH),
+        None,
+    ),
+    (
+        "data_sources",
+        "All data sources (references)",
+        "Every Reference cited in the replica, with how many records or values "
+        "were derived from it.",
+        "?source ?sourceLabel ?sourceUrl (COUNT(DISTINCT ?derived) AS ?derivedCount)",
+        """  ?source a dici_onto:Reference .
+  OPTIONAL { ?source rdfs:label ?sourceLabel }
+  OPTIONAL { ?source schema:url ?sourceUrl }
+  OPTIONAL {
+    ?derived ?sourcePredicate ?source .
+    ?sourcePredicate rdfs:subPropertyOf* prov:wasDerivedFrom .
+  }""",
+        "DESC(?derivedCount) ?source",
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
+        "?source ?sourceLabel ?sourceUrl",
+    ),
+    (
+        "catalogue_instances",
+        "Catalogue entries and derived instances",
+        "Every catalogue entry alongside the sited instances specced from it.",
+        "DISTINCT ?entry ?entryLabel ?derivedInstance ?derivedLabel",
+        """  ?derivedInstance ?p ?entry .
+  ?p rdfs:subPropertyOf* dici_onto:derivedFromCatalogue .
+  OPTIONAL { ?entry rdfs:label ?entryLabel }
+  OPTIONAL { ?derivedInstance rdfs:label ?derivedLabel }""",
+        "?entry ?derivedInstance",
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
+        None,
+    ),
+]
+
+
+def workspace_queries() -> list[dict]:
+    """Recommended queries for the workspace as a whole — the Query Manager's
+    landing set when no instance is being inspected. Same shape as
+    ``recommended_queries``: ``[{"key", "name", "description", "sparql", "ask"}]``.
+    """
+    return [_compose(*entry) for entry in _WORKSPACE_QUERIES]
+
+
+def available_workspace_queries(client) -> list[dict]:
+    """``workspace_queries`` filtered by their ASK twins — empty ones hidden,
+    failing OPEN like ``available_recommendations``."""
+    return [r for r in workspace_queries() if _ask(client, r["ask"])]
 
 
 def available_recommendations(client, instance_uri: str) -> list[dict]:

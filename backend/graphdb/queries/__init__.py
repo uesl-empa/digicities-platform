@@ -39,11 +39,15 @@ from backend.graphdb.queries.components import (
 from backend.graphdb.queries.inspector import (
     recommended_queries,
     available_recommendations,
+    workspace_queries,
+    available_workspace_queries,
 )
 
 __all__ = [
     "recommended_queries",
     "available_recommendations",
+    "workspace_queries",
+    "available_workspace_queries",
     "get_component_types_with_instances",
     "get_component_instances",
     "get_component_attributes_comprehensive",

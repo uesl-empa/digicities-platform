@@ -38,10 +38,14 @@ rdflib = pytest.importorskip("rdflib")
 from backend.graphdb.graphs import (  # noqa: E402
     CLASSES_AND_ATTRIBUTES_GRAPH,
     ONTOLOGY_GRAPH,
+    SCENARIOS_GRAPH,
+    SYSTEM_DESCRIPTION_GRAPH,
 )
 from backend.graphdb.queries import (  # noqa: E402
     available_recommendations,
+    available_workspace_queries,
     recommended_queries,
+    workspace_queries,
 )
 
 PROJ = "https://digicities.info/proj/t"
@@ -123,12 +127,38 @@ REPLICA = f"""
 """
 
 
+# A link that lives ONLY in the system-description graph (the replica-built
+# path) — the link queries must see it too.
+SYSTEM_DESCRIPTION = f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+<{PROJ}/TidalTurbine/TT1> dici_onto:locatedIn <{PROJ}/Location/Site1> .
+"""
+
+SCENARIOS = f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<{PROJ}/scenario/Baseline> a dici_onto:Scenario ; rdfs:label "Baseline" .
+"""
+
+
 class _Client:
-    def __init__(self):
+    def __init__(self, scenarios: str = SCENARIOS):
         self.ds = rdflib.Dataset()
         self.ds.graph(rdflib.URIRef(CLASSES_AND_ATTRIBUTES_GRAPH)).parse(
             data=REPLICA, format="turtle")
         self.ds.graph(rdflib.URIRef(ONTOLOGY_GRAPH)).parse(data=ONTOLOGY, format="turtle")
+        self.ds.graph(rdflib.URIRef(SYSTEM_DESCRIPTION_GRAPH)).parse(
+            data=SYSTEM_DESCRIPTION, format="turtle")
+        # The graph must EXIST even when it holds no scenarios: rdflib
+        # dereferences a FROM graph it does not know over HTTP, which a real
+        # store never does. A graph only registers once it holds a triple, so
+        # "no scenarios yet" is a graph with one unmatchable marker triple.
+        g = self.ds.graph(rdflib.URIRef(SCENARIOS_GRAPH))
+        if scenarios:
+            g.parse(data=scenarios, format="turtle")
+        else:
+            g.add((rdflib.URIRef(SCENARIOS_GRAPH),
+                   rdflib.RDFS.comment, rdflib.Literal("no scenarios yet")))
 
     def run(self, query: str) -> pd.DataFrame:
         res = self.ds.query(query)
@@ -209,10 +239,12 @@ def test_links_follow_the_linkscomponent_hierarchy_only(client):
     df = client.run(_q("links"))
     assert set(df["component"]) == {f"{PROJ}/Location/Site1"}     # not Cat1, not the Reference
     assert set(df["componentClass"].dropna()) == {"https://digicities.info/ontology#Location"}
-    # and from the site's perspective the same link is incoming
+    # and from the site's perspective the links are incoming — including the one
+    # recorded only in the system-description graph
     back = client.run(_q("links", f"{PROJ}/Location/Site1"))
     inc = back[back["direction"] == "← incoming"]
-    assert set(inc["component"]) == {T1, f"{PROJ}/WindTurbine/T2"}
+    assert set(inc["component"]) == {
+        T1, f"{PROJ}/WindTurbine/T2", f"{PROJ}/TidalTurbine/TT1"}
 
 
 def test_same_class_means_the_most_specific_class(client):
@@ -263,3 +295,59 @@ def test_sources_are_references_never_the_catalogue_link(client):
     assert by_scope["instance"] == {f"{PROJ}/Reference/park_yaml"}
     assert by_scope["attribute"] == {f"{PROJ}/Reference/types_yaml"}
     assert not any(df["source"].str.contains("Cat1"))
+
+
+# ── the workspace-level landing set ───────────────────────────────────────────
+
+def _wq(key: str) -> str:
+    return next(r["sparql"] for r in workspace_queries() if r["key"] == key)
+
+
+def test_workspace_queries_named_scoped_and_askable():
+    recs = workspace_queries()
+    assert [r["key"] for r in recs] == [
+        "all_components", "class_counts", "component_links", "attribute_values",
+        "scenarios", "data_sources", "catalogue_instances"]
+    for r in recs:
+        assert r["name"] and r["description"]
+        assert "FROM" in r["sparql"] and "ASK" in r["ask"]
+
+
+def test_all_components_reports_most_specific_classes(client):
+    df = client.run(_wq("all_components"))
+    by_class = {c.rsplit("#", 1)[-1]: set(g["instance"]) for c, g in df.groupby("class")}
+    assert set(by_class) == {"WindTurbine", "TidalTurbine", "Pump", "Location"}
+    assert by_class["WindTurbine"] == {T1, f"{PROJ}/WindTurbine/T2", f"{PROJ}/WindTurbine/Cat1"}
+
+
+def test_class_counts_add_up(client):
+    df = client.run(_wq("class_counts"))
+    counts = {c.rsplit("#", 1)[-1]: int(n) for c, n in zip(df["class"], df["instances"])}
+    assert counts == {"WindTurbine": 3, "TidalTurbine": 1, "Pump": 1, "Location": 1}
+
+
+def test_component_links_span_both_data_graphs(client):
+    df = client.run(_wq("component_links"))
+    assert set(df["subject"]) == {T1, f"{PROJ}/WindTurbine/T2", f"{PROJ}/TidalTurbine/TT1"}
+
+
+def test_scenarios_and_data_sources(client):
+    assert list(client.run(_wq("scenarios"))["scenario"]) == [f"{PROJ}/scenario/Baseline"]
+    src = client.run(_wq("data_sources"))
+    counts = {s: int(n) for s, n in zip(src["source"], src["derivedCount"])}
+    assert counts[f"{PROJ}/Reference/park_yaml"] == 1     # T1's record
+    assert counts[f"{PROJ}/Reference/types_yaml"] == 1    # the copied-down curve
+
+
+def test_catalogue_instances_pair_entry_with_derived(client):
+    df = client.run(_wq("catalogue_instances"))
+    assert set(df["entry"]) == {f"{PROJ}/WindTurbine/Cat1"}
+    assert set(df["derivedInstance"]) == {T1, f"{PROJ}/WindTurbine/T2"}
+
+
+def test_workspace_ask_preflight_hides_missing_sections():
+    # No scenarios graph -> the scenarios recommendation disappears; the rest stay.
+    bare = _Client(scenarios="")
+    keys = [r["key"] for r in available_workspace_queries(bare)]
+    assert "scenarios" not in keys
+    assert "all_components" in keys and "catalogue_instances" in keys

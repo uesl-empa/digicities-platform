@@ -9,8 +9,9 @@ import socket
 # "Show archived modules" toggle in the sidebar reveals them (flagged when shown).
 # The supported end-to-end pipelines are Replica Builder -> Scenario Builder ->
 # API Data Submission (energy simulation and flexibility optimiser).
+# Query Manager graduated out of this set: it now carries the workspace's
+# recommended queries and is the Instance Inspector's landing module.
 ARCHIVED_MODULES = {
-    "Query Manager",
     "Data Viewer and Uploader",
     "Data Products",
     "Assumptions Module",
@@ -1313,8 +1314,8 @@ def render_module_selector():
     # Archived modules are hidden by default; a toggle reveals them.
     show_archived = st.checkbox(
         "Show archived modules", value=False, key="show_archived_modules",
-        help="Modules not yet part of the guided workflow (Query Manager, Data Viewer "
-             "and Uploader, Data Products, Assumptions). Hidden by default.")
+        help="Modules not yet part of the guided workflow (Data Viewer and Uploader, "
+             "Data Products, Assumptions). Hidden by default.")
     if not show_archived:
         base_tab_options = [t for t in base_tab_options if t not in ARCHIVED_MODULES]
 
