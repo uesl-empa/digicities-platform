@@ -76,6 +76,48 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
     return attributes
 
 
+def get_component_sources(client, component_type_label: str) -> Dict[str, Dict[str, Any]]:
+    """Provenance per instance URI: where the record came from, and where any
+    individual attribute came from when that differs.
+
+    Shape: ``{instance_uri: {'instance': [ref, ...], 'attributes': {attr: [ref, ...]}}}``
+    where each ref is ``{uri, label, type, url, date, comment}``. Empty when the
+    graph carries no provenance, which is the normal case for a replica built
+    before sources were recorded — the UI simply has nothing to show.
+    """
+    df = gdb_queries.get_component_sources(client, component_type_label)
+
+    def cell(row, key: str) -> str:
+        # An unbound OPTIONAL comes back as NaN, which is TRUTHY — `or` fallbacks
+        # would silently keep it and render "nan" in the UI.
+        val = row.get(key)
+        return '' if val is None or pd.isna(val) else str(val)
+
+    sources: Dict[str, Dict[str, Any]] = {}
+    for _, row in df.iterrows():
+        instance = cell(row, 'instance')
+        if not instance:
+            continue
+        ref = {
+            'uri': cell(row, 'source'),
+            # A Reference with no label still has a readable id in its URI.
+            'label': cell(row, 'sourceLabel') or extract_uri_fragment(cell(row, 'source')),
+            'type': cell(row, 'sourceType'),
+            'url': cell(row, 'sourceUrl'),
+            'date': cell(row, 'sourceDate'),
+            'comment': cell(row, 'sourceComment'),
+        }
+        entry = sources.setdefault(instance, {'instance': [], 'attributes': {}})
+        if cell(row, 'scope') == 'attribute':
+            attr = cell(row, 'attributeName') or '?'
+            bucket = entry['attributes'].setdefault(attr, [])
+        else:
+            bucket = entry['instance']
+        if not any(r['uri'] == ref['uri'] for r in bucket):
+            bucket.append(ref)
+    return sources
+
+
 def get_component_basic_properties(client, component_type_label: str) -> Optional[List[Dict[str, Any]]]:
     """Get basic (non-attribute) properties of component instances.
 
@@ -715,6 +757,46 @@ def process_enhanced_component_data(component_instances: List[Dict], component_a
     return df
 
 
+# Provenance rides on the frame the same way curve points do: a hidden column
+# get_visible_columns strips, so the table and the CSV stay clean until asked for.
+SOURCE_META_COLUMN = '_sources'
+SOURCE_COLUMN = 'Source'
+
+
+def attach_sources(df: pd.DataFrame, sources: Dict[str, Dict[str, Any]]) -> pd.DataFrame:
+    """Attach per-instance provenance to the frame, keyed by the instance URI.
+
+    Adds the hidden metadata column plus a readable ``Source`` summary. Both are
+    absent when nothing in the graph has provenance, so a replica built before
+    sources were recorded looks exactly as it did.
+    """
+    if df.empty or not sources or 'URI' not in df.columns:
+        return df
+    df = df.copy()
+    df[SOURCE_META_COLUMN] = df['URI'].map(lambda u: sources.get(u))
+    df[SOURCE_COLUMN] = df[SOURCE_META_COLUMN].map(summarize_sources)
+    return df
+
+
+def summarize_sources(entry: Optional[Dict[str, Any]]) -> str:
+    """One cell's worth: the record's own source, plus any file that supplied some of
+    the row's individual values (e.g. a catalogue file whose spec was copied down).
+    Named, not counted — "+1" told the reader nothing; a count only when 3+ files
+    would crowd the cell. Which attributes came from where is the per-instance panel's
+    job. NB the `derivedFromCatalogue` link in the table is the model-level
+    counterpart: it names the catalogue INSTANCE, this column the files."""
+    if not entry:
+        return ''
+    names = [r['label'] for r in entry.get('instance', [])]
+    extra = sorted({r['label'] for refs in entry.get('attributes', {}).values() for r in refs}
+                   - set(names))
+    text = ', '.join(names) if names else '—'
+    if extra:
+        text += (f" (+ {', '.join(extra)} for some values)" if len(extra) <= 2
+                 else f" (+{len(extra)} files for some values)")
+    return text
+
+
 def get_visible_columns(df: pd.DataFrame) -> List[str]:
     """Get columns that should be visible in the table"""
     if df.empty:
@@ -845,6 +927,127 @@ def visualize_curve(df: pd.DataFrame, instance_id, curve_column: str):
         st.error(f"Error visualizing curve: {e}")
 
 
+# How a Reference's recorded location is resolved to something viewable. Each entry
+# is (predicate, opener) and they are tried in order, so a new kind of source is a
+# new opener rather than a change to the viewer. `hasReferenceType` on the Reference
+# says which kind it is; the openers below decide whether they can actually fetch it.
+# Extensions we will not print into the page — a spreadsheet or an archive rendered
+# as text is noise. They are offered for download instead.
+_BINARY_SUFFIXES = ('.xlsx', '.xlsm', '.xls', '.zip', '.parquet', '.png', '.jpg', '.pdf')
+
+# Where a bare relative path might live inside a workspace. The recorded location is
+# relative to whatever produced it, so try the canonical data directories too.
+_WORKSPACE_PREFIXES = ('', 'ingestion/input/', 'ingestion/output/', 'private_data_products/',
+                       'timeseries/', 'docs/')
+
+
+def _resolve_workspace_file(ref: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+    """A path inside the current workspace's storage -> (path, text), or None."""
+    path = (ref.get('url') or '').strip()
+    if not path or path.startswith(('http://', 'https://')):
+        return None
+    storage = getattr(st.session_state.get('workspace_context'), 'storage', None)
+    if storage is None:
+        return None
+    for prefix in _WORKSPACE_PREFIXES:
+        candidate = f"{prefix}{path}"
+        try:
+            if not storage.exists(candidate) or storage.isdir(candidate):
+                continue
+            if candidate.lower().endswith(_BINARY_SUFFIXES):
+                return candidate, ''          # found, but not printable
+            return candidate, storage.read_text(candidate)
+        except Exception:
+            continue
+    return None
+
+
+SOURCE_OPENERS = (_resolve_workspace_file,)
+
+
+def open_source(ref: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+    """First opener that can fetch this source's content, else None."""
+    for opener in SOURCE_OPENERS:
+        try:
+            found = opener(ref)
+        except Exception:
+            found = None
+        if found:
+            return found
+    return None
+
+
+def _render_source(ref: Dict[str, Any], key: str):
+    """One source: what it is, where it is, and its content if we can reach it."""
+    bits = [f"**{ref['label']}**"]
+    if ref.get('type'):
+        bits.append(f"`{ref['type']}`")
+    st.markdown(' · '.join(bits))
+    if ref.get('url'):
+        st.caption(f"📍 {ref['url']}")
+    if ref.get('date'):
+        st.caption(f"🗓 accessed {ref['date']}")
+    if ref.get('comment'):
+        st.caption(ref['comment'])
+
+    if st.button("📄 View source data", key=f"view_source_{key}"):
+        found = open_source(ref)
+        if found and found[1]:
+            name, text = found
+            st.caption(f"`{name}`")
+            st.code(text[:20000], language=None)
+            if len(text) > 20000:
+                st.caption(f"…truncated, {len(text):,} characters in total")
+        elif found:
+            st.info(f"`{found[0]}` is in this workspace but isn't a text file — open it "
+                    f"from the workspace rather than here.")
+        else:
+            # Not a failure: an onboarded working folder or an external dataset is
+            # not in the workspace, so the recorded location is all there is.
+            st.info(f"This source isn't stored in the workspace, so there's nothing to "
+                    f"open here. It is recorded as **{ref.get('type') or 'a source'}** at "
+                    f"`{ref.get('url') or ref['label']}`.")
+
+
+def display_source_data(df: pd.DataFrame, filtered_df: pd.DataFrame):
+    """Per-instance provenance: where the record came from, and where any single
+    value came from when that differs from the record."""
+    with st.expander("🔎 Data sources", expanded=False):
+        options = [i for i in filtered_df.index.tolist()
+                   if isinstance(df.loc[i, SOURCE_META_COLUMN], dict)]
+        if not options:
+            st.info("None of the instances shown record a source.")
+            return
+
+        def _label(idx):
+            for col in ('instance_id', 'label'):
+                if col in df.columns and isinstance(df.loc[idx, col], str) and df.loc[idx, col]:
+                    return df.loc[idx, col]
+            return str(idx)
+
+        selected = st.selectbox("Instance", options, format_func=_label,
+                                key="source_instance_selector")
+        entry = df.loc[selected, SOURCE_META_COLUMN]
+
+        st.markdown("**This record came from**")
+        if entry.get('instance'):
+            for n, ref in enumerate(entry['instance']):
+                _render_source(ref, f"{selected}_inst_{n}")
+        else:
+            st.caption("No source recorded for the record as a whole.")
+
+        if entry.get('attributes'):
+            st.markdown("**Individual values that came from somewhere else**")
+            st.caption("An attribute appears here when its own source differs from the "
+                       "record's — for example a specification copied down from a "
+                       "catalogue entry held in another file.")
+            rows = [{'Attribute': attr,
+                     'Source': ', '.join(r['label'] for r in refs),
+                     'Location': ', '.join(r['url'] for r in refs if r.get('url'))}
+                    for attr, refs in sorted(entry['attributes'].items())]
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def display_data_table(df: pd.DataFrame, component_type: str):
     """Enhanced data table display with better attribute handling"""
     if df.empty:
@@ -867,20 +1070,62 @@ def display_data_table(df: pd.DataFrame, component_type: str):
 
     # Identified from the attached metadata, not from the column name.
     curve_cols = [c for c in curve_columns(df) if c in filtered_df.columns]
+    has_sources = SOURCE_META_COLUMN in df.columns
 
-    show_curves = st.checkbox("Show curve data in table", value=False)
+    toggles = st.columns(2)
+    show_curves = toggles[0].checkbox("Show curve data in table", value=False)
+    show_sources = toggles[1].checkbox(
+        "Show data sources", value=False, disabled=not has_sources,
+        help="Where each instance came from — the file, data product or dataset it was "
+             "read from. Off by default so the table stays about the data itself."
+        if has_sources else
+        "This replica records no sources. They are written when a workspace is "
+        "populated by the onboarding agent, or when a workbook cites its Reference sheet.")
 
+    table_df = filtered_df
     if not show_curves and curve_cols:
-        table_df = filtered_df.drop(columns=curve_cols)
+        table_df = table_df.drop(columns=curve_cols)
         st.info(f"Hiding {len(curve_cols)} curve data columns. Enable 'Show curve data' to display them.")
-    else:
-        table_df = filtered_df
+    if not show_sources and SOURCE_COLUMN in table_df.columns:
+        table_df = table_df.drop(columns=[SOURCE_COLUMN])
 
-    st.dataframe(
+    table_event = st.dataframe(
         table_df,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=f"explorer_table_{component_type}",
     )
+
+    # Inspect the selected instance in the Query Manager. The selection is
+    # positional within table_df; the URI lives in the full df's hidden columns,
+    # reachable because every derived frame shares the original index.
+    selected_rows = getattr(getattr(table_event, "selection", None), "rows", None) or []
+    if selected_rows and "URI" in df.columns:
+        row_idx = table_df.index[selected_rows[0]]
+        uri = df.loc[row_idx, "URI"]
+        label = next((df.loc[row_idx, c] for c in ("instance_id", "label")
+                      if c in df.columns and isinstance(df.loc[row_idx, c], str)
+                      and df.loc[row_idx, c]), None)
+        if isinstance(uri, str) and uri:
+            display = label or uri.rsplit("/", 1)[-1]
+            if st.button(f"🔍 Inspect '{display}' in the Query Manager",
+                         help="Open the Query Manager with recommended queries "
+                              "about this instance — its links, attributes, class "
+                              "relatives, catalogue derivation and data sources."):
+                st.session_state.inspected_instance = {
+                    "uri": uri, "label": display, "component_type": component_type,
+                }
+                st.session_state.pending_module_switch = "Query Manager"
+                # Arrive with the overview query already in the editor.
+                try:
+                    from backend.graphdb.queries import recommended_queries
+                    st.session_state.pending_query_text = \
+                        recommended_queries(uri)[0]["sparql"]
+                except Exception:
+                    pass
+                st.rerun()
 
     # Download functionality
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -892,6 +1137,10 @@ def display_data_table(df: pd.DataFrame, component_type: str):
         mime="text/csv",
         key='download_button'
     )
+
+    # Where the data came from
+    if has_sources and show_sources:
+        display_source_data(df, filtered_df)
 
     # Curve visualization
     if curve_cols:
@@ -1120,6 +1369,9 @@ def component_explorer(client):
 
                 if component_instances and component_attributes:
                     df = process_enhanced_component_data(component_instances, component_attributes)
+                    # Provenance is a separate, optional query: a replica with no
+                    # sources recorded must look exactly as it did before.
+                    df = attach_sources(df, get_component_sources(client, selected_component))
 
                     if not df.empty:
                         # FIXED: Better indexing for display

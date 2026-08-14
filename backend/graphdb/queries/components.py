@@ -30,6 +30,22 @@ _PREFIXES = (
     "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n"
     "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
     "PREFIX qudt: <http://qudt.org/schema/qudt/>\n"
+    "PREFIX prov: <http://www.w3.org/ns/prov#>\n"
+    "PREFIX dcterms: <http://purl.org/dc/terms/>\n"
+    "PREFIX schema: <https://schema.org/>\n"
+)
+
+# A component instance is never the OBJECT of a hasAttribute-family edge. The
+# dual-typing convention types a Categorical attribute node with its VALUE class;
+# when that value class is also a component class (a SiteType whose value IS
+# GlobalWindAtlasSite), a bare `?instance a <class>` picks the attribute node up
+# as a phantom instance. Every instance-enumerating query below carries this
+# guard, so the exclusion is uniform across ALL workspaces and modules.
+NOT_ATTRIBUTE_NODE = (
+    "  FILTER NOT EXISTS {\n"
+    "    ?attrOwner ?attrEdge ?instance .\n"
+    "    ?attrEdge rdfs:subPropertyOf* dici_onto:hasAttribute .\n"
+    "  }\n"
 )
 
 # Empty-DataFrame columns per query, so callers always get a stable schema.
@@ -51,6 +67,8 @@ _EMPTY_COLS = {
     "instance_attrs": ["attribute", "property", "value"],
     "instance_props": ["property", "value"],
     "object_props": ["component", "property", "attribute"],
+    "sources": ["instance", "scope", "attributeName", "source", "sourceLabel",
+                "sourceType", "sourceUrl", "sourceDate", "sourceComment"],
 }
 
 
@@ -99,7 +117,7 @@ def get_all_component_instances(client) -> pd.DataFrame:
         ?sub rdfs:subClassOf+ ?type .
         FILTER(?sub != ?type)
       }}
-      OPTIONAL {{ ?instance rdfs:label ?label }}
+{NOT_ATTRIBUTE_NODE}      OPTIONAL {{ ?instance rdfs:label ?label }}
     }}
     ORDER BY ?instance
     """
@@ -193,7 +211,7 @@ def get_all_instance_direct_properties(client) -> pd.DataFrame:
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?instance a ?type .
       ?type rdfs:subClassOf* dici_onto:Component .
-      ?instance ?property ?value .
+{NOT_ATTRIBUTE_NODE}      ?instance ?property ?value .
       FILTER(?property != dici_onto:hasAttribute)
       FILTER(!STRSTARTS(STR(?property), STR(dici_onto:has)))
       FILTER(?property != rdf:type)
@@ -219,7 +237,7 @@ def get_component_types_with_instances(client) -> pd.DataFrame:
       ?componentType rdfs:subClassOf* dici_onto:Component .
       FILTER(?componentType != dici_onto:Component)
       ?instance a ?componentType .
-      OPTIONAL {{ ?componentType rdfs:label ?label }}
+{NOT_ATTRIBUTE_NODE}      OPTIONAL {{ ?componentType rdfs:label ?label }}
       BIND(COALESCE(
         ?label,
         IF(CONTAINS(STR(?componentType), "#"),
@@ -242,7 +260,7 @@ def get_component_instances(client, component_type_label: str) -> pd.DataFrame:
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
-      OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
+{NOT_ATTRIBUTE_NODE}      OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
     }}
     ORDER BY ?instance
     """
@@ -272,6 +290,60 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
     return _run(client, query, "comprehensive")
 
 
+def get_component_sources(client, component_type_label: str) -> pd.DataFrame:
+    """Where each instance of a component type came from.
+
+    Provenance is recorded at two granularities and both are returned, tagged by
+    ``scope``:
+
+    * ``instance`` — the whole record came from here (``dici_onto:hasSource``)
+    * ``attribute`` — one value came from somewhere else than the record did, e.g.
+      a specification copied down from a catalogue entry in another file
+      (the ``<attr>_datasource`` column, emitted since long before ``hasSource``)
+
+    The query matches on ``prov:wasDerivedFrom`` rather than on ``hasSource``, so it
+    is deliberately agnostic about which mechanism wrote the triple: a hand-authored
+    workbook that only ever used the Reference sheet lights up the same as an
+    onboarded folder, and a future source kind needs no change here. What KIND of
+    source it is comes from the Reference's own ``hasReferenceType``, not from the
+    predicate. Columns: instance, scope, attributeName, source, sourceLabel,
+    sourceType, sourceUrl, sourceDate, sourceComment.
+    """
+    query = f"""
+    {_PREFIXES}
+    SELECT DISTINCT ?instance ?scope ?attributeName ?source ?sourceLabel
+                    ?sourceType ?sourceUrl ?sourceDate ?sourceComment
+    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
+      ?componentType rdfs:label "{component_type_label}" .
+      ?instance a ?componentType .
+{NOT_ATTRIBUTE_NODE}      {{
+        ?instance ?sourcePredicate ?source .
+        ?sourcePredicate rdfs:subPropertyOf* prov:wasDerivedFrom .
+        BIND("instance" AS ?scope)
+      }} UNION {{
+        ?instance ?attrPredicate ?attribute .
+        ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
+        ?attribute ?sourcePredicate ?source .
+        ?sourcePredicate rdfs:subPropertyOf* prov:wasDerivedFrom .
+        BIND("attribute" AS ?scope)
+        BIND(REPLACE(STR(?attribute), "^.*/", "") AS ?attributeName)
+      }}
+      # A citable origin, not any derivation. `derivedFromCatalogue` is also a
+      # wasDerivedFrom subproperty but points at another COMPONENT, which belongs in
+      # the model, not in "where did this data come from".
+      ?source a dici_onto:Reference .
+      OPTIONAL {{ ?source rdfs:label ?sourceLabel }}
+      OPTIONAL {{ ?source dici_onto:hasReferenceType ?sourceTypeUri
+                 BIND(REPLACE(STR(?sourceTypeUri), "^.*[#/]", "") AS ?sourceType) }}
+      OPTIONAL {{ ?source schema:url ?sourceUrl }}
+      OPTIONAL {{ ?source dcterms:dateAccessed ?sourceDate }}
+      OPTIONAL {{ ?source rdfs:comment ?sourceComment }}
+    }}
+    ORDER BY ?instance ?scope ?attributeName
+    """
+    return _run(client, query, "sources")
+
+
 def get_component_basic_properties(client, component_type_label: str) -> pd.DataFrame:
     """Non-attribute direct properties of a component type's instances (by label).
 
@@ -283,7 +355,7 @@ def get_component_basic_properties(client, component_type_label: str) -> pd.Data
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
-      ?instance ?property ?value .
+{NOT_ATTRIBUTE_NODE}      ?instance ?property ?value .
       FILTER(?property != dici_onto:hasAttribute)
       FILTER(!STRSTARTS(STR(?property), STR(dici_onto:has)))
       FILTER(?property != rdf:type)
@@ -397,6 +469,7 @@ def get_leaf_component_types(client) -> pd.DataFrame:
         ?instance a ?type .
         ?type rdfs:subClassOf* dici_onto:Component .
         FILTER(?type != dici_onto:Component)
+{NOT_ATTRIBUTE_NODE}
         FILTER NOT EXISTS {{
             ?type rdfs:subClassOf ?parent .
             ?parent rdfs:subClassOf* dici_onto:Component .
@@ -419,7 +492,7 @@ def get_instances_of_type(client, component_type: str) -> pd.DataFrame:
     SELECT DISTINCT ?instance ?label
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
         ?instance a dici_onto:{component_type} .
-        OPTIONAL {{ ?instance rdfs:label ?label }}
+{NOT_ATTRIBUTE_NODE}        OPTIONAL {{ ?instance rdfs:label ?label }}
     }}
     ORDER BY ?instance
     """

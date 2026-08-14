@@ -20,6 +20,7 @@ from backend.graphdb.queries.components import (
     get_component_instances,
     get_component_attributes_comprehensive,
     get_component_basic_properties,
+    get_component_sources,
     get_component_classes,
     get_attribute_classes,
     get_component_subclasses,
@@ -35,12 +36,23 @@ from backend.graphdb.queries.components import (
     get_instance_attributes,
     get_instance_direct_properties,
 )
+from backend.graphdb.queries.inspector import (
+    recommended_queries,
+    available_recommendations,
+    workspace_queries,
+    available_workspace_queries,
+)
 
 __all__ = [
+    "recommended_queries",
+    "available_recommendations",
+    "workspace_queries",
+    "available_workspace_queries",
     "get_component_types_with_instances",
     "get_component_instances",
     "get_component_attributes_comprehensive",
     "get_component_basic_properties",
+    "get_component_sources",
     "get_component_classes",
     "get_attribute_classes",
     "get_component_subclasses",

@@ -310,6 +310,45 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
     # workbook with many rows doesn't repeat the message per instance.
     stamped_default_logged = set()
 
+    # --- Which instances this workbook actually defines -------------------------
+    # A ClassObject cell is "Sheet/instanceId" and, in default URI mode, was turned
+    # into <project_uri/Sheet/instanceId> with NO check that the target exists. A
+    # typo therefore emitted a link to a URI that no row defines — and because the
+    # ontology gives these predicates an rdfs:range, materializing the closure then
+    # TYPED that URI (RDFS rule rdfs3). The replica gained an "instance" that is in
+    # no spreadsheet row, has no attributes and no source, and is counted by every
+    # instance query. The replica must contain only what the workbook defines, so
+    # collect the real ids up front and refuse to link to anything else.
+    known_instances = defaultdict(set)          # sheet name -> {row id}
+    for _name, _df in sheets.items():
+        if _name in ("Data Validation", "Reference"):
+            continue
+        _id_col = next((c for c in _df.columns if c[0] == "id"), None)
+        if _id_col is None:
+            continue
+        for _v in _df[_id_col]:
+            if is_nonempty(_v):
+                known_instances[_name].add(str(_v).strip())
+    known_instances["Reference"] = set(ref_uri_map)
+    unresolved_links = []
+
+    def resolves_in_workbook(value: str) -> bool:
+        """True if a default-mode ClassObject cell names a row this workbook defines.
+
+        Conservative on purpose. A cell with no "/" can never address an instance, so
+        it is rejected. A "Sheet/id" whose sheet exists but has no such row is a typo,
+        so it is rejected. A sheet this workbook doesn't contain is left alone — that
+        may be a deliberate reference to data loaded separately into the same project.
+        """
+        text = str(value).strip()
+        if "/" not in text:
+            return False
+        sheet, _, row_id = text.partition("/")
+        sheet, row_id = sheet.strip(), row_id.strip()
+        if sheet not in known_instances:
+            return True                          # unknown sheet: not ours to judge
+        return row_id in known_instances[sheet]
+
     for sheet_name, df in sheets.items():
         if sheet_name in ("Data Validation", "Reference"):
             continue
@@ -572,6 +611,14 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             else:
                                 # Fall back to existing behavior based on uri_mode
                                 if uri_mode == "default":
+                                    # Only link to an instance this workbook defines.
+                                    # Emitting the triple anyway invents that instance
+                                    # via rdfs:range once the closure is materialized.
+                                    if not resolves_in_workbook(value):
+                                        unresolved_links.append(
+                                            f"{sheet_name}.{row_id}.{attr_name} -> "
+                                            f"'{str(value).strip()}'")
+                                        continue
                                     target_uri = f"<{project_uri}/{str(value).strip()}>"
                                 elif uri_mode == "full-uri-in-cell":
                                     # Assume the value contains the complete target URI
@@ -974,6 +1021,17 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
     # Write TTL file
     with open(output_ttl_path, "w", encoding="utf-8") as f:
         f.write("\n".join(ttl_lines))
+
+    # Say what was dropped. A skipped link is a real loss of information — quieter
+    # than an invented instance, but it must not be silent.
+    if unresolved_links:
+        print(f"Warning: {len(unresolved_links)} link(s) named a target this workbook "
+              f"does not define and were NOT written (they would have created instances "
+              f"with no data):")
+        for line in unresolved_links[:20]:
+            print(f"  - {line}")
+        if len(unresolved_links) > 20:
+            print(f"  …and {len(unresolved_links) - 20} more")
 
     # Validate with rdflib
     g = rdflib.Graph()

@@ -37,6 +37,26 @@ def query_manager(client):
     workspace = st.session_state.current_workspace
     st.write(f"Create, edit, run and manage SPARQL queries for **{workspace['name']}**")
 
+    # A query handed over by another module (the Explorer's "Inspect instance",
+    # or this panel's own Load buttons). Widget state can only be set BEFORE the
+    # editor widget exists in a run, so the text is parked in pending_query_text
+    # and applied here.
+    pending_query = st.session_state.pop("pending_query_text", None)
+    if pending_query is not None:
+        st.session_state.current_query = pending_query
+        st.session_state.query_editor = pending_query
+        # Behave like an unsaved new query, so the saved-query selector does not
+        # clobber the loaded text on the next rerun.
+        st.session_state.create_new_query = True
+
+    # The Instance Inspector: recommended queries for the instance selected in
+    # the Digital Replica Explorer (or picked out of earlier query results).
+    # Without one, the workspace's own recommended queries are the landing set.
+    if st.session_state.get("inspected_instance"):
+        _render_instance_inspector(client, workspace)
+    else:
+        _render_workspace_recommendations(client, workspace)
+
     # DEBUG: Show connection details in terminal and UI
     debug_connection_info(client, workspace)
 
@@ -295,6 +315,85 @@ def query_manager(client):
         display_query_results(st.session_state.query_results, workspace)
 
 
+def _render_instance_inspector(client, workspace):
+    """Recommended queries for the instance handed over by the Explorer.
+
+    Each recommendation is a plain SPARQL string built by the backend from the
+    core ontology's rules (property hierarchies and class kinship) — loading one
+    puts it in the ordinary editor, so it can be edited, run, and saved like any
+    other query.
+    """
+    from backend.graphdb.queries import available_recommendations
+
+    inspected = st.session_state.inspected_instance
+    with st.container(border=True):
+        head, clear = st.columns([6, 1])
+        head.markdown(
+            f"🔍 **Inspecting:** `{inspected.get('label', '?')}` "
+            f"({inspected.get('component_type', 'instance')})\n\n"
+            f"`{inspected.get('uri', '')}`")
+        if clear.button("✖ Clear", key="inspector_clear",
+                        help="Stop inspecting this instance"):
+            st.session_state.pop("inspected_instance", None)
+            st.rerun()
+
+        try:
+            # ASK-pre-flighted: recommendations whose pattern matches nothing in
+            # this workspace are hidden rather than offered as dead ends.
+            recs = available_recommendations(client, inspected["uri"])
+        except (KeyError, ValueError) as exc:
+            st.error(f"Cannot build queries for this instance: {exc}")
+            return
+        if not recs:
+            st.info("The graph records nothing about this instance.")
+            return
+
+        _render_recommendation_picker(
+            client, workspace, recs, key_prefix="inspector",
+            label="Recommended queries for this instance")
+
+
+def _render_workspace_recommendations(client, workspace):
+    """The Query Manager's landing set: recommended queries for the workspace as
+    a whole — all components, links, attribute values, scenarios, data sources,
+    catalogue entries. ASK-pre-flighted like the instance recommendations, so a
+    workspace without scenarios simply doesn't offer the scenarios query."""
+    from backend.graphdb.queries import available_workspace_queries
+
+    with st.expander("💡 Recommended queries for this workspace", expanded=True):
+        recs = available_workspace_queries(client)
+        if not recs:
+            st.info("The workspace graph is empty — build a replica first.")
+            return
+        _render_recommendation_picker(
+            client, workspace, recs, key_prefix="ws_rec",
+            label="Recommended queries")
+
+
+def _render_recommendation_picker(client, workspace, recs, key_prefix, label):
+    """One recommendation picker: selectbox + description + Load / Load & run.
+    Loading puts the SPARQL in the ordinary editor via pending_query_text, so it
+    can be edited, run and saved like any hand-written query."""
+    by_name = {r["name"]: r for r in recs}
+    choice = st.selectbox(
+        label, list(by_name), key=f"{key_prefix}_recommendation",
+        help="Derived from the core ontology's rules — property hierarchies "
+             "(linksComponent, hasAttribute, derivedFromCatalogue, "
+             "prov:wasDerivedFrom) and the class hierarchy — so they work for "
+             "any workspace's classes.")
+    rec = by_name[choice]
+    st.caption(rec["description"])
+
+    load, run_now = st.columns(2)
+    if load.button("📝 Load into editor", key=f"{key_prefix}_load"):
+        st.session_state.pending_query_text = rec["sparql"]
+        st.rerun()
+    if run_now.button("🚀 Load & run", key=f"{key_prefix}_load_run"):
+        st.session_state.pending_query_text = rec["sparql"]
+        run_query(client, rec["sparql"], workspace)
+        st.rerun()
+
+
 def debug_connection_info(client, workspace):
     """Print debugging information about the GraphDB connection to terminal and optionally display in UI"""
     print("=" * 60)
@@ -541,12 +640,58 @@ def display_query_results(raw_response, workspace):
                 key=f'download_raw_results_button_{workspace["id"]}'
             )
 
+        # Any URI in the results can become the subject of a follow-up query.
+        _render_explore_results(df)
+
         # Expandable section with raw JSON
         with st.expander("Raw JSON Response", expanded=False):
             st.json(results)
     except Exception as e:
         st.error(f"Error displaying results: {str(e)}")
         st.exception(e)
+
+
+def _render_explore_results(df):
+    """Follow-up exploration: pick any URI out of the results and inspect it as
+    the subject of the recommended queries — components, classes, references,
+    whatever the query returned. Works on the RAW frame, so the full URIs are
+    intact regardless of the namespace display settings."""
+    import re as _re
+
+    uris, seen = [], set()
+    for col in df.columns:
+        for v in df[col]:
+            if isinstance(v, str) and v.startswith(("http://", "https://")) and v not in seen:
+                seen.add(v)
+                uris.append(v)
+    if not uris:
+        return
+
+    st.subheader("🔍 Explore a result")
+    st.caption("Turn any URI from the results into the subject of a follow-up "
+               "query — the recommended queries then target it.")
+    if len(uris) > 500:
+        st.caption(f"Showing the first 500 of {len(uris)} distinct URIs.")
+        uris = uris[:500]
+
+    def _short(u):
+        tail = "/".join(u.rsplit("/", 2)[-2:])
+        return tail if len(tail) <= 80 else "…" + tail[-79:]
+
+    choice = st.selectbox("URI from the results:", uris, format_func=_short,
+                          key="explore_result_uri")
+    if st.button("🔍 Inspect as subject", key="explore_result_go"):
+        from backend.graphdb.queries import recommended_queries
+        st.session_state.inspected_instance = {
+            "uri": choice,
+            "label": _re.split(r"[#/]", choice.rstrip("#/"))[-1],
+            "component_type": "query result",
+        }
+        try:
+            st.session_state.pending_query_text = recommended_queries(choice)[0]["sparql"]
+        except ValueError:
+            pass
+        st.rerun()
 
 
 # ==================== GLOBAL STORAGE FUNCTIONS ====================
