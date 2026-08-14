@@ -1,0 +1,5 @@
+# Digicities REST API (apps/api) — HTTP seam over the in-process backend.
+# Installed on top of the platform's own requirements (backend.* + its deps).
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9   # multipart uploads for the /replica endpoint (next)
