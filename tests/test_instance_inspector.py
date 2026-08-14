@@ -99,7 +99,10 @@ REPLICA = f"""
     dici_onto:derivedFromCatalogue <{PROJ}/WindTurbine/Cat1> ;
     dici_onto:hasSource <{PROJ}/Reference/park_yaml> .
 
-<{T1}/HubHeight> a dici_onto:HubHeight, dici_onto:PhysicalAttribute ;
+# The [] is an ANONYMOUS class typing, as the pre-hygiene inference closure
+# used to mint from owl:Restriction superclasses — older graphs still carry
+# them, and the class queries must never surface a blank node as a class.
+<{T1}/HubHeight> a dici_onto:HubHeight, dici_onto:PhysicalAttribute, [] ;
     dici_onto:hasValue "85.0" ;
     prov:wasDerivedFrom <{PROJ}/Reference/types_yaml> .
 

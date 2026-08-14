@@ -114,5 +114,32 @@ def materialize(graph: rdflib.Graph, profile: str = "rdfs-plus") -> int:
     if junk:
         print(f"[inference] stripped {len(junk)} owl:Nothing triple(s) from closure")
 
+    # The eq-ref rule asserts `x owl:sameAs x` for every term the closure sees.
+    # Logically true of everything, informative about nothing — and it surfaces
+    # as a sameAs self-loop on every instance and attribute in the UI. Strip the
+    # reflexive loops; a MEANINGFUL sameAs (between two distinct terms, and
+    # whatever the closure derived from it) stays.
+    same_as = rdflib.OWL.sameAs
+    loops = [t for t in graph if t[1] == same_as and t[0] == t[2]]
+    for t in loops:
+        graph.remove(t)
+    if loops:
+        print(f"[inference] stripped {len(loops)} reflexive owl:sameAs triple(s) from closure")
+
+    # The closure also types instances with ANONYMOUS superclasses — e.g. every
+    # curve attribute becomes `a _:b0 … _:b4`, one per owl:Restriction on
+    # CurveAttribute. A blank-node class cannot be referenced by any follow-up
+    # query, and provisioning splits the closure across named graphs, which
+    # severs blank-node identity — the types dangle. Nothing in this platform
+    # authors `instance a [anonymous class]`, so strip every rdf:type whose
+    # object is a blank node. (The axioms themselves — bnode SUBJECTS like
+    # `_:b0 a owl:Restriction` — are untouched.)
+    anon_types = [t for t in graph
+                  if t[1] == rdflib.RDF.type and isinstance(t[2], rdflib.BNode)]
+    for t in anon_types:
+        graph.remove(t)
+    if anon_types:
+        print(f"[inference] stripped {len(anon_types)} anonymous-class rdf:type triple(s) from closure")
+
     added = len(graph) - before
     return added

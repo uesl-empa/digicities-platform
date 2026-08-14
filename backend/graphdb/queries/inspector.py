@@ -47,6 +47,7 @@ _PREFIXES = (
 # asserted type of the instance is a proper subclass of.
 _OWN_CLASS = """  <{uri}> a ?class .
   ?class rdfs:subClassOf* dici_onto:Component .
+  FILTER(!isBlank(?class))
   FILTER NOT EXISTS {{
     <{uri}> a ?moreSpecific .
     ?moreSpecific rdfs:subClassOf ?class .
@@ -102,7 +103,9 @@ _RECOMMENDATIONS = [
   ?attribute ?property ?value .
   OPTIONAL {{
     ?attribute a ?attributeClass .
-    # only the most specific type of the attribute node
+    # a NAMED class only, at its most specific: older graphs may still carry
+    # closure-minted anonymous (blank-node) superclasses
+    FILTER(!isBlank(?attributeClass))
     FILTER NOT EXISTS {{
       ?attribute a ?moreSpecific .
       ?moreSpecific rdfs:subClassOf ?attributeClass .
@@ -125,6 +128,7 @@ _RECOMMENDATIONS = [
   OPTIONAL {{
     ?component a ?componentClass .
     ?componentClass rdfs:subClassOf* dici_onto:Component .
+    FILTER(!isBlank(?componentClass))
     # only the most specific class of the neighbour
     FILTER NOT EXISTS {{
       ?component a ?moreSpecific .
@@ -156,6 +160,7 @@ _RECOMMENDATIONS = [
         + _direct_edge("?class", "?parentClass", "?mid1") + "\n"
         + _direct_edge("?cousinClass", "?parentClass", "?mid2") + """
   FILTER(?cousinClass != ?class)
+  FILTER(!isBlank(?parentClass) && !isBlank(?cousinClass))
   FILTER NOT EXISTS {{ <{uri}> a ?cousinClass }}
   ?instance a ?cousinClass .
   FILTER(?instance != <{uri}>)
