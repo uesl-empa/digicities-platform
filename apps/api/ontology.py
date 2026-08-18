@@ -247,3 +247,65 @@ def export(extension: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
 def publish(body: ExtRef, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Update the temp working graph and export it (the Publish action)."""
     return _funcs(ctx).update_temp_and_export(body.extension)
+
+
+# ── mapping subsystem: map ontology terms onto a source model's classes/properties ──
+class MapClass(BaseModel):
+    chosen: str
+    linkage_relation: str
+    mapping_class: str
+    mapping: str
+
+
+class MapProp(BaseModel):
+    chosen: str
+    linkage_relation: str
+    mapping_property: str
+    mapping: str
+
+
+class RemovePropMapping(BaseModel):
+    mapping: str
+    subject: str
+    predicate: str
+    object: str
+
+
+@router.get("/mapping/inputs")
+def mapping_inputs(ctx: WorkspaceContext = Depends(get_ctx)) -> list[str]:
+    return _funcs(ctx).list_mapping_inputs()
+
+
+@router.get("/mapping/classes")
+def mapping_classes(mapping: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    return _funcs(ctx).get_mapping_classes(mapping)
+
+
+@router.get("/mapping/properties")
+def mapping_properties(mapping: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    return _funcs(ctx).get_mapping_properties(mapping)
+
+
+@router.get("/mapping/property-mappings")
+def property_mappings(mapping: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    return _funcs(ctx).get_property_mappings(mapping)
+
+
+@router.post("/mapping/component")
+def map_component(body: MapClass, ctx: WorkspaceContext = Depends(get_ctx)):
+    return _apply(*_funcs(ctx).map_component(body.chosen, body.linkage_relation, body.mapping_class, body.mapping))
+
+
+@router.post("/mapping/attribute")
+def map_attribute(body: MapClass, ctx: WorkspaceContext = Depends(get_ctx)):
+    return _apply(*_funcs(ctx).map_attribute(body.chosen, body.linkage_relation, body.mapping_class, body.mapping))
+
+
+@router.post("/mapping/property")
+def map_property(body: MapProp, ctx: WorkspaceContext = Depends(get_ctx)):
+    return _apply(*_funcs(ctx).map_property(body.chosen, body.linkage_relation, body.mapping_property, body.mapping))
+
+
+@router.post("/mapping/property-mapping/remove")
+def remove_property_mapping(body: RemovePropMapping, ctx: WorkspaceContext = Depends(get_ctx)):
+    return _apply(*_funcs(ctx).remove_property_mapping(body.mapping, body.subject, body.predicate, body.object))
