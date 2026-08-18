@@ -33,6 +33,7 @@ from .registry import (
 )
 
 dici_onto = Namespace("https://digicities.info/ontology#")
+QUDT = Namespace("http://qudt.org/schema/qudt/")
 
 COMPUTED_BY = "digicities-collections/0.1"
 _PROJ_PREFIX = "https://digicities.info/proj"
@@ -159,9 +160,26 @@ def _provenance(g: Graph, coll_iri: URIRef, attribute_class_iri: str,
 def _replace_collection(client, root_iri: str, g: Graph) -> None:
     """Surgically replace one collection's triples in the collections graph:
     delete everything minted under the root IRI (subjects AND objects — the
-    membership/hasSet triples point at it), then insert the new content."""
+    membership/hasSet triples point at it), then insert the new content.
+
+    Projected aggregate nodes live under their CONTAINER's IRI, not the
+    collection root, so they are found via their ``aggregateOf`` link to a
+    group Set under the root — first the edges pointing at them, then their
+    own triples. (Shared aggregate CLASS declarations are left in place: they
+    are identical across collections and re-asserted on insert.)"""
     graph = f"<{COLLECTIONS_GRAPH}>"
     root = str(root_iri)
+    under_root = (f'(STR(?set) = "{root}" || STRSTARTS(STR(?set), "{root}/"))')
+    agg_updates = (
+        # edges INTO each projected node (hasAttribute / has<C><A>Attribute)
+        f"DELETE {{ GRAPH {graph} {{ ?s ?p ?n }} }} WHERE {{ GRAPH {graph} {{ "
+        f"?n <{dici_onto.aggregateOf}> ?set . FILTER({under_root}) ?s ?p ?n }} }}",
+        # the projected nodes' own triples (removes aggregateOf itself last)
+        f"DELETE {{ GRAPH {graph} {{ ?n ?p ?o }} }} WHERE {{ GRAPH {graph} {{ "
+        f"?n <{dici_onto.aggregateOf}> ?set . FILTER({under_root}) ?n ?p ?o }} }}",
+    )
+    for upd in agg_updates:
+        client.sparql_update(upd)
     for pattern, flt in (
         ("?s ?p ?o", f'FILTER(STR(?s) = "{root}" || STRSTARTS(STR(?s), "{root}/"))'),
         ("?s ?p ?o", f'FILTER(isIRI(?o) && (STR(?o) = "{root}" || STRSTARTS(STR(?o), "{root}/")))'),
@@ -212,7 +230,8 @@ def materialize_set(client, workspace_id: str, attribute_class_iri: str,
 def materialize_grouped_set(client, workspace_id: str,
                             target_attribute_class_iri: str,
                             grouping_class_iri: str,
-                            dataset_iri: Optional[str] = None) -> str:
+                            dataset_iri: Optional[str] = None,
+                            project_statistics=("mean",)) -> str:
     """Materialize a GroupedSet: the target attribute's values partitioned by
     the grouping class — one member Set (with statistics) per distinct group
     key. Returns the GroupedSet IRI.
@@ -227,7 +246,8 @@ def materialize_grouped_set(client, workspace_id: str,
     if queries.is_component_class(client, grouping_class_iri):
         return materialize_component_grouped_set(
             client, workspace_id, target_attribute_class_iri,
-            grouping_class_iri, dataset_iri)
+            grouping_class_iri, dataset_iri,
+            project_statistics=project_statistics)
     grouping_attribute_class_iri = grouping_class_iri
     t_family, t_simple = detect_family(client, target_attribute_class_iri)
     g_family, g_simple = detect_family(client, grouping_attribute_class_iri)
@@ -303,12 +323,22 @@ def materialize_grouped_set(client, workspace_id: str,
 def materialize_component_grouped_set(client, workspace_id: str,
                                       target_attribute_class_iri: str,
                                       grouping_component_class_iri: str,
-                                      dataset_iri: Optional[str] = None) -> str:
+                                      dataset_iri: Optional[str] = None,
+                                      project_statistics=("mean",)) -> str:
     """Materialize a component-grouped GroupedSet: the target attribute's
     values partitioned by the instances of a component class the owners are
     linked to (e.g. HubHeight per WindPark). One group Set per container
     instance, carrying ``groupComponent`` (the instance) and ``groupKey``
-    (its label). Returns the GroupedSet IRI."""
+    (its label). Returns the GroupedSet IRI.
+
+    For a NUMERIC target, each statistic in ``project_statistics`` is also
+    PROJECTED onto the container as a derived attribute node in the exact
+    shape authored attributes take — ``<container>/<Attr><Stat>`` typed
+    ``<Attr><Stat>``/``AggregateAttribute``/``PhysicalAttribute``, attached
+    via ``hasAttribute`` + ``has<Class><Attr><Stat>Attribute``, valued with
+    ``qudt:value``/``qudt:unit`` — so a service template can request e.g.
+    ``District.FloorAreaMean`` exactly like any Component.attribute. Pass an
+    empty tuple to skip projection."""
     if not queries.is_component_class(client, grouping_component_class_iri):
         raise CollectionError(
             f"{_local(grouping_component_class_iri)} is not a Component "
@@ -322,6 +352,8 @@ def materialize_component_grouped_set(client, workspace_id: str,
     # (container_iri, container_label, value, member_iri) — keyed by the
     # container INSTANCE, never its label (labels may collide).
     keyed: List[Tuple[str, str, str, str]] = []
+    units: Dict[str, str] = {}          # container → first member unit IRI
+    unit_labels: Dict[str, str] = {}
     for _, row in df.iterrows():
         val = _row_value(row, t_family, "numValue", "simpleValue",
                          "catValue", "catLabel")
@@ -332,6 +364,10 @@ def materialize_component_grouped_set(client, workspace_id: str,
         label = (str(label) if label is not None and not pd.isna(label)
                  and str(label) else _local(container))
         keyed.append((str(container), label, val, str(row["attr"])))
+        for col, store in (("unit", units), ("unitLabel", unit_labels)):
+            v = row.get(col)
+            if str(container) not in store and v is not None and not pd.isna(v) and str(v):
+                store[str(container)] = str(v)
     if not keyed:
         raise CollectionError(
             f"no {_local(target_attribute_class_iri)} value sits on a "
@@ -363,6 +399,14 @@ def materialize_component_grouped_set(client, workspace_id: str,
         groups.setdefault(container, []).append((val, member))
         labels[container] = label
 
+    attr_local = _local(target_attribute_class_iri)
+    comp_local = _local(grouping_component_class_iri)
+    from .registry import NUMERIC as _NUM
+    project = tuple(project_statistics or ()) if effective_t_family == _NUM else ()
+    if project_statistics and effective_t_family != _NUM:
+        print(f"[collections] projection skipped: {attr_local} is "
+              f"{effective_t_family}, only numeric statistics are projected")
+
     for container in sorted(groups):
         vals = [v for v, _ in groups[container]]
         stats, bins = compute_stats(effective_t_family, vals)   # fails loudly
@@ -370,7 +414,7 @@ def materialize_component_grouped_set(client, workspace_id: str,
         g.add((gset_iri, dici_onto.hasGroup, member_set))
         g.add((member_set, RDF.type, dici_onto.Set))
         g.add((member_set, RDFS.label,
-               Literal(f"{_local(target_attribute_class_iri)} of components "
+               Literal(f"{attr_local} of components "
                        f"linked to {labels[container]}")))
         g.add((member_set, dici_onto.ofAttributeType,
                URIRef(target_attribute_class_iri)))
@@ -379,6 +423,42 @@ def materialize_component_grouped_set(client, workspace_id: str,
         for _, member in groups[container]:
             g.add((URIRef(member), dici_onto.aggregatedIn, member_set))
         _stats_node(g, member_set, stats, bins)
+
+        # Project the requested statistics onto the container as derived
+        # attribute nodes — the exact shape the replica converter authors, so
+        # Component.attribute requests (e.g. District.FloorAreaMean) resolve
+        # through the ordinary service-template pipeline.
+        for stat in project:
+            if stat not in stats:
+                continue                      # e.g. stdev on a 1-member group
+            agg_name = f"{attr_local}{stat[0].upper()}{stat[1:]}"
+            node = URIRef(f"{container}/{agg_name}")
+            cont_ref = URIRef(container)
+            g.add((cont_ref, dici_onto.hasAttribute, node))
+            g.add((cont_ref, dici_onto[f"has{comp_local}{agg_name}Attribute"], node))
+            g.add((node, RDF.type, dici_onto[agg_name]))
+            g.add((node, RDF.type, dici_onto.AggregateAttribute))
+            g.add((node, RDF.type, dici_onto.PhysicalAttribute))
+            g.add((node, RDFS.label,
+                   Literal(f"{stat} of {stats['count']} {attr_local} values")))
+            g.add((node, QUDT.value,
+                   Literal(f"{float(stats[stat]):g}", datatype=XSD.decimal)))
+            if container in units:
+                g.add((node, QUDT.unit, URIRef(units[container])))
+            if container in unit_labels:
+                g.add((node, dici_onto.hasUnitLabel, Literal(unit_labels[container])))
+            g.add((node, dici_onto.aggregateOf, member_set))
+            g.add((node, dici_onto.statisticUsed, Literal(stat)))
+
+    # Declare each projected aggregate class once, in the collections graph
+    # (derived schema for derived nodes — wiped with the rest on reload).
+    for stat in project:
+        agg_name = f"{attr_local}{stat[0].upper()}{stat[1:]}"
+        g.add((dici_onto[agg_name], RDF.type,
+               URIRef("http://www.w3.org/2002/07/owl#Class")))
+        g.add((dici_onto[agg_name], RDFS.subClassOf, dici_onto.AggregateAttribute))
+        g.add((dici_onto[agg_name], RDFS.label,
+               Literal(f"{attr_local} {stat} (aggregate)")))
 
     _replace_collection(client, str(gset_iri), g)
     return str(gset_iri)

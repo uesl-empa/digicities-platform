@@ -159,7 +159,8 @@ def test_materialize_set_surgical_delete_targets_own_subtree_only():
     iri = materializer.materialize_set(
         client, "ws", "https://digicities.info/ontology#RotorDiameter")
     deletes = [u for u in client.updates if u.startswith("DELETE")]
-    assert len(deletes) == 2                      # subject-side + object-side
+    # aggregate-edges + aggregate-nodes + subject-side + object-side
+    assert len(deletes) == 4
     for d in deletes:
         assert COLLECTIONS_GRAPH in d
         assert iri in d
@@ -289,6 +290,58 @@ def test_materialize_component_grouped_set():
     assert int(g.value(stats, D["count"])) == 2
     assert float(g.value(stats, D.mean)) == pytest.approx(85.0)
     assert len(list(g.subjects(D.aggregatedIn, north))) == 2
+
+
+def test_component_grouping_projects_mean_as_attribute():
+    """The projected aggregate takes the exact authored-attribute shape, so
+    Component.attribute service requests (District.FloorAreaMean) resolve
+    through the ordinary converter patterns."""
+    schema_target = pd.DataFrame({"base": [
+        "https://digicities.info/ontology#FloorArea",
+        "https://digicities.info/ontology#PhysicalAttribute",
+        "https://digicities.info/ontology#Attribute"]})
+    grouped = pd.DataFrame({
+        "attr": ["https://p/B1/FloorArea", "https://p/B2/FloorArea"],
+        "numValue": ["100.0", "200.0"],
+        "simpleValue": [None] * 2, "catValue": [None] * 2, "catLabel": [None] * 2,
+        "unit": ["http://qudt.org/vocab/unit/M2"] * 2,
+        "unitLabel": ["M2"] * 2,
+        "container": ["https://p/District/DNorth"] * 2,
+        "containerLabel": ["North district"] * 2,
+    })
+
+    class Router(FakeClient):
+        def sparql_api_query(self, query, out_format="df", **kw):
+            if "rdfs:subClassOf* dici_onto:Component" in query:
+                return pd.DataFrame({"n": [1]})
+            if "rdfs:subClassOf* ?base" in query:
+                return schema_target
+            return grouped
+
+    client = Router({})
+    materializer.materialize_grouped_set(
+        client, "ws",
+        "https://digicities.info/ontology#FloorArea",
+        "https://digicities.info/ontology#District")
+
+    g = _inserted_graph(client)
+    QUDT = Namespace("http://qudt.org/schema/qudt/")
+    container = rdflib.URIRef("https://p/District/DNorth")
+    node = rdflib.URIRef("https://p/District/DNorth/FloorAreaMean")
+    # authored-attribute shape: both edge styles + dual typing + qudt value/unit
+    assert (container, D.hasAttribute, node) in g
+    assert (container, D.hasDistrictFloorAreaMeanAttribute, node) in g
+    assert (node, RDF.type, D.FloorAreaMean) in g
+    assert (node, RDF.type, D.AggregateAttribute) in g
+    assert (node, RDF.type, D.PhysicalAttribute) in g
+    assert float(g.value(node, QUDT.value)) == pytest.approx(150.0)
+    assert g.value(node, QUDT.unit) == rdflib.URIRef("http://qudt.org/vocab/unit/M2")
+    # provenance back to the group Set + which statistic
+    agg_set = g.value(node, D.aggregateOf)
+    assert agg_set is not None and (agg_set, RDF.type, D.Set) in g
+    assert str(g.value(node, D.statisticUsed)) == "mean"
+    # the aggregate class is declared (in the collections graph)
+    assert (D.FloorAreaMean, rdflib.RDFS.subClassOf, D.AggregateAttribute) in g
 
 
 def test_component_grouping_with_no_links_fails_loudly():

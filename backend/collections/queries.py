@@ -143,7 +143,7 @@ def component_grouped_member_values(client, target_class_iri: str,
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?attr ?numValue ?simpleValue ?catValue ?catLabel
-                    ?container ?containerLabel
+                    ?unit ?unitLabel ?container ?containerLabel
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH,
                  SYSTEM_DESCRIPTION_GRAPH)}WHERE {{
       ?owner ?edge ?attr .
@@ -152,6 +152,8 @@ def component_grouped_member_values(client, target_class_iri: str,
       ?t rdfs:subClassOf* <{target_class_iri}> .
 {_VALUE_OPTIONALS.format(node="?attr", q="?numValue", s="?simpleValue",
                          c="?catValue", cl="?catLabel")}
+      OPTIONAL {{ ?attr qudt:unit ?unit . }}
+      OPTIONAL {{ ?attr dici_onto:hasUnitLabel ?unitLabel . }}
       {{
         ?owner ?link ?container .
         ?link rdfs:subPropertyOf* dici_onto:linksComponent .
@@ -169,7 +171,7 @@ def component_grouped_member_values(client, target_class_iri: str,
     """
     return run_df(client, query,
                   ["attr", "numValue", "simpleValue", "catValue", "catLabel",
-                   "container", "containerLabel"])
+                   "unit", "unitLabel", "container", "containerLabel"])
 
 
 def workspace_component_types(client) -> pd.DataFrame:
