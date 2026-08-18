@@ -29,6 +29,7 @@ from .deps import get_ctx, graph_client
 from .explorer import router as explorer_router
 from .queries import router as queries_router
 from .ontology import router as ontology_router
+from .replica import router as replica_router
 
 app = FastAPI(
     title="Digicities API",
@@ -48,6 +49,7 @@ app.add_middleware(
 app.include_router(explorer_router)
 app.include_router(queries_router)
 app.include_router(ontology_router)
+app.include_router(replica_router)
 
 
 # ── models ────────────────────────────────────────────────────────────────────
