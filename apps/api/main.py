@@ -32,6 +32,7 @@ from .ontology import router as ontology_router
 from .replica import router as replica_router
 from .collections import router as collections_router
 from .service import router as service_router
+from .scenario import router as scenario_router
 
 app = FastAPI(
     title="Digicities API",
@@ -54,6 +55,7 @@ app.include_router(ontology_router)
 app.include_router(replica_router)
 app.include_router(collections_router)
 app.include_router(service_router)
+app.include_router(scenario_router)
 
 
 # ── models ────────────────────────────────────────────────────────────────────
