@@ -1382,6 +1382,9 @@ def component_explorer(client):
                      "Collections module.")
             if coll_idx is not None:
                 selected_collection = collections_df.iloc[coll_idx]
+        else:
+            st.caption("📊 No collections materialized yet — build dataset-level "
+                       "aggregations (sets, group-bys) in the **Collections** module.")
     except Exception as e:
         st.caption(f"Collections unavailable: {e}")
 
