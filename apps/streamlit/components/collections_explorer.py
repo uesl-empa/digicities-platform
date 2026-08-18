@@ -55,59 +55,87 @@ def _stats_table(stats_df: pd.DataFrame) -> pd.DataFrame:
     return wide
 
 
-def _render_collection(client, row) -> None:
+def _has(row, key) -> bool:
+    v = row.get(key)
+    return v is not None and pd.notna(v) and bool(str(v))
+
+
+def collection_option_label(row) -> str:
+    """One-line dropdown label for a collection: what it aggregates and how it
+    is scoped (full dataset / group-by subdivision / one data source)."""
+    name = _local(row["collection"])
+    attr = _local(row["attrType"])
+    if _has(row, "groupedBy"):
+        scope = f"{attr} grouped by {_local(row['groupedBy'])}"
+    elif _has(row, "dataset"):
+        scope = f"{attr}, source {_local(row['dataset'])}"
+    else:
+        scope = f"{attr}, full dataset"
+    return f"{name}  ·  {scope}"
+
+
+def render_collection_body(client, row) -> None:
+    """The stats/charts view of one collection — shared between the
+    Collections module and the Digital Replica Explorer's collections
+    dropdown. Renders inline (no expander, no mutation buttons)."""
     coll = str(row["collection"])
     kind = _local(row["kind"])
-    title = _local(coll)
     subtitle = [f"attribute: `{_local(row['attrType'])}`"]
-    if pd.notna(row.get("groupedBy")) and row.get("groupedBy"):
+    if _has(row, "groupedBy"):
         subtitle.append(f"grouped by: `{_local(row['groupedBy'])}`")
-    if pd.notna(row.get("dataset")) and row.get("dataset"):
+    if _has(row, "dataset"):
         subtitle.append(f"source: `{_local(row['dataset'])}`")
-    if pd.notna(row.get("computedAt")) and row.get("computedAt"):
+    if _has(row, "computedAt"):
         subtitle.append(f"computed: {row['computedAt']}")
+    st.caption(" · ".join(subtitle))
 
-    with st.expander(f"{'📊' if kind == 'Set' else '🗂️'} **{title}** ({kind})"):
-        st.caption(" · ".join(subtitle))
-
-        stats = set_statistics(client, coll)
-        if stats.empty:
-            st.info("No statistics recorded for this collection.")
+    stats = set_statistics(client, coll)
+    if stats.empty:
+        st.info("No statistics recorded for this collection.")
+    else:
+        wide = _stats_table(stats)
+        if kind == "GroupedSet":
+            st.dataframe(
+                wide.drop(columns=["set"]).rename(columns={"groupKey": "group"}),
+                use_container_width=True, hide_index=True)
+            # One bar per group for the headline numeric statistic.
+            for metric in ("mean", "count"):
+                if metric in wide.columns:
+                    chart = wide[["groupKey", metric]].dropna()
+                    chart[metric] = pd.to_numeric(chart[metric], errors="coerce")
+                    chart = chart.dropna().set_index("groupKey")
+                    if not chart.empty:
+                        st.caption(f"{metric} per group")
+                        st.bar_chart(chart)
+                    break
         else:
-            wide = _stats_table(stats)
-            if kind == "GroupedSet":
-                st.dataframe(
-                    wide.drop(columns=["set"]).rename(columns={"groupKey": "group"}),
-                    use_container_width=True, hide_index=True)
-                # One bar per group for the headline numeric statistic.
-                for metric in ("mean", "count"):
-                    if metric in wide.columns:
-                        chart = wide[["groupKey", metric]].dropna()
-                        chart[metric] = pd.to_numeric(chart[metric], errors="coerce")
-                        chart = chart.dropna().set_index("groupKey")
-                        if not chart.empty:
-                            st.caption(f"{metric} per group")
-                            st.bar_chart(chart)
-                        break
-            else:
-                st.dataframe(wide.drop(columns=["set", "groupKey"]),
-                             use_container_width=True, hide_index=True)
-                st.caption(f"members: {member_count(client, coll)}")
+            st.dataframe(wide.drop(columns=["set", "groupKey"]),
+                         use_container_width=True, hide_index=True)
+            st.caption(f"members: {member_count(client, coll)}")
 
-        bins = set_bins(client, coll)
-        if not bins.empty and kind == "Set":
-            bins = bins.sort_values(["lower", "binLabel"], na_position="last")
-            chart = bins[["binLabel", "frequency"]].copy()
-            chart["frequency"] = pd.to_numeric(chart["frequency"], errors="coerce")
-            st.caption("distribution")
-            st.bar_chart(chart.set_index("binLabel"))
+    bins = set_bins(client, coll)
+    if not bins.empty and kind == "Set":
+        bins = bins.sort_values(["lower", "binLabel"], na_position="last")
+        chart = bins[["binLabel", "frequency"]].copy()
+        chart["frequency"] = pd.to_numeric(chart["frequency"], errors="coerce")
+        st.caption("distribution")
+        st.bar_chart(chart.set_index("binLabel"))
+
+
+def _render_collection(client, row) -> None:
+    """One collection card in the Collections module: expander + shared body
+    + recompute/delete controls."""
+    coll = str(row["collection"])
+    kind = _local(row["kind"])
+    with st.expander(f"{'📊' if kind == 'Set' else '🗂️'} **{_local(coll)}** ({kind})"):
+        render_collection_body(client, row)
 
         c1, c2 = st.columns(2)
         if c1.button("Recompute", key=f"recompute_{coll}"):
             st.session_state["collections_recompute"] = {
                 "attr": str(row["attrType"]),
-                "group": str(row["groupedBy"]) if pd.notna(row.get("groupedBy")) and row.get("groupedBy") else None,
-                "dataset": str(row["dataset"]) if pd.notna(row.get("dataset")) and row.get("dataset") else None,
+                "group": str(row["groupedBy"]) if _has(row, "groupedBy") else None,
+                "dataset": str(row["dataset"]) if _has(row, "dataset") else None,
             }
             st.rerun()
         if c2.button("Delete", key=f"delete_{coll}"):

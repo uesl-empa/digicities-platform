@@ -441,8 +441,13 @@ def materialize_component_grouped_set(client, workspace_id: str,
             g.add((node, RDF.type, dici_onto.PhysicalAttribute))
             g.add((node, RDFS.label,
                    Literal(f"{stat} of {stats['count']} {attr_local} values")))
+            # xsd:double, NOT the replica's xsd:decimal: on Fuseki/TDB a
+            # decimal literal bound by a DELETE template does not reliably
+            # match its stored form (value vs lexical round-trip), leaving
+            # undeletable orphans on recompute. Doubles round-trip exactly,
+            # and the converter treats decimal/double/float identically.
             g.add((node, QUDT.value,
-                   Literal(f"{float(stats[stat]):g}", datatype=XSD.decimal)))
+                   Literal(float(stats[stat]), datatype=XSD.double)))
             if container in units:
                 g.add((node, QUDT.unit, URIRef(units[container])))
             if container in unit_labels:

@@ -334,7 +334,12 @@ def test_component_grouping_projects_mean_as_attribute():
     assert (node, RDF.type, D.FloorAreaMean) in g
     assert (node, RDF.type, D.AggregateAttribute) in g
     assert (node, RDF.type, D.PhysicalAttribute) in g
-    assert float(g.value(node, QUDT.value)) == pytest.approx(150.0)
+    val = g.value(node, QUDT.value)
+    assert float(val) == pytest.approx(150.0)
+    # xsd:double, never xsd:decimal: decimal literals bound by DELETE templates
+    # don't reliably match their stored form on Fuseki/TDB, which strands
+    # undeletable orphan values on recompute/delete.
+    assert val.datatype == rdflib.XSD.double, val.datatype
     assert g.value(node, QUDT.unit) == rdflib.URIRef("http://qudt.org/vocab/unit/M2")
     # provenance back to the group Set + which statistic
     agg_set = g.value(node, D.aggregateOf)
