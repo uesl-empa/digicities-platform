@@ -31,6 +31,9 @@ Layout inside each workspace's dataset
 - ``CLASSES_AND_ATTRIBUTES_GRAPH`` component instances + their attribute values
 - ``SYSTEM_DESCRIPTION_GRAPH``     component-to-component links (replica-built)
 - ``SCENARIOS_GRAPH``             scenario graphs
+- ``COLLECTIONS_GRAPH``           DERIVED sets/statistics over attribute values
+  (materialized by ``backend.collections``; wiped on every data reload — never
+  authored, always recomputable)
 """
 
 from __future__ import annotations
@@ -43,6 +46,7 @@ ONTOLOGY_GRAPH = "http://ontology_dici_onto"
 CLASSES_AND_ATTRIBUTES_GRAPH = "http://classes_and_attributes"
 SYSTEM_DESCRIPTION_GRAPH = "http://system_description"
 SCENARIOS_GRAPH = "http://scenarios"
+COLLECTIONS_GRAPH = "http://collections"
 
 # Convenience groupings for common query scopes.
 SCHEMA_GRAPHS = (ONTOLOGY_GRAPH,)

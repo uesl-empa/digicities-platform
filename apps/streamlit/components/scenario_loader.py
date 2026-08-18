@@ -38,11 +38,16 @@ def _declared_service(ttl_text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _materialize_against_workspace(storage, scenario_text: str) -> str:
+def _materialize_against_workspace(storage, scenario_text: str, client=None) -> str:
     """Merge a scenario with the workspace's replica (ingestion/output) so a
     scenario that references canonical components + overrides becomes a
     self-contained payload. Returns the original text on any problem (or when the
-    text isn't a scenario / has no replica to merge)."""
+    text isn't a scenario / has no replica to merge).
+
+    When a graph client is available, the workspace's DERIVED collections graph
+    is merged in too — projected aggregate attributes (e.g. a District's
+    FloorAreaMean) then ride along with the replica attributes, so a service
+    template can request them as ordinary Component.attribute references."""
     try:
         from rdflib import Graph
         from rdflib.namespace import RDF
@@ -64,6 +69,25 @@ def _materialize_against_workspace(storage, scenario_text: str) -> str:
                         pass
         except Exception:
             pass
+
+        # Derived collections (projected aggregates) live only in the graph —
+        # fetch the named graph via the graph-store endpoint (typed Turtle,
+        # same channel provisioning writes through).
+        try:
+            client = client or st.session_state.get("workspace_client")
+            if client is not None and getattr(client, "repository", None):
+                import requests
+                from backend.graphdb.graphs import COLLECTIONS_GRAPH
+                from backend.triplestore import get_backend
+                backend = get_backend()
+                r = requests.get(
+                    backend.graph_store_url(client.repository, COLLECTIONS_GRAPH),
+                    headers={"Accept": "text/turtle"},
+                    auth=getattr(backend, "auth", None), timeout=30)
+                if r.status_code == 200 and r.text.strip():
+                    rep.parse(data=r.text, format="turtle")
+        except Exception:
+            pass                      # collections are optional enrichment
 
         materialized = materialize_scenario_graphs(scn, rep, str(scenarios[0]))
         return materialized or scenario_text

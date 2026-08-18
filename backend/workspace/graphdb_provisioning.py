@@ -38,6 +38,7 @@ from backend.graphdb.graphs import (
     ONTOLOGY_GRAPH,
     CLASSES_AND_ATTRIBUTES_GRAPH,
     SCENARIOS_GRAPH,
+    COLLECTIONS_GRAPH,
 )
 
 from .context import WorkspaceContext
@@ -60,6 +61,8 @@ from .context import WorkspaceContext
 #   <system_description>     component-to-component links (replica-built; NOT
 #                            written here so re-provisioning never wipes links)
 #   <scenarios>              scenario graphs
+#   <collections>            derived sets/statistics — CLEARED here on every
+#                            reload (stale once the instance data changes)
 
 
 def _core_ttl_path() -> Path:
@@ -140,6 +143,86 @@ def upload_ttl_to_graph(
         return True
     except requests.RequestException as exc:
         print(f"[graphdb_provisioning] upload to {repo_id}/{graph_iri} failed: {exc}")
+        return False
+
+
+# Bookkeeping marker inside the collections graph: which authored-replica
+# fingerprint the materialized collections were derived from. Plain URNs, not
+# ontology terms — internal invalidation state, never domain vocabulary.
+_COLLECTIONS_META_SUBJECT = "urn:digicities:collections"
+_COLLECTIONS_META_PRED = "urn:digicities:replicaFingerprint"
+
+
+def _replica_fingerprint(ctx, core_path) -> str:
+    """Content hash of the AUTHORED replica sources (vendored core, workspace
+    extensions, instance TTLs). Hashes the file bytes, not parsed graphs —
+    blank-node labels make graph serializations unstable across runs."""
+    import hashlib
+    h = hashlib.sha256()
+    try:
+        h.update(Path(core_path).read_bytes())
+    except Exception:
+        pass
+    for pattern in ("ontology/extensions/*.ttl", "ingestion/output/*.ttl"):
+        try:
+            for rel in sorted(ctx.storage.glob(pattern)):
+                h.update(str(rel).encode("utf-8"))
+                try:
+                    h.update(ctx.storage.read_text(rel).encode("utf-8"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return h.hexdigest()
+
+
+def _collections_fingerprint(repo_id: str) -> Optional[str]:
+    """The fingerprint the current collections graph was derived from, or None."""
+    backend = get_backend()
+    query = (f"SELECT ?v WHERE {{ GRAPH <{COLLECTIONS_GRAPH}> {{ "
+             f"<{_COLLECTIONS_META_SUBJECT}> <{_COLLECTIONS_META_PRED}> ?v }} }}")
+    try:
+        r = requests.get(
+            backend.query_url(repo_id), params={"query": query},
+            headers={"Accept": "application/sparql-results+json"},
+            auth=getattr(backend, "auth", None), timeout=30)
+        if r.status_code != 200:
+            return None
+        bindings = r.json().get("results", {}).get("bindings", [])
+        return bindings[0]["v"]["value"] if bindings else None
+    except Exception:
+        return None
+
+
+def _stamp_collections_fingerprint(repo_id: str, fingerprint: str) -> None:
+    backend = get_backend()
+    update = (f"INSERT DATA {{ GRAPH <{COLLECTIONS_GRAPH}> {{ "
+              f'<{_COLLECTIONS_META_SUBJECT}> <{_COLLECTIONS_META_PRED}> '
+              f'"{fingerprint}" }} }}')
+    try:
+        requests.post(backend.update_url(repo_id), data={"update": update},
+                      auth=getattr(backend, "auth", None), timeout=30)
+    except requests.RequestException as exc:
+        print(f"[graphdb_provisioning] fingerprint stamp on {repo_id} failed: {exc}")
+
+
+def clear_graph(repo_id: str, graph_iri: str, base_url: Optional[str] = None) -> bool:
+    """Empty one named graph with ``CLEAR SILENT GRAPH`` (no-op if absent)."""
+    backend = get_backend()
+    try:
+        r = requests.post(
+            backend.update_url(repo_id),
+            data={"update": f"CLEAR SILENT GRAPH <{graph_iri}>"},
+            auth=getattr(backend, "auth", None),
+            timeout=60,
+        )
+        if r.status_code in (200, 204):
+            return True
+        print(f"[graphdb_provisioning] CLEAR GRAPH <{graph_iri}> on {repo_id} "
+              f"returned HTTP {r.status_code}: {r.text[:200]}")
+        return False
+    except requests.RequestException as exc:
+        print(f"[graphdb_provisioning] CLEAR GRAPH <{graph_iri}> on {repo_id} failed: {exc}")
         return False
 
 
@@ -301,5 +384,24 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
                 print(f"[graphdb_provisioning] {ctx.id}: wrote {len(graph)} triples to <{graph_iri}>")
         except Exception as exc:
             print(f"[graphdb_provisioning] {ctx.id}: named-graph write to <{graph_iri}> raised (non-fatal): {exc}")
+
+    # Collections are DERIVED from the authored replica — but a plain
+    # workspace reopen re-uploads IDENTICAL data, and collections must survive
+    # it (this ensure runs on every open; wiping unconditionally would erase
+    # them the moment anyone opens the workspace). So: fingerprint the
+    # authored sources and clear only when the content actually changed.
+    # (<system_description> links are UI-written, not file-derived, so they
+    # are outside the fingerprint — a collection stale by links alone is
+    # recomputed from the Collections view.)
+    fingerprint = _replica_fingerprint(ctx, core_path)
+    previous = _collections_fingerprint(repo_id)
+    if previous == fingerprint:
+        print(f"[graphdb_provisioning] {ctx.id}: replica unchanged — "
+              f"derived <{COLLECTIONS_GRAPH}> preserved")
+    else:
+        if clear_graph(repo_id, COLLECTIONS_GRAPH):
+            print(f"[graphdb_provisioning] {ctx.id}: cleared derived "
+                  f"<{COLLECTIONS_GRAPH}> (authored replica changed)")
+        _stamp_collections_fingerprint(repo_id, fingerprint)
 
     return True

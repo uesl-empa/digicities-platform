@@ -1354,6 +1354,46 @@ def component_explorer(client):
                 st.code(traceback.format_exc())
             return
 
+    # Collections: the dataset-level aggregations materialized for this replica
+    # (full-dataset sets, group-by subdivisions, per-source sets). Read-only
+    # view of the derived <collections> graph; building/recomputing lives in
+    # the Collections module. Never breaks the explorer if unavailable.
+    selected_collection = None
+    try:
+        from backend.collections import list_collections
+        from components.collections_explorer import (
+            collection_option_label, render_collection_body)
+        collections_df = list_collections(client)
+        if collections_df is not None and not collections_df.empty:
+            coll_options = [None] + list(range(len(collections_df)))
+
+            def format_collection_option(idx):
+                if idx is None:
+                    return f"— {len(collections_df)} available —"
+                return collection_option_label(collections_df.iloc[idx])
+
+            coll_idx = st.selectbox(
+                "Collections (dataset-level aggregations):",
+                options=coll_options,
+                format_func=format_collection_option,
+                key='explorer_collection_selector',
+                help="Derived sets and group-by statistics materialized from "
+                     "this replica. Build or recompute them in the "
+                     "Collections module.")
+            if coll_idx is not None:
+                selected_collection = collections_df.iloc[coll_idx]
+        else:
+            st.caption("📊 No collections materialized yet — build dataset-level "
+                       "aggregations (sets, group-bys) in the **Collections** module.")
+    except Exception as e:
+        st.caption(f"Collections unavailable: {e}")
+
+    if selected_collection is not None:
+        name = str(selected_collection['collection']).rsplit('/', 1)[-1]
+        st.markdown(f"### 📊 Collection: **{name}**")
+        render_collection_body(client, selected_collection)
+        st.divider()
+
     # Main content area
     if selected_component:
         st.markdown(f"### 📊 Data for: **{selected_component}**")
