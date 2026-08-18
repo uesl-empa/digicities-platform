@@ -12,8 +12,8 @@
 @base <https://digicities.info/ontology#> .
 
 <https://digicities.info/ontology> rdf:type owl:Ontology ;
-    owl:versionIRI <https://digicities.info/ontology/0.2.0> ;
-    owl:versionInfo "0.2.0" ;
+    owl:versionIRI <https://digicities.info/ontology/0.3.0> ;
+    owl:versionInfo "0.3.0" ;
     rdfs:label "Digicities ontology"@en ;
     rdfs:comment "Open OWL/RDF ontology for describing city-scale energy systems."@en ;
     dcterms:license <https://creativecommons.org/licenses/by/4.0/> ;
@@ -2791,19 +2791,22 @@ dici_onto:hasGroup rdf:type owl:ObjectProperty ;
 dici_onto:hasDescriptiveStatistics rdf:type owl:ObjectProperty ;
         rdfs:domain dici_onto:Set ;
         rdfs:range dici_onto:DescriptiveStatistics ;
-        rdfs:label "has descriptive statistics" .
+        rdfs:label "has descriptive statistics" ;
+        rdfs:comment "The aggregate statistics computed over this Set's members."@en .
 
 ###  https://digicities.info/ontology#hasDistribution
 dici_onto:hasDistribution rdf:type owl:ObjectProperty ;
         rdfs:domain dici_onto:Set ;
         rdfs:range dici_onto:Distribution ;
-        rdfs:label "has distribution" .
+        rdfs:label "has distribution" ;
+        rdfs:comment "The binned/frequency representation of this Set's values."@en .
 
 ###  https://digicities.info/ontology#hasBin
 dici_onto:hasBin rdf:type owl:ObjectProperty ;
         rdfs:domain dici_onto:Distribution ;
         rdfs:range dici_onto:DistributionBin ;
-        rdfs:label "has bin" .
+        rdfs:label "has bin" ;
+        rdfs:comment "One bin of this Distribution."@en .
 
 ###  https://digicities.info/ontology#groupKey
 dici_onto:groupKey rdf:type owl:DatatypeProperty ;
@@ -2814,12 +2817,14 @@ dici_onto:groupKey rdf:type owl:DatatypeProperty ;
 ###  https://digicities.info/ontology#count
 dici_onto:count rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:integer ;
-        rdfs:label "count" .
+        rdfs:label "count" ;
+        rdfs:comment "How many values the Set aggregates."@en .
 
 ###  https://digicities.info/ontology#mean
 dici_onto:mean rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:double ;
-        rdfs:label "mean" .
+        rdfs:label "mean" ;
+        rdfs:comment "Arithmetic mean of a numeric Set's values."@en .
 
 ###  https://digicities.info/ontology#standardDeviation
 dici_onto:standardDeviation rdf:type owl:DatatypeProperty ;
@@ -2840,17 +2845,20 @@ dici_onto:maxValue rdf:type owl:DatatypeProperty ;
 ###  https://digicities.info/ontology#median
 dici_onto:median rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:double ;
-        rdfs:label "median" .
+        rdfs:label "median" ;
+        rdfs:comment "Median of a numeric Set's values."@en .
 
 ###  https://digicities.info/ontology#sum
 dici_onto:sum rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:double ;
-        rdfs:label "sum" .
+        rdfs:label "sum" ;
+        rdfs:comment "Sum of a numeric Set's values."@en .
 
 ###  https://digicities.info/ontology#distinctCount
 dici_onto:distinctCount rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:integer ;
-        rdfs:label "distinct count" .
+        rdfs:label "distinct count" ;
+        rdfs:comment "How many distinct values occur in the Set."@en .
 
 ###  https://digicities.info/ontology#mode
 dici_onto:mode rdf:type owl:DatatypeProperty ;
@@ -2865,17 +2873,20 @@ dici_onto:binLabel rdf:type owl:DatatypeProperty ;
 ###  https://digicities.info/ontology#binLowerBound
 dici_onto:binLowerBound rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:double ;
-        rdfs:label "bin lower bound" .
+        rdfs:label "bin lower bound" ;
+        rdfs:comment "Inclusive lower bound of a numeric histogram bin."@en .
 
 ###  https://digicities.info/ontology#binUpperBound
 dici_onto:binUpperBound rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:double ;
-        rdfs:label "bin upper bound" .
+        rdfs:label "bin upper bound" ;
+        rdfs:comment "Exclusive upper bound of a numeric histogram bin (the last bin is closed)."@en .
 
 ###  https://digicities.info/ontology#binFrequency
 dici_onto:binFrequency rdf:type owl:DatatypeProperty ;
         rdfs:range xsd:integer ;
-        rdfs:label "bin frequency" .
+        rdfs:label "bin frequency" ;
+        rdfs:comment "How many of the Set's values fall in this bin."@en .
 
 ###  https://digicities.info/ontology#computedAt
 dici_onto:computedAt rdf:type owl:DatatypeProperty ;
