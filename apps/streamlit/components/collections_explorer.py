@@ -24,6 +24,7 @@ from backend.collections import (
     set_bins,
     set_statistics,
     workspace_attribute_types,
+    workspace_component_types,
     workspace_datasets,
 )
 
@@ -148,18 +149,34 @@ def collections_explorer(client):
         n = row["instanceCount"]
         return f"{_local(iri)} ({n} values)"
 
+    # Grouping options: attribute types (group by VALUE) + linked component
+    # classes (group by CONTAINING COMPONENT, e.g. per-park turbine stats).
+    comp_types = workspace_component_types(client)
+
     st.subheader("Build a collection")
     c1, c2 = st.columns(2)
     target = c1.selectbox("Attribute type", options, format_func=fmt,
                           key="collections_target")
-    group_on = c2.checkbox("Group by a second attribute", key="collections_group_toggle")
+    group_on = c2.checkbox("Group by attribute or component",
+                           key="collections_group_toggle")
     grouping = None
     if group_on:
+        group_options = [o for o in options if o != target]
+        comp_options = comp_types["componentType"].tolist()
+
+        def gfmt(iri):
+            if iri in comp_options:
+                row = comp_types[comp_types["componentType"] == iri].iloc[0]
+                return f"component: {_local(iri)} ({row['instanceCount']} instances)"
+            return fmt(iri)
+
         grouping = c2.selectbox(
-            "Grouping attribute", [o for o in options if o != target],
-            format_func=fmt, key="collections_grouping",
-            help="Must be categorical (or a boolean/string value) — grouping by "
-                 "raw continuous values is rejected.")
+            "Group by", group_options + comp_options,
+            format_func=gfmt, key="collections_grouping",
+            help="An attribute type groups by its values (must be categorical "
+                 "— raw continuous values are rejected). A component class "
+                 "groups by its instances: one group per linked component, "
+                 "e.g. HubHeight per WindPark.")
 
     datasets = workspace_datasets(client)
     dataset = None

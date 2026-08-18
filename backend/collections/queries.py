@@ -19,6 +19,7 @@ import pandas as pd
 from backend.graphdb.graphs import (
     ONTOLOGY_GRAPH,
     CLASSES_AND_ATTRIBUTES_GRAPH,
+    SYSTEM_DESCRIPTION_GRAPH,
     COLLECTIONS_GRAPH,
     from_clause,
 )
@@ -110,6 +111,99 @@ def grouped_member_values(client, target_class_iri: str, grouping_class_iri: str
     return run_df(client, query,
                   ["attr", "numValue", "simpleValue", "catValue", "catLabel",
                    "gNumValue", "gSimpleValue", "gCatValue", "gCatLabel"])
+
+
+def is_component_class(client, class_iri: str) -> bool:
+    """Whether the class sits under dici_onto:Component in the schema graph."""
+    query = f"""
+    {_PREFIXES}
+    SELECT (COUNT(*) AS ?n)
+    {from_clause(ONTOLOGY_GRAPH)}WHERE {{
+      <{class_iri}> rdfs:subClassOf* dici_onto:Component .
+    }}
+    """
+    df = run_df(client, query, ["n"])
+    try:
+        return not df.empty and int(df["n"].iloc[0]) > 0
+    except (TypeError, ValueError, KeyError, IndexError):
+        return False
+
+
+def component_grouped_member_values(client, target_class_iri: str,
+                                    grouping_component_class_iri: str,
+                                    dataset_iri: Optional[str] = None) -> pd.DataFrame:
+    """Target-attribute values paired with the component instance of the
+    grouping class that their OWNER component is linked to — in either link
+    direction, via any ``linksComponent``-family edge (system topology only:
+    bookkeeping predicates like ``derivedFromCatalogue`` are subproperties of
+    ``prov:wasDerivedFrom``, not ``linksComponent``, so they never group).
+    Columns: attr, numValue, simpleValue, catValue, catLabel, container,
+    containerLabel."""
+    ds = f"  ?owner dici_onto:hasDataSource <{dataset_iri}> .\n" if dataset_iri else ""
+    query = f"""
+    {_PREFIXES}
+    SELECT DISTINCT ?attr ?numValue ?simpleValue ?catValue ?catLabel
+                    ?container ?containerLabel
+    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH,
+                 SYSTEM_DESCRIPTION_GRAPH)}WHERE {{
+      ?owner ?edge ?attr .
+      ?edge rdfs:subPropertyOf* dici_onto:hasAttribute .
+{ds}      ?attr a ?t .
+      ?t rdfs:subClassOf* <{target_class_iri}> .
+{_VALUE_OPTIONALS.format(node="?attr", q="?numValue", s="?simpleValue",
+                         c="?catValue", cl="?catLabel")}
+      {{
+        ?owner ?link ?container .
+        ?link rdfs:subPropertyOf* dici_onto:linksComponent .
+      }}
+      UNION
+      {{
+        ?container ?link ?owner .
+        ?link rdfs:subPropertyOf* dici_onto:linksComponent .
+      }}
+      ?container a ?ct .
+      ?ct rdfs:subClassOf* <{grouping_component_class_iri}> .
+      FILTER(?container != ?owner)
+      OPTIONAL {{ ?container rdfs:label ?containerLabel . }}
+    }}
+    """
+    return run_df(client, query,
+                  ["attr", "numValue", "simpleValue", "catValue", "catLabel",
+                   "container", "containerLabel"])
+
+
+def workspace_component_types(client) -> pd.DataFrame:
+    """Component classes with instances in this workspace — the component-
+    grouping options for the Collections builder. Only classes whose instances
+    actually take part in a component link are offered (grouping by an
+    unlinked class would always yield nothing). Columns: componentType, label,
+    instanceCount."""
+    query = f"""
+    {_PREFIXES}
+    SELECT ?componentType ?label (COUNT(DISTINCT ?inst) AS ?instanceCount)
+    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH,
+                 SYSTEM_DESCRIPTION_GRAPH)}WHERE {{
+      ?inst a ?componentType .
+      ?componentType rdfs:subClassOf+ dici_onto:Component .
+      {{ ?inst ?link ?other . ?link rdfs:subPropertyOf* dici_onto:linksComponent . }}
+      UNION
+      {{ ?other ?link ?inst . ?link rdfs:subPropertyOf* dici_onto:linksComponent . }}
+      FILTER(?other != ?inst)
+      OPTIONAL {{ ?componentType rdfs:label ?label . }}
+      FILTER NOT EXISTS {{
+        ?inst a ?moreSpecific .
+        ?moreSpecific rdfs:subClassOf+ ?componentType .
+        FILTER(?moreSpecific != ?componentType)   # closure has reflexive subClassOf
+      }}
+      FILTER NOT EXISTS {{
+        ?attrOwner ?attrEdge ?inst .
+        ?attrEdge rdfs:subPropertyOf* dici_onto:hasAttribute .
+      }}
+    }}
+    GROUP BY ?componentType ?label
+    ORDER BY ?componentType
+    """
+    return run_df(client, query, ["componentType", "label", "instanceCount"])
 
 
 def workspace_attribute_types(client) -> pd.DataFrame:

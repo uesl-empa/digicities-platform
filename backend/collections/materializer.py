@@ -211,15 +211,24 @@ def materialize_set(client, workspace_id: str, attribute_class_iri: str,
 
 def materialize_grouped_set(client, workspace_id: str,
                             target_attribute_class_iri: str,
-                            grouping_attribute_class_iri: str,
+                            grouping_class_iri: str,
                             dataset_iri: Optional[str] = None) -> str:
     """Materialize a GroupedSet: the target attribute's values partitioned by
-    the grouping attribute's values on the same components — one member Set
-    (with statistics) per distinct group key. Returns the GroupedSet IRI.
+    the grouping class — one member Set (with statistics) per distinct group
+    key. Returns the GroupedSet IRI.
 
-    The grouping attribute must be categorical (or a boolean/string simple
-    value): grouping by raw continuous values is rejected, as every group would
-    hold one member."""
+    The ontology decides the grouping mode. A grouping class under
+    ``dici_onto:Component`` groups by COMPONENT: one group per instance of
+    that class the members' owners are linked to (linksComponent-family edges,
+    either direction) — e.g. per-park turbine statistics. Any other grouping
+    class is an attribute type on the same components, and must be categorical
+    (or a boolean/string simple value): grouping by raw continuous values is
+    rejected, as every group would hold one member."""
+    if queries.is_component_class(client, grouping_class_iri):
+        return materialize_component_grouped_set(
+            client, workspace_id, target_attribute_class_iri,
+            grouping_class_iri, dataset_iri)
+    grouping_attribute_class_iri = grouping_class_iri
     t_family, t_simple = detect_family(client, target_attribute_class_iri)
     g_family, g_simple = detect_family(client, grouping_attribute_class_iri)
 
@@ -284,6 +293,90 @@ def materialize_grouped_set(client, workspace_id: str,
                URIRef(target_attribute_class_iri)))
         g.add((member_set, dici_onto.groupKey, Literal(key)))
         for _, member in groups[key]:
+            g.add((URIRef(member), dici_onto.aggregatedIn, member_set))
+        _stats_node(g, member_set, stats, bins)
+
+    _replace_collection(client, str(gset_iri), g)
+    return str(gset_iri)
+
+
+def materialize_component_grouped_set(client, workspace_id: str,
+                                      target_attribute_class_iri: str,
+                                      grouping_component_class_iri: str,
+                                      dataset_iri: Optional[str] = None) -> str:
+    """Materialize a component-grouped GroupedSet: the target attribute's
+    values partitioned by the instances of a component class the owners are
+    linked to (e.g. HubHeight per WindPark). One group Set per container
+    instance, carrying ``groupComponent`` (the instance) and ``groupKey``
+    (its label). Returns the GroupedSet IRI."""
+    if not queries.is_component_class(client, grouping_component_class_iri):
+        raise CollectionError(
+            f"{_local(grouping_component_class_iri)} is not a Component "
+            f"subclass in this workspace's schema graph")
+    t_family, t_simple = detect_family(client, target_attribute_class_iri)
+
+    df = queries.component_grouped_member_values(
+        client, target_attribute_class_iri, grouping_component_class_iri,
+        dataset_iri)
+
+    # (container_iri, container_label, value, member_iri) — keyed by the
+    # container INSTANCE, never its label (labels may collide).
+    keyed: List[Tuple[str, str, str, str]] = []
+    for _, row in df.iterrows():
+        val = _row_value(row, t_family, "numValue", "simpleValue",
+                         "catValue", "catLabel")
+        container = row.get("container")
+        if val is None or container is None or pd.isna(container):
+            continue
+        label = row.get("containerLabel")
+        label = (str(label) if label is not None and not pd.isna(label)
+                 and str(label) else _local(container))
+        keyed.append((str(container), label, val, str(row["attr"])))
+    if not keyed:
+        raise CollectionError(
+            f"no {_local(target_attribute_class_iri)} value sits on a "
+            f"component linked to a {_local(grouping_component_class_iri)} — "
+            f"nothing to group")
+
+    effective_t_family = (sniff_family([v for _, _, v, _ in keyed])
+                          if t_simple else t_family)
+
+    base = _collections_base(workspace_id)
+    name = (f"{_local(target_attribute_class_iri)}By"
+            f"{_local(grouping_component_class_iri)}")
+    if dataset_iri:
+        name += f"_{_slug(_local(dataset_iri))}"
+    gset_iri = URIRef(f"{base}/{name}")
+
+    g = Graph()
+    g.add((gset_iri, RDF.type, dici_onto.GroupedSet))
+    g.add((gset_iri, RDFS.label,
+           Literal(f"{_local(target_attribute_class_iri)} per "
+                   f"{_local(grouping_component_class_iri)}")))
+    _provenance(g, gset_iri, target_attribute_class_iri, dataset_iri)
+    g.add((gset_iri, dici_onto.groupedBy,
+           URIRef(grouping_component_class_iri)))
+
+    groups: Dict[str, List[Tuple[str, str]]] = {}
+    labels: Dict[str, str] = {}
+    for container, label, val, member in keyed:
+        groups.setdefault(container, []).append((val, member))
+        labels[container] = label
+
+    for container in sorted(groups):
+        vals = [v for v, _ in groups[container]]
+        stats, bins = compute_stats(effective_t_family, vals)   # fails loudly
+        member_set = URIRef(f"{gset_iri}/group/{_slug(_local(container))}")
+        g.add((gset_iri, dici_onto.hasGroup, member_set))
+        g.add((member_set, RDF.type, dici_onto.Set))
+        g.add((member_set, RDFS.label,
+               Literal(f"{_local(target_attribute_class_iri)} of components "
+                       f"linked to {labels[container]}")))
+        g.add((member_set, dici_onto.ofAttributeType,
+               URIRef(target_attribute_class_iri)))
+        g.add((member_set, dici_onto.groupKey, Literal(labels[container])))
+        g.add((member_set, dici_onto.groupComponent, URIRef(container)))
+        for _, member in groups[container]:
             g.add((URIRef(member), dici_onto.aggregatedIn, member_set))
         _stats_node(g, member_set, stats, bins)
 

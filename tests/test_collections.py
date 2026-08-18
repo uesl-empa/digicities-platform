@@ -242,6 +242,76 @@ def test_group_by_continuous_rejected():
             "https://digicities.info/ontology#HubHeight")
 
 
+def test_materialize_component_grouped_set():
+    schema_target = pd.DataFrame({"base": [
+        "https://digicities.info/ontology#HubHeight",
+        "https://digicities.info/ontology#PhysicalAttribute",
+        "https://digicities.info/ontology#Attribute"]})
+    is_component = pd.DataFrame({"n": [1]})
+    grouped = pd.DataFrame({
+        "attr": ["https://p/T1/HubHeight", "https://p/T2/HubHeight",
+                 "https://p/T3/HubHeight"],
+        "numValue": ["85.0", "85.0", "98.0"],
+        "simpleValue": [None] * 3, "catValue": [None] * 3, "catLabel": [None] * 3,
+        "container": ["https://p/WindPark/North", "https://p/WindPark/North",
+                      "https://p/WindPark/South"],
+        "containerLabel": ["North Park", "North Park", "South Park"],
+    })
+
+    class Router(FakeClient):
+        def sparql_api_query(self, query, out_format="df", **kw):
+            if "rdfs:subClassOf* dici_onto:Component" in query:
+                return is_component
+            if "rdfs:subClassOf* ?base" in query:
+                return schema_target
+            return grouped
+
+    client = Router({})
+    iri = materializer.materialize_grouped_set(          # semantic dispatch
+        client, "ws",
+        "https://digicities.info/ontology#HubHeight",
+        "https://digicities.info/ontology#WindPark")
+
+    assert iri.endswith("/collections/HubHeightByWindPark")
+    g = _inserted_graph(client)
+    gset = rdflib.URIRef(iri)
+    assert (gset, RDF.type, D.GroupedSet) in g
+    assert (gset, D.groupedBy, D.WindPark) in g
+    groups = list(g.objects(gset, D.hasGroup))
+    assert len(groups) == 2
+    by_key = {str(g.value(s, D.groupKey)): s for s in groups}
+    assert set(by_key) == {"North Park", "South Park"}
+    # groups keyed by the container INSTANCE, recorded via groupComponent
+    north = by_key["North Park"]
+    assert g.value(north, D.groupComponent) == rdflib.URIRef(
+        "https://p/WindPark/North")
+    stats = g.value(north, D.hasDescriptiveStatistics)
+    assert int(g.value(stats, D["count"])) == 2
+    assert float(g.value(stats, D.mean)) == pytest.approx(85.0)
+    assert len(list(g.subjects(D.aggregatedIn, north))) == 2
+
+
+def test_component_grouping_with_no_links_fails_loudly():
+    schema_target = pd.DataFrame({"base": [
+        "https://digicities.info/ontology#HubHeight",
+        "https://digicities.info/ontology#PhysicalAttribute",
+        "https://digicities.info/ontology#Attribute"]})
+
+    class Router(FakeClient):
+        def sparql_api_query(self, query, out_format="df", **kw):
+            if "rdfs:subClassOf* dici_onto:Component" in query:
+                return pd.DataFrame({"n": [1]})
+            if "rdfs:subClassOf* ?base" in query:
+                return schema_target
+            return pd.DataFrame()          # no linked containers
+
+    with pytest.raises(CollectionError, match="nothing to group"):
+        materializer.materialize_component_grouped_set(
+            Router({}), "ws",
+            "https://digicities.info/ontology#HubHeight",
+            "https://digicities.info/ontology#WindPark")
+
+
 def test_unsupported_base_type_rejected():
     schema = pd.DataFrame({"base": [
         "https://digicities.info/ontology#PowerCurve",
