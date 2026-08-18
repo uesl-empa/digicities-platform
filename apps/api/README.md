@@ -32,6 +32,11 @@ for the triplestore, the workspace registry for workspace resolution.
 | POST | `/api/workspaces/{id}/scenario` | `build_scenario_ttl` | 🚧 501 |
 | POST | `/api/workspaces/{id}/submit` | `convert_scenario` | 🚧 501 |
 | GET  | `/api/workspaces/{id}/agent` | onboarding agent (LangGraph, SSE) | 🚧 501 |
+| GET  | `/api/workspaces/{id}/collections` | `backend.collections.list_collections` | ✅ live |
+| GET  | `/api/workspaces/{id}/collections/options` | attribute/component/dataset choices | ✅ live |
+| GET  | `/api/workspaces/{id}/collections/{name}` | statistics + distribution + members | ✅ live |
+| POST | `/api/workspaces/{id}/collections` | `materialize_set` / `materialize_grouped_set` | ✅ live |
+| DELETE | `/api/workspaces/{id}/collections/{name}` | `delete_collection` | ✅ live |
 
 ## Design notes
 
