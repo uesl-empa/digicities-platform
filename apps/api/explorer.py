@@ -49,17 +49,30 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
     from apps.streamlit.components.component_explorer import (
         get_component_data_unified,
         process_enhanced_component_data,
+        get_component_sources,
+        attach_sources,
         get_visible_columns,
         curve_columns,
     )
 
-    instances, attributes = get_component_data_unified(graph_client(ctx), name)
+    client = graph_client(ctx)
+    instances, attributes = get_component_data_unified(client, name)
     if not instances:
-        return {"columns": [], "rows": [], "curves": {}}
+        return {"columns": [], "rows": [], "curves": {}, "sources": {}, "has_sources": False}
 
     df = process_enhanced_component_data(instances, attributes)
+    df = attach_sources(df, get_component_sources(client, name))
     columns = get_visible_columns(df)
     ccols = curve_columns(df)
+
+    # Per-instance provenance for the "Data sources" panel (keyed by instance id).
+    sources: dict[str, Any] = {}
+    if "_sources" in df.columns:
+        for _, row in df.iterrows():
+            meta = row.get("_sources")
+            if isinstance(meta, dict):
+                sources[str(row.get("instance_id"))] = meta
+    has_sources = "Source" in columns
 
     curves: dict[str, dict[str, Any]] = {}
     for _, row in df.iterrows():
@@ -77,4 +90,10 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
             curves[iid] = per
 
     rows = [{c: _clean(row.get(c)) for c in columns} for _, row in df.iterrows()]
-    return {"columns": columns, "rows": rows, "curves": curves}
+    return {
+        "columns": columns,
+        "rows": rows,
+        "curves": curves,
+        "sources": sources,
+        "has_sources": has_sources,
+    }
