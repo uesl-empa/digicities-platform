@@ -104,14 +104,20 @@ def component_range(
     return of.get_component_range(extension, component)
 
 
+ATTRIBUTE_TYPES = [
+    "Physical", "Simple Cost", "Unit-Based Cost", "Curve", "Categorical",
+    "Geospatial", "CustomPhysicalRatio", "Event", "SimpleValue",
+]
+
+
 @router.get("/meta")
 def meta(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
-    """Form vocabulary: the attribute types and QUDT unit codes for the add-attribute form."""
+    """Form vocabulary: attribute types, QUDT unit codes, temporal precisions."""
     of = _funcs(ctx)
-    types = of.BASE_ATTRIBUTE_TYPES
     return {
-        "attribute_types": list(types.keys()) if isinstance(types, dict) else list(types),
+        "attribute_types": ATTRIBUTE_TYPES,
         "qudt_units": of.get_qudt_units(),
+        "temporal_precisions": of.get_temporal_precisions(),
     }
 
 
@@ -156,3 +162,88 @@ def link_attribute(body: LinkAttribute, ctx: WorkspaceContext = Depends(get_ctx)
 @router.post("/extension/create")
 def create_extension(body: CreateExtension, ctx: WorkspaceContext = Depends(get_ctx)):
     return _apply(*_funcs(ctx).create_new_extension(body.name))
+
+
+@router.post("/attribute/remove")
+def remove_attribute(body: RemoveUri, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(body.extension)
+    return _apply(*of.remove_attribute(body.extension, body.uri))
+
+
+@router.post("/link/remove")
+def remove_link(body: LinkAttribute, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(body.extension)
+    return _apply(*of.remove_attribute_link(body.extension, body.component, body.attribute))
+
+
+@router.get("/component/attributes")
+def component_attributes(extension: str, component: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(extension)
+    return of.get_component_attributes(extension, component)
+
+
+@router.get("/categories")
+def categories(extension: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(extension)
+    return of.get_attribute_categories(extension)
+
+
+@router.get("/categorical-attributes")
+def categorical_attributes(extension: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(extension)
+    return of.get_categorical_attributes(extension)
+
+
+@router.get("/named-individuals")
+def named_individuals(extension: str, attribute: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(extension)
+    return of.get_named_individuals(extension, attribute)
+
+
+class AddCategory(BaseModel):
+    extension: str
+    attribute: str
+    category: str
+
+
+class AddNamedIndividual(BaseModel):
+    extension: str
+    label: str
+    attribute: str
+
+
+class ExtRef(BaseModel):
+    extension: str
+
+
+@router.post("/attribute/category")
+def add_to_category(body: AddCategory, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(body.extension)
+    return _apply(*of.add_attribute_to_category(body.extension, body.attribute, body.category))
+
+
+@router.post("/named-individual")
+def add_named_individual(body: AddNamedIndividual, ctx: WorkspaceContext = Depends(get_ctx)):
+    of = _funcs(ctx)
+    of.load_extension_and_update(body.extension)
+    return _apply(*of.add_named_individual(body.extension, body.label, body.attribute))
+
+
+@router.get("/export")
+def export(extension: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
+    """The extension's TTL, for the Publish/Download."""
+    ttl = _funcs(ctx).get_export_ttl_content(extension) or ""
+    return {"extension": extension, "ttl": ttl}
+
+
+@router.post("/publish")
+def publish(body: ExtRef, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Update the temp working graph and export it (the Publish action)."""
+    return _funcs(ctx).update_temp_and_export(body.extension)
