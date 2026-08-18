@@ -38,6 +38,7 @@ from backend.graphdb.graphs import (
     ONTOLOGY_GRAPH,
     CLASSES_AND_ATTRIBUTES_GRAPH,
     SCENARIOS_GRAPH,
+    COLLECTIONS_GRAPH,
 )
 
 from .context import WorkspaceContext
@@ -60,6 +61,8 @@ from .context import WorkspaceContext
 #   <system_description>     component-to-component links (replica-built; NOT
 #                            written here so re-provisioning never wipes links)
 #   <scenarios>              scenario graphs
+#   <collections>            derived sets/statistics — CLEARED here on every
+#                            reload (stale once the instance data changes)
 
 
 def _core_ttl_path() -> Path:
@@ -140,6 +143,26 @@ def upload_ttl_to_graph(
         return True
     except requests.RequestException as exc:
         print(f"[graphdb_provisioning] upload to {repo_id}/{graph_iri} failed: {exc}")
+        return False
+
+
+def clear_graph(repo_id: str, graph_iri: str, base_url: Optional[str] = None) -> bool:
+    """Empty one named graph with ``CLEAR SILENT GRAPH`` (no-op if absent)."""
+    backend = get_backend()
+    try:
+        r = requests.post(
+            backend.update_url(repo_id),
+            data={"update": f"CLEAR SILENT GRAPH <{graph_iri}>"},
+            auth=getattr(backend, "auth", None),
+            timeout=60,
+        )
+        if r.status_code in (200, 204):
+            return True
+        print(f"[graphdb_provisioning] CLEAR GRAPH <{graph_iri}> on {repo_id} "
+              f"returned HTTP {r.status_code}: {r.text[:200]}")
+        return False
+    except requests.RequestException as exc:
+        print(f"[graphdb_provisioning] CLEAR GRAPH <{graph_iri}> on {repo_id} failed: {exc}")
         return False
 
 
@@ -301,5 +324,11 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
                 print(f"[graphdb_provisioning] {ctx.id}: wrote {len(graph)} triples to <{graph_iri}>")
         except Exception as exc:
             print(f"[graphdb_provisioning] {ctx.id}: named-graph write to <{graph_iri}> raised (non-fatal): {exc}")
+
+    # Collections are DERIVED from the instance data just rewritten — any
+    # materialized sets/statistics are now stale. Drop them wholesale; the
+    # Collections view recomputes on demand (lazy recompute, never stale reads).
+    if clear_graph(repo_id, COLLECTIONS_GRAPH):
+        print(f"[graphdb_provisioning] {ctx.id}: cleared derived <{COLLECTIONS_GRAPH}> (stale after data reload)")
 
     return True

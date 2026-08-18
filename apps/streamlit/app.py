@@ -1269,6 +1269,7 @@ def render_module_selector():
         "Ontology Manager",
         "Replica Builder",
         "Query Manager",
+        "Collections",
         "Data Viewer and Uploader",
         "Data Products"
     ]
@@ -1412,6 +1413,16 @@ def render_active_module():
                 handle_module_error("Query Manager", e, needs_graphdb=True)
         else:
             show_graphdb_required("Query Manager")
+
+    elif active_tab == "Collections":
+        if client:
+            try:
+                collections_explorer = lazy_import_module("collections_explorer", "components.collections_explorer")
+                collections_explorer(client)
+            except Exception as e:
+                handle_module_error("Collections", e, needs_graphdb=True)
+        else:
+            show_graphdb_required("Collections")
 
     elif active_tab == "Data Viewer and Uploader":
         # Storage-agnostic: uses the active workspace's WorkspaceStorage
