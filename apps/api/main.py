@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from backend.workspace import WorkspaceContext, load_registry, ensure_workspace_repo
 
 from .deps import get_ctx, graph_client
+from .explorer import router as explorer_router
 
 app = FastAPI(
     title="Digicities API",
@@ -41,6 +42,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(explorer_router)
 
 
 # ── models ────────────────────────────────────────────────────────────────────
