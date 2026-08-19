@@ -894,13 +894,18 @@ def render_groups_as_workspaces(groups):
         "NextCloud": f"☁️ NextCloud ({n_nc})",
     }
 
-    fcol1, fcol2 = st.columns([3, 2])
+    fcol1, fcol2, fcol3 = st.columns([3, 2, 2])
     with fcol1:
         selected_source = st.radio(
             "Source", options, horizontal=True, key="ws_source_filter",
             label_visibility="collapsed", format_func=lambda o: labels.get(o, o),
         ) if len(options) > 1 else "All"
     with fcol2:
+        sort_by = st.selectbox(
+            "Sort", ["🕒 Last updated", "🔤 Name", "📅 Created"],
+            key="ws_sort_by", label_visibility="collapsed",
+        )
+    with fcol3:
         search = st.text_input(
             "Search", key="ws_search_filter", label_visibility="collapsed",
             placeholder="🔍 Filter by name…",
@@ -911,10 +916,22 @@ def render_groups_as_workspaces(groups):
         if selected_source == "All" or _source_of(g) == selected_source
     ]
 
-    # Demo workspace(s) first; everything else newest-first, so the workspace
-    # you worked on last is always at the top.
+    # Demo workspace(s) stay pinned first; the rest follow the chosen sort
+    # (default: newest activity first, so the workspace you worked on last is
+    # always at the top).
     non_demo = [g for g in filtered_groups if g not in demo_ids]
-    non_demo.sort(key=lambda g: _ws_last_updated_cached(g) or 0, reverse=True)
+    if sort_by == "🔤 Name":
+        def _name_of(g):
+            meta = load_workspace_metadata_cached(g) or {}
+            return str(meta.get("name") or g).lower()
+        non_demo.sort(key=_name_of)
+    elif sort_by == "📅 Created":
+        def _created_of(g):
+            meta = load_workspace_metadata_cached(g) or {}
+            return str(meta.get("created") or meta.get("created_date") or "")
+        non_demo.sort(key=_created_of, reverse=True)
+    else:
+        non_demo.sort(key=lambda g: _ws_last_updated_cached(g) or 0, reverse=True)
     filtered_groups = [g for g in filtered_groups if g in demo_ids] + non_demo
 
     # Bulk delete: a checkbox per (non-demo) card + a toolbar under the list.

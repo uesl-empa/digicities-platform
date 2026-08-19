@@ -210,3 +210,20 @@ def workspace_last_updated(root) -> "float | None":
             if latest is None or m > latest:
                 latest = m
     return latest
+
+
+def touch_workspace_activity(storage) -> None:
+    """Stamp 'someone worked on this workspace now' (workspace_meta/.last_activity).
+
+    File edits update the workspace tree by themselves, but GRAPH-ONLY activity
+    (opening/provisioning, materializing collections) writes nothing to disk —
+    without this marker the landing page's last-updated stamp would sit at the
+    last file edit forever. The marker is an ordinary file, so
+    workspace_last_updated picks it up with no special casing. Best-effort:
+    activity stamping must never break the operation it rides on."""
+    try:
+        from datetime import datetime, timezone
+        storage.write_text("workspace_meta/.last_activity",
+                           datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    except Exception:
+        pass
