@@ -796,6 +796,37 @@ def render_create_workspace_form():
 
 
 @measure_performance
+@st.cache_data(ttl=120)
+def _ws_last_updated_cached(ws_id: str):
+    """Epoch seconds of the newest file in a (local) workspace, or None."""
+    try:
+        from backend.workspace import load_registry, workspace_last_updated
+        ctx = load_registry().by_id(ws_id)
+        if ctx is not None and getattr(ctx.storage, "protocol", "file") == "file":
+            return workspace_last_updated(ctx.storage.root)
+    except Exception:
+        pass
+    return None
+
+
+def _ago(ts) -> str:
+    """Compact 'how long ago' label for a workspace card."""
+    if not ts:
+        return ""
+    from datetime import datetime
+    delta = datetime.now() - datetime.fromtimestamp(ts)
+    s = int(delta.total_seconds())
+    if s < 90:
+        return "just now"
+    if s < 5400:
+        return f"{max(1, s // 60)} min ago"
+    if s < 129600:                       # < 36 h
+        return f"{max(1, s // 3600)} h ago"
+    if s < 86400 * 30:
+        return f"{s // 86400} d ago"
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+
+
 def render_groups_as_workspaces(groups):
     """Render available workspaces with clean card design - optimized."""
     st.subheader("🏢 Your Workspaces")
@@ -880,11 +911,22 @@ def render_groups_as_workspaces(groups):
         if selected_source == "All" or _source_of(g) == selected_source
     ]
 
-    # Demo workspace(s) first.
-    filtered_groups = (
-        [g for g in filtered_groups if g in demo_ids]
-        + [g for g in filtered_groups if g not in demo_ids]
-    )
+    # Demo workspace(s) first; everything else newest-first, so the workspace
+    # you worked on last is always at the top.
+    non_demo = [g for g in filtered_groups if g not in demo_ids]
+    non_demo.sort(key=lambda g: _ws_last_updated_cached(g) or 0, reverse=True)
+    filtered_groups = [g for g in filtered_groups if g in demo_ids] + non_demo
+
+    # Bulk delete: a checkbox per (non-demo) card + a toolbar under the list.
+    from components.workspace_admin import (
+        apply_pending_bulk_selection, bulk_select_key, render_bulk_delete_toolbar)
+    bulk_mode = st.toggle(
+        "🗑️ Bulk delete mode", key="ws_bulk_delete_mode",
+        help="Tick workspaces to delete several at once (or Select all). "
+             "Bundled demo workspaces are protected.")
+    if bulk_mode:
+        apply_pending_bulk_selection([g for g in filtered_groups if g not in demo_ids])
+    bulk_candidates = []
 
     # Pre-load metadata and images in parallel (filtered set only)
     if filtered_groups:
@@ -915,6 +957,9 @@ def render_groups_as_workspaces(groups):
             "💻 Local" if ws_source == "Local" else f"🗄️ {ws_source}")
         if workspace_id in demo_ids:
             source_badge = "🎓 Demo · " + source_badge
+        updated = _ago(_ws_last_updated_cached(workspace_id))
+        if updated:
+            source_badge += f" | 🕒 {updated}"
 
         workspace = {
             'id': workspace_id,
@@ -970,6 +1015,15 @@ def render_groups_as_workspaces(groups):
             from components.workspace_admin import render_manage_button
             render_manage_button(workspace_id)
 
+        if bulk_mode:
+            with col4:
+                if workspace_id in demo_ids:
+                    st.caption("🎓 protected")
+                else:
+                    st.checkbox("🗑️ select for deletion",
+                                key=bulk_select_key(workspace_id))
+                    bulk_candidates.append(workspace_id)
+
         # Clear-contents / delete live in a panel under the card rather than in a
         # popover: they carry a type-to-confirm field, and a popover collapses on
         # the rerun its own widgets trigger.
@@ -979,6 +1033,10 @@ def render_groups_as_workspaces(groups):
 
     if rendered == 0:
         st.caption("No workspaces match this filter.")
+
+    if bulk_mode:
+        st.divider()
+        render_bulk_delete_toolbar(bulk_candidates)
 
 
 def _reset_workspace_scoped_state():
