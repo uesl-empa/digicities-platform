@@ -932,7 +932,9 @@ def render_groups_as_workspaces(groups):
         non_demo.sort(key=_created_of, reverse=True)
     else:
         non_demo.sort(key=lambda g: _ws_last_updated_cached(g) or 0, reverse=True)
-    filtered_groups = [g for g in filtered_groups if g in demo_ids] + non_demo
+    demos = [g for g in filtered_groups if g in demo_ids]
+    demos.sort(key=lambda g: _ws_last_updated_cached(g) or 0, reverse=True)
+    filtered_groups = demos + non_demo
 
     # Bulk delete: a checkbox per (non-demo) card + a toolbar under the list.
     from components.workspace_admin import (
