@@ -162,3 +162,95 @@ def _refresh_and_rerun() -> None:
     except Exception:
         pass
     st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Bulk delete (landing page)
+# ---------------------------------------------------------------------------
+# One checkbox per card (non-demo only) + a toolbar under the card list.
+# Widget-state rule: "select all"/"clear" cannot set checkbox state after the
+# checkboxes were instantiated in the same run, so the buttons park a pending
+# action that apply_pending_bulk_selection() applies at the TOP of the next run
+# (same pattern as the app's pending_module_switch).
+
+
+def bulk_select_key(ws_id: str) -> str:
+    return f"bulkdel_{ws_id}"
+
+
+def apply_pending_bulk_selection(candidate_ids) -> None:
+    """Apply a parked select-all/clear request. Call BEFORE the cards render."""
+    action = st.session_state.pop("bulk_select_pending", None)
+    if action == "all":
+        for ws_id in candidate_ids:
+            st.session_state[bulk_select_key(ws_id)] = True
+    elif action == "none":
+        for ws_id in candidate_ids:
+            st.session_state[bulk_select_key(ws_id)] = False
+    if st.session_state.pop("bulk_confirm_reset", None):
+        st.session_state["bulk_delete_confirm"] = ""
+
+
+def render_bulk_delete_toolbar(candidate_ids) -> None:
+    """Selection summary + confirm-and-delete controls. ``candidate_ids`` are
+    the non-demo workspaces actually RENDERED above — only those can be
+    deleted, however the checkboxes got set."""
+    summary = st.session_state.pop("bulk_delete_summary", None)
+    if summary:
+        st.success(summary["ok"]) if summary.get("ok") else None
+        if summary.get("failed"):
+            st.warning(summary["failed"])
+
+    c1, c2, _ = st.columns([1, 1, 3])
+    if c1.button("Select all", key="bulk_select_all"):
+        st.session_state["bulk_select_pending"] = "all"
+        st.rerun()
+    if c2.button("Clear selection", key="bulk_select_none"):
+        st.session_state["bulk_select_pending"] = "none"
+        st.rerun()
+
+    selected = [w for w in candidate_ids if st.session_state.get(bulk_select_key(w))]
+    if not selected:
+        st.caption("Tick workspaces above, or **Select all**, then confirm here.")
+        return
+
+    st.warning(
+        f"**{len(selected)} workspace(s) selected for permanent deletion** — "
+        "folder removed, triplestore dataset dropped, cannot be undone:\n\n"
+        + "\n".join(f"- `{w}`" for w in selected)
+    )
+    typed = st.text_input("Type `DELETE` to confirm", key="bulk_delete_confirm",
+                          placeholder="DELETE")
+    if st.button(f"🗑️ Delete {len(selected)} workspace(s) permanently",
+                 key="bulk_delete_go", type="primary",
+                 disabled=typed.strip() != "DELETE"):
+        _do_bulk_delete(selected)
+
+
+def _do_bulk_delete(ws_ids) -> None:
+    from backend.workspace import WorkspaceProtected, delete_workspace
+
+    deleted, failed = [], []
+    progress = st.progress(0.0)
+    for i, ws_id in enumerate(ws_ids):
+        try:
+            result = delete_workspace(ws_id, drop_dataset=True)
+            if result.get("files_removed"):
+                deleted.append(ws_id)
+                _close_workspace_if_open(ws_id)
+            else:
+                failed.append(f"{ws_id} (folder could not be removed)")
+        except WorkspaceProtected as exc:
+            failed.append(f"{ws_id} (protected: {exc})")
+        except Exception as exc:
+            failed.append(f"{ws_id} ({exc})")
+        st.session_state.pop(bulk_select_key(ws_id), None)
+        progress.progress((i + 1) / len(ws_ids))
+
+    st.session_state["bulk_delete_summary"] = {
+        "ok": f"🗑️ Deleted {len(deleted)} workspace(s): " + ", ".join(f"`{w}`" for w in deleted)
+              if deleted else "",
+        "failed": "Not deleted: " + "; ".join(failed) if failed else "",
+    }
+    st.session_state["bulk_confirm_reset"] = True
+    _refresh_and_rerun()

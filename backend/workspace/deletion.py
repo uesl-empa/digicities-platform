@@ -184,3 +184,29 @@ def _remove_from_yaml(ws_id: str) -> bool:
     except Exception as exc:
         print(f"[workspace.delete] updating {path} failed: {exc}")
         return False
+
+
+def workspace_last_updated(root) -> "float | None":
+    """Newest file modification time (epoch seconds) anywhere in a workspace
+    tree, or None when unreadable/empty.
+
+    The honest "last worked on" signal: every route that touches a workspace —
+    Replica Builder, Ontology Manager, the onboarding agent, scenario/service
+    writes — lands in a file under the root. Hidden folders are skipped and the
+    walk is capped so a pathological tree can't stall the landing page."""
+    import os
+    latest = None
+    seen = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+        for name in filenames:
+            seen += 1
+            if seen > 20000:
+                return latest
+            try:
+                m = os.path.getmtime(os.path.join(dirpath, name))
+            except OSError:
+                continue
+            if latest is None or m > latest:
+                latest = m
+    return latest
