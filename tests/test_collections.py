@@ -381,6 +381,28 @@ def test_unsupported_base_type_rejected():
             client, "ws", "https://digicities.info/ontology#PowerCurve")
 
 
+def test_stats_table_keeps_plain_set_rows():
+    """A plain Set's stats rows have no groupKey (NaN); pivot_table silently
+    drops NaN index keys, which rendered every full-dataset table empty in
+    the UI. The pivot must keep them (and normalize Fuseki's '160.0e0')."""
+    st_mod = pytest.importorskip("streamlit")  # noqa: F841 — UI module import
+    import sys
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve()
+                           .parents[1] / "apps" / "streamlit"))
+    from components.collections_explorer import _stats_table
+
+    stats = pd.DataFrame([
+        {"set": "https://p/collections/FloorAreaSet", "groupKey": None,
+         "statistic": "https://digicities.info/ontology#mean", "value": "160.0e0"},
+        {"set": "https://p/collections/FloorAreaSet", "groupKey": None,
+         "statistic": "https://digicities.info/ontology#count", "value": "5"},
+    ])
+    wide = _stats_table(stats)
+    assert len(wide) == 1, "plain-Set row was dropped by the pivot"
+    assert wide.iloc[0]["mean"] == "160.0" or float(wide.iloc[0]["mean"]) == 160.0
+    assert int(float(wide.iloc[0]["count"])) == 5
+
+
 def test_core_ontology_declares_collections_tbox():
     from backend.ontology_manager.functions import OntologyFunctions
     import os

@@ -43,8 +43,19 @@ def _workspace_id() -> str:
 def _stats_table(stats_df: pd.DataFrame) -> pd.DataFrame:
     """Pivot the (set, groupKey, statistic, value) rows into one row per set,
     one column per statistic."""
+    def _display(v):
+        try:
+            f = float(str(v))          # accepts Fuseki's "160.0e0" doubles
+            return int(f) if f.is_integer() else round(f, 4)
+        except (TypeError, ValueError):
+            return str(v)
+
     df = stats_df.copy()
     df["statistic"] = df["statistic"].map(_local)
+    df["value"] = df["value"].map(_display)
+    # A plain Set has no groupKey (NaN) — pivot_table silently DROPS rows with
+    # NaN index keys, which rendered every full-dataset stats table empty.
+    df["groupKey"] = df["groupKey"].fillna("")
     # Multi-valued statistics (tied modes) join into one cell.
     df = (df.groupby(["set", "groupKey", "statistic"], dropna=False)["value"]
             .apply(lambda v: ", ".join(sorted(map(str, v))))
