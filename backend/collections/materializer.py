@@ -192,10 +192,24 @@ def _replace_collection(client, root_iri: str, g: Graph) -> None:
         client.sparql_update(f"INSERT DATA {{ GRAPH {graph} {{\n{nt}\n}} }}")
 
 
+def _touch_activity(workspace_id: str) -> None:
+    """Materializing collections is graph-only work — stamp the workspace's
+    activity marker so the landing page's last-updated reflects it."""
+    try:
+        from backend.workspace import load_registry, touch_workspace_activity
+        ctx = load_registry().by_id(workspace_id)
+        if ctx is not None:
+            touch_workspace_activity(ctx.storage)
+    except Exception:
+        pass
+
+
 def delete_collection(client, collection_iri: str) -> None:
     """Remove a materialized collection (and its stats/bins/groups/membership
     triples) from the collections graph."""
     _replace_collection(client, collection_iri, Graph())
+    if "/proj/" in str(collection_iri):
+        _touch_activity(str(collection_iri).split("/proj/")[1].split("/")[0])
 
 
 def materialize_set(client, workspace_id: str, attribute_class_iri: str,
@@ -224,6 +238,7 @@ def materialize_set(client, workspace_id: str, attribute_class_iri: str,
     _stats_node(g, set_iri, stats, bins)
 
     _replace_collection(client, str(set_iri), g)
+    _touch_activity(workspace_id)
     return str(set_iri)
 
 
@@ -317,6 +332,7 @@ def materialize_grouped_set(client, workspace_id: str,
         _stats_node(g, member_set, stats, bins)
 
     _replace_collection(client, str(gset_iri), g)
+    _touch_activity(workspace_id)
     return str(gset_iri)
 
 
@@ -466,4 +482,5 @@ def materialize_component_grouped_set(client, workspace_id: str,
                Literal(f"{attr_local} {stat} (aggregate)")))
 
     _replace_collection(client, str(gset_iri), g)
+    _touch_activity(workspace_id)
     return str(gset_iri)

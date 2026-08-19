@@ -404,4 +404,9 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
                   f"<{COLLECTIONS_GRAPH}> (authored replica changed)")
         _stamp_collections_fingerprint(repo_id, fingerprint)
 
+    # Opening/provisioning IS working on the workspace — record it so the
+    # landing page's last-updated stamp reflects graph-only sessions too.
+    from .deletion import touch_workspace_activity
+    touch_workspace_activity(ctx.storage)
+
     return True
