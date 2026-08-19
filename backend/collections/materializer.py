@@ -484,3 +484,70 @@ def materialize_component_grouped_set(client, workspace_id: str,
     _replace_collection(client, str(gset_iri), g)
     _touch_activity(workspace_id)
     return str(gset_iri)
+
+
+# Statistic-name suffix ↔ registry key, for template references like
+# ``District.BuildingHeightMean``. The SUFFIX is only the trigger — both the
+# attribute class and the component class are then verified against the
+# schema graph before anything is materialized.
+_STAT_SUFFIXES = {
+    "Mean": "mean", "Median": "median", "Sum": "sum",
+    "MinValue": "minValue", "MaxValue": "maxValue", "Count": "count",
+    "StandardDeviation": "standardDeviation",
+}
+
+
+def ensure_template_aggregates(client, workspace_id: str, template) -> List[str]:
+    """Make every aggregate a service template references resolvable BEFORE
+    conversion, so Convert→Submit works end-to-end without anyone having to
+    pre-materialize collections.
+
+    Walks the template for ``Component.Attr`` references where ``Attr`` ends
+    in a statistic suffix (Mean, Sum, ...). A candidate is acted on only when
+    the schema graph confirms it: the base is a real Attribute subclass and
+    the component is a real Component subclass. Each confirmed aggregate's
+    component-grouped set is (re)materialized idempotently, projecting that
+    statistic. Never raises — an unmaterializable aggregate (e.g. no links)
+    just stays unresolved, exactly as before.
+
+    Returns the collection IRIs that were ensured.
+    """
+    refs: set = set()
+
+    def _walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                _walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                _walk(v)
+        elif isinstance(node, str) and node.count(".") == 1 and not node.startswith("CL."):
+            comp, attr = node.split(".")
+            if comp and attr and comp[0].isupper():
+                refs.add((comp, attr))
+
+    _walk(template)
+
+    ensured: List[str] = []
+    for comp, attr in sorted(refs):
+        stat = next((s for suf, s in _STAT_SUFFIXES.items() if attr.endswith(suf)
+                     and len(attr) > len(suf)), None)
+        if stat is None:
+            continue
+        base = attr[: -len([s for s, v in _STAT_SUFFIXES.items() if v == stat][0])]
+        base_iri = f"{dici_onto}{base}"
+        comp_iri = f"{dici_onto}{comp}"
+        try:
+            if not queries.base_types_of(client, base_iri):
+                continue                       # not an attribute class here
+            if not queries.is_component_class(client, comp_iri):
+                continue                       # not a component class here
+            ensured.append(materialize_component_grouped_set(
+                client, workspace_id, base_iri, comp_iri,
+                project_statistics=(stat,)))
+        except CollectionError as exc:
+            print(f"[collections] template aggregate {comp}.{attr} not "
+                  f"materializable: {exc}")
+        except Exception as exc:
+            print(f"[collections] template aggregate {comp}.{attr} skipped: {exc}")
+    return ensured

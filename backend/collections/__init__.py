@@ -18,8 +18,8 @@ from .registry import (
 )
 from .materializer import (
     COMPUTED_BY, delete_collection, detect_family,
-    materialize_component_grouped_set, materialize_grouped_set,
-    materialize_set,
+    ensure_template_aggregates, materialize_component_grouped_set,
+    materialize_grouped_set, materialize_set,
 )
 from .queries import (
     is_component_class, list_collections, member_count, set_bins,
@@ -30,8 +30,9 @@ from .queries import (
 __all__ = [
     "NUMERIC", "CATEGORICAL", "TEMPORAL", "BOOLEAN",
     "CollectionError", "MixedFamilyError", "compute_stats", "sniff_family",
-    "COMPUTED_BY", "detect_family", "materialize_set",
-    "materialize_grouped_set", "materialize_component_grouped_set",
+    "COMPUTED_BY", "detect_family", "ensure_template_aggregates",
+    "materialize_set", "materialize_grouped_set",
+    "materialize_component_grouped_set",
     "delete_collection", "is_component_class",
     "list_collections", "member_count", "set_bins", "set_statistics",
     "workspace_attribute_types", "workspace_component_types",

@@ -233,6 +233,24 @@ def render_scenario_selection_tab():
                         template_content = {k: v for k, v in template_content.items()
                                             if k != 'connection'}
 
+                    # Aggregates the template references (e.g.
+                    # District.BuildingHeightMean) are DERIVED — materialize
+                    # any that are missing so conversion works end-to-end
+                    # without a manual Collections step. Best-effort: an
+                    # unmaterializable aggregate resolves to null, as before.
+                    try:
+                        from backend.collections import ensure_template_aggregates
+                        _ws = st.session_state.get("current_workspace")
+                        _ws_id = _ws["id"] if isinstance(_ws, dict) else str(_ws or "")
+                        _client = st.session_state.get("workspace_client")
+                        if _client is not None and _ws_id:
+                            ensured = ensure_template_aggregates(_client, _ws_id, template_content)
+                            if ensured:
+                                st.caption(f"📊 Materialized {len(ensured)} aggregate "
+                                           f"collection(s) referenced by the template.")
+                    except Exception:
+                        pass
+
                     for ttl_file in ttl_files_to_process:
                         try:
                             # Process file
