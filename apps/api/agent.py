@@ -99,6 +99,23 @@ def message(body: Message, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     return _get(body.session_id).send(body.text)
 
 
+@router.get("/message/stream")
+def message_stream(session_id: str, text: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    """Server-sent events: `token` as the LLM writes, then `result` with the full turn."""
+    import json as _json
+    from fastapi.responses import StreamingResponse
+
+    sess = _get(session_id)
+
+    def gen():
+        for kind, data in sess.send_stream(text):
+            yield f"event: {kind}\ndata: {_json.dumps(data)}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @router.get("/state")
 def state(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     return _get(session_id).snapshot()
