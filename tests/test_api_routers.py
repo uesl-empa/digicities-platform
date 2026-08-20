@@ -43,10 +43,15 @@ def ws(tmp_path, monkeypatch, api_app):
     """A fake open workspace: ctx override + USECASES_DIR pointed at tmp."""
     monkeypatch.setenv("USECASES_DIR", str(tmp_path))
     from apps.api.deps import get_ctx
+    from backend.workspace import WorkspaceStorage
 
-    api_app.dependency_overrides[get_ctx] = lambda: _Ctx()
     root = tmp_path / _Ctx.id
     root.mkdir()
+    # Real WorkspaceContexts always carry a storage; the stub gets one over
+    # the same tmp root (workspace_info reads metadata through it).
+    ctx = _Ctx()
+    ctx.storage = WorkspaceStorage.local(str(root))
+    api_app.dependency_overrides[get_ctx] = lambda: ctx
     return root
 
 

@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext, load_registry, ensure_workspace_repo
 
+from .auth import require_auth
 from .deps import get_ctx, graph_client
 from .explorer import router as explorer_router
 from .queries import router as queries_router
@@ -42,6 +43,10 @@ app = FastAPI(
     title="Digicities API",
     version="0.1.0",
     description="HTTP access to the Digicities platform backend (round one: onboarding-agent paths).",
+    # Optional bearer-token auth on every route — a no-op until
+    # API_AUTH_ENABLED is set (see apps/api/auth.py). Reads the raw request
+    # header, so the OpenAPI snapshot is unaffected.
+    dependencies=[Depends(require_auth)],
 )
 
 # The React app is served from a different origin in dev; open CORS here and
@@ -149,17 +154,12 @@ def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
 @app.get("/api/workspaces/{workspace_id}/info", tags=["workspaces"])
 def workspace_info(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Fuller workspace info for the sidebar panel (type/location/path/status)."""
-    import json
-    from backend.workspace import workspace_last_updated
+    from backend.workspace import read_workspace_metadata, workspace_last_updated
     from .deps import ws_root
     root = ws_root(ctx)
-    meta: dict[str, Any] = {}
-    mp = root / "workspace_meta" / "metadata.json"
-    if mp.exists():
-        try:
-            meta = json.loads(mp.read_text(encoding="utf-8"))
-        except Exception:
-            meta = {}
+    # Same reader the Streamlit landing page uses (backend.workspace.metadata),
+    # so both frontends see identical metadata for a workspace.
+    meta: dict[str, Any] = read_workspace_metadata(ctx)
     return {
         "name": ctx.name,
         "id": ctx.id,

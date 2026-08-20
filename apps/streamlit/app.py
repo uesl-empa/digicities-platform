@@ -347,44 +347,17 @@ def _registry_context_for(workspace_id: str):
 def load_workspace_metadata(workspace_id: str) -> dict:
     """Load workspace_meta/metadata.json for a workspace.
 
-    Priority:
-    1. Registry-aware: read from the workspace's own storage (works for local FS,
-       NextCloud-backed, or any other fsspec backend the registry knows about).
-    2. Legacy fallback: global/workspace_meta/<id>/metadata.json on NextCloud.
+    The read itself (registry-aware storage read + legacy NextCloud fallback)
+    lives in ``backend.workspace.metadata`` — the same reader the REST API's
+    ``workspace_info`` uses. This wrapper only adds the session-state cache.
     """
     # Session-state cache short-circuit
     cache_key = f"metadata_{workspace_id}"
     if cache_key in st.session_state.get('workspace_metadata_cache', {}):
         return st.session_state.workspace_metadata_cache[cache_key]
 
-    import json
-
-    metadata: dict = {}
-
-    ctx = _registry_context_for(workspace_id)
-    if ctx is not None:
-        try:
-            if ctx.storage.exists("workspace_meta/metadata.json"):
-                metadata = json.loads(ctx.storage.read_text("workspace_meta/metadata.json"))
-                if not isinstance(metadata, dict):
-                    metadata = {}
-        except Exception as e:
-            if is_development_mode():
-                print(f"DEBUG: registry-side metadata read failed for {workspace_id}: {e}")
-
-    if not metadata:
-        try:
-            client = get_nextcloud_client("global")
-            if client is not None:
-                content = client.download_text_file(f"workspace_meta/{workspace_id}/metadata.json")
-                if isinstance(content, bytes):
-                    content = content.decode('utf-8')
-                metadata = json.loads(content.strip())
-                if not isinstance(metadata, dict):
-                    metadata = {}
-        except Exception as e:
-            if is_development_mode():
-                print(f"DEBUG: nextcloud-side metadata read failed for {workspace_id}: {e}")
+    from backend.workspace import load_workspace_metadata as _load_metadata
+    metadata = _load_metadata(workspace_id)
 
     if metadata:
         st.session_state.setdefault('workspace_metadata_cache', {})[cache_key] = metadata
@@ -463,17 +436,13 @@ def refresh_graphdb_connection():
         st.session_state.connection_status = None
         st.session_state.last_connection_check = 0
 
-        # Create new client with fresh token
-        new_client = GraphDBClient(
-            token=access_token,
-            selected_repo=workspace_id
-        )
+        # Create new client with fresh token and test it (backend logic; the
+        # Streamlit GraphDBClient is injected for its UI error handling).
+        from backend.workspace import build_graph_client, check_connection
+        new_client = build_graph_client(
+            access_token, workspace_id, client_factory=GraphDBClient)
 
-        # Test the new connection
-        test_query = "SELECT (COUNT(*) as ?count) WHERE { ?s ?p ?o } LIMIT 1"
-        test_result = new_client.sparql_api_query(test_query, out_format="response")
-
-        if test_result and test_result.status_code == 200:
+        if check_connection(new_client):
             st.session_state.workspace_client = new_client
             st.session_state.connection_status = True
             st.session_state.last_connection_check = time.time()
@@ -510,7 +479,8 @@ def ensure_workspace_client():
     ctx = st.session_state.get("workspace_context")
     repo_id = ctx.graphdb_repository if ctx is not None else workspace["id"]
     try:
-        client = GraphDBClient(token=access_token, selected_repo=repo_id)
+        from backend.workspace import build_graph_client
+        client = build_graph_client(access_token, repo_id, client_factory=GraphDBClient)
         st.session_state.workspace_client = client
         st.session_state.connection_status = True
         st.session_state.last_connection_check = time.time()
@@ -535,19 +505,14 @@ def check_graphdb_connection():
         st.session_state.connection_status = False
         return False
 
-    try:
-        test_query = "SELECT (COUNT(*) as ?count) WHERE { ?s ?p ?o } LIMIT 1"
-        result = client.sparql_api_query(test_query, out_format="response")
-        status = result and result.status_code == 200
+    from backend.workspace import check_connection
+    status = check_connection(client)
 
-        # Cache the result
-        st.session_state.connection_status = status
-        st.session_state.last_connection_check = current_time
+    # Cache the result
+    st.session_state.connection_status = status
+    st.session_state.last_connection_check = current_time
 
-        return status
-    except:
-        st.session_state.connection_status = False
-        return False
+    return status
 
 
 @st.fragment
@@ -1107,39 +1072,30 @@ def open_workspace(workspace, rerun=True):
     st.session_state.current_workspace = workspace
 
     # Resolve the workspace's WorkspaceContext + lazily provision its GraphDB
-    # repository (create it + load core ontology + extensions + scenarios into
-    # named graphs) on first open. Idempotent — re-uploading the workspace's
-    # current TTLs on every open keeps GraphDB in sync with file edits.
-    graphdb_repo = workspace["id"]
-    try:
-        from backend.workspace import load_registry, ensure_workspace_repo
-        ctx = load_registry().by_id(workspace["id"])
-        if ctx is not None:
-            graphdb_repo = ctx.graphdb_repository
-            st.session_state.workspace_context = ctx
-            try:
-                ensure_workspace_repo(ctx)
-            except Exception as prov_exc:
-                # Provisioning failure is non-fatal — UI works without GraphDB,
-                # and the user can manually create the repo via Workbench.
-                print(f"[open_workspace] GraphDB provisioning skipped: {prov_exc}")
-                st.warning(
-                    f"Triplestore repo `{graphdb_repo}` could not be provisioned automatically. "
-                    "File-based modules still work; SPARQL queries will fail until the repo exists."
-                )
-    except Exception as exc:
-        print(f"[open_workspace] registry lookup failed for {workspace['id']}: {exc}")
+    # repository + build the graph client. The orchestration is headless
+    # (backend.workspace.lifecycle); this shell only parks the results in
+    # session state and surfaces the failure modes in the UI.
+    from backend.workspace import open_workspace as _open_workspace
+    opened = _open_workspace(
+        workspace["id"], token=access_token, client_factory=GraphDBClient)
 
-    # Try to create client
-    try:
-        st.session_state.workspace_client = GraphDBClient(
-            token=access_token,
-            selected_repo=graphdb_repo
+    if opened.ctx is not None:
+        st.session_state.workspace_context = opened.ctx
+    if opened.provision_error:
+        # Provisioning failure is non-fatal — UI works without GraphDB,
+        # and the user can manually create the repo via Workbench.
+        print(f"[open_workspace] GraphDB provisioning skipped: {opened.provision_error}")
+        st.warning(
+            f"Triplestore repo `{opened.graphdb_repository}` could not be provisioned automatically. "
+            "File-based modules still work; SPARQL queries will fail until the repo exists."
         )
+
+    if opened.client is not None:
+        st.session_state.workspace_client = opened.client
         st.session_state.connection_status = True
         st.session_state.last_connection_check = time.time()
-    except Exception as e:
-        st.error(f"Could not create Triplestore client: {e}")
+    else:
+        st.error(f"Could not create Triplestore client: {opened.client_error}")
         st.session_state.workspace_client = None
         st.session_state.connection_status = False
 
