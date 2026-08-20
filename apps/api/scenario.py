@@ -27,7 +27,7 @@ def _safe(name: str) -> str:
 @router.get("/instances")
 def instances(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
     """Component types with their instance URIs, to pick into a scenario."""
-    from apps.streamlit.components.component_explorer import (
+    from backend.explorer import (
         get_component_types_with_instances,
         get_component_data_unified,
         process_enhanced_component_data,

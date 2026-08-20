@@ -1,9 +1,9 @@
 """Digital Replica Explorer endpoints — the same data the Streamlit explorer shows.
 
-Reuses the *data* half of ``apps/streamlit/components/component_explorer.py``
-(all Streamlit-free: types, per-type instance table, unit formatting, curve
-parsing, provenance) so the React explorer renders exactly what Streamlit did,
-without reimplementing 1400 lines of attribute processing in TypeScript.
+Reuses ``backend.explorer`` (the explorer's data half, Streamlit-free: types,
+per-type instance table, unit formatting, curve parsing, provenance) so the
+React explorer renders exactly what Streamlit did, without reimplementing
+1400 lines of attribute processing in TypeScript.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _clean(v: Any) -> Any:
 @router.get("/components")
 def component_types(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
     """Component classes with instance counts (the explorer's left-hand list)."""
-    from apps.streamlit.components.component_explorer import get_component_types_with_instances
+    from backend.explorer import get_component_types_with_instances
 
     df = get_component_types_with_instances(graph_client(ctx))
     if df is None or df.empty:
@@ -46,7 +46,7 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
     """The instance × attribute table for one component type — values already
     carry units (``85.0 m``, ``Curve (25 points): KiloW vs M/SEC``). Curve points
     are returned separately, keyed by instance id, so the UI can chart them."""
-    from apps.streamlit.components.component_explorer import (
+    from backend.explorer import (
         get_component_data_unified,
         process_enhanced_component_data,
         get_component_sources,

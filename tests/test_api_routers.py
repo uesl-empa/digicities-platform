@@ -266,7 +266,9 @@ def test_create_workspace_validates_and_echoes(client, monkeypatch):
 # ── explorer/scenario palette endpoints (graph reads, stubbed) ────────────────
 def test_scenario_instances_shapes_palette(client, ws, monkeypatch):
     import pandas as pd
-    import apps.streamlit.components.component_explorer as ce
+    # The handler imports these lazily from backend.explorer at call time, so
+    # that package (not the Streamlit shim) is the monkeypatch target.
+    import backend.explorer as ce
     import apps.api.deps as deps
 
     monkeypatch.setattr(deps, "_client_for", lambda repo, url: object())

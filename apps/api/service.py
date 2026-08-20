@@ -38,7 +38,7 @@ def _ttl_str(s: str) -> str:
 @router.get("/palette")
 def palette(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
     """Component types and their attributes — what a service can require."""
-    from apps.streamlit.components.component_explorer import (
+    from backend.explorer import (
         get_component_types_with_instances,
         get_component_data_unified,
         process_enhanced_component_data,
