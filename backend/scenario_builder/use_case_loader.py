@@ -140,11 +140,21 @@ class NextCloudTTLUseCaseLoader:
     def _create_data_processor(self):
         """Build the data-product processor when none was injected.
 
-        Headless default: ``None`` (data-product listing/loading degrade to
-        empty results). The Streamlit shim overrides this to construct the
-        session-aware ``DataProductProcessor``.
+        Since the Phase 5 extraction the backend ``DataProductProcessor`` is
+        headless (storage-aware, registry-resolved, no session state), so the
+        default builds it directly — data products now load in headless
+        callers too. The Streamlit shim still overrides this to construct the
+        session-aware subclass; explicit ``data_processor`` arguments always
+        win over this hook.
         """
-        return None
+        try:
+            from backend.data_products import DataProductProcessor
+
+            return DataProductProcessor(workspace_id=self.workspace_id,
+                                        on_status=self.on_status)
+        except Exception as e:
+            self._notify('warning', f"Failed to initialize data processor: {e}")
+            return None
 
     def _enabled_data_products(self) -> List[str]:
         """Default source of enabled data-product ids (``type:name`` strings).

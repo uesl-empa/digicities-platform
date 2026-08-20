@@ -35,6 +35,8 @@ from .service import router as service_router
 from .scenario import router as scenario_router
 from .submission import router as submission_router
 from .agent import router as agent_router
+from .data_products import router as data_products_router
+from .files import router as files_router
 
 app = FastAPI(
     title="Digicities API",
@@ -60,6 +62,8 @@ app.include_router(service_router)
 app.include_router(scenario_router)
 app.include_router(submission_router)
 app.include_router(agent_router)
+app.include_router(data_products_router)
+app.include_router(files_router)
 
 
 # ── models ────────────────────────────────────────────────────────────────────
