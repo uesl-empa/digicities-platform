@@ -149,17 +149,12 @@ def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
 @app.get("/api/workspaces/{workspace_id}/info", tags=["workspaces"])
 def workspace_info(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Fuller workspace info for the sidebar panel (type/location/path/status)."""
-    import json
-    from backend.workspace import workspace_last_updated
+    from backend.workspace import read_workspace_metadata, workspace_last_updated
     from .deps import ws_root
     root = ws_root(ctx)
-    meta: dict[str, Any] = {}
-    mp = root / "workspace_meta" / "metadata.json"
-    if mp.exists():
-        try:
-            meta = json.loads(mp.read_text(encoding="utf-8"))
-        except Exception:
-            meta = {}
+    # Same reader the Streamlit landing page uses (backend.workspace.metadata),
+    # so both frontends see identical metadata for a workspace.
+    meta: dict[str, Any] = read_workspace_metadata(ctx)
     return {
         "name": ctx.name,
         "id": ctx.id,

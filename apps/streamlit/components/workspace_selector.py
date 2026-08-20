@@ -4,9 +4,7 @@
 from __future__ import annotations
 
 import streamlit as st
-import json
 import base64
-import os
 from components.nextcloud_module import get_nextcloud_client
 from components.graphdb import GraphDBClient
 
@@ -20,134 +18,32 @@ def _registry_context(workspace_id: str):
         return None
 
 
-def _native_local_path(ctx) -> str | None:
-    """Native OS path for a local (file-backed) WorkspaceContext, else None."""
-    try:
-        if ctx is None or getattr(ctx.storage, "protocol", None) != "file":
-            return None
-        return os.path.normpath(ctx.storage.root)
-    except Exception:
-        return None
-
-
-def _candidate_local_roots():
-    """Directories a local workspace folder might live under, most-specific first."""
-    roots = []
-    env_dir = os.environ.get("USECASES_DIR")
-    if env_dir:
-        roots.append(env_dir)
-    try:
-        from backend.workspace.registry import DEFAULT_USECASES_DIR, BUNDLED_DEMO_DIR
-        roots.append(str(DEFAULT_USECASES_DIR))
-        roots.append(str(BUNDLED_DEMO_DIR))
-    except Exception:
-        pass
-    # De-dup while preserving order.
-    seen, out = set(), []
-    for r in roots:
-        key = os.path.normpath(r)
-        if key not in seen:
-            seen.add(key)
-            out.append(r)
-    return out
-
-
-def _to_host_display_path(path: str) -> str | None:
-    """Translate a container path under USECASES_DIR to its host path.
-
-    The app usually runs in Docker, where the workspace root is a bind mount
-    (`${USECASES_HOST_PATH}:/app/data/usecases`). A path like
-    `/app/data/usecases/foo` is meaningless on the user's machine, so we swap the
-    container root (USECASES_DIR) for the host root (USECASES_HOST_PATH). Returns
-    None when either env var is missing or `path` isn't under the mount (e.g. when
-    running outside Docker, where the path is already a real host path).
-    """
-    host_root = os.environ.get("USECASES_HOST_PATH")
-    ws_dir = os.environ.get("USECASES_DIR")
-    if not host_root or not ws_dir:
-        return None
-    p = str(path).replace("\\", "/").rstrip("/")
-    wd = ws_dir.replace("\\", "/").rstrip("/")
-    if p != wd and not p.startswith(wd + "/"):
-        return None
-    rel = p[len(wd):].lstrip("/")
-    host_root = host_root.rstrip("/\\")
-    # A Windows host root ("C:/...") is rendered with backslashes so it pastes
-    # straight into File Explorer; POSIX roots keep forward slashes.
-    if len(host_root) >= 2 and host_root[1] == ":":
-        base = host_root.replace("/", "\\")
-        return base + ("\\" + rel.replace("/", "\\") if rel else "")
-    return host_root + ("/" + rel if rel else "")
-
-
 def get_workspace_local_path(workspace_id: str) -> str | None:
     """Return the navigable on-disk path for a *local* (filesystem) workspace.
 
-    Only local workspaces live at a navigable OS path; NextCloud and other
-    fsspec backends return None. Resolution order (each independent of the
-    others, so a mis-set USECASES_DIR can't hide the path):
-
-    1. The live WorkspaceContext the app opened with (session state) — the
-       authoritative root, always matches the running app's config.
-    2. A fresh registry lookup by id.
-    3. A direct scan of candidate local roots for
-       `<root>/<id>/workspace_meta/metadata.json`.
-
-    The resolved path may be a *container* path when running in Docker; it is
-    translated to the host path (see `_to_host_display_path`) so the user can
-    open it on their own machine.
+    The resolution + container→host translation lives in
+    ``backend.workspace.paths``; this wrapper only supplies the live session
+    WorkspaceContext (the authoritative root) as the first candidate.
     """
-    resolved = None
+    from backend.workspace import resolve_workspace_local_path
 
-    # 1. Live session context (only if it's the workspace we're asking about).
+    ctx = None
     try:
         ctx = st.session_state.get("workspace_context")
-        if ctx is not None and getattr(ctx, "id", None) == workspace_id:
-            resolved = _native_local_path(ctx)
     except Exception:
         pass
-
-    # 2. Registry lookup.
-    if not resolved:
-        resolved = _native_local_path(_registry_context(workspace_id))
-
-    # 3. Filesystem scan of candidate roots.
-    if not resolved:
-        for root in _candidate_local_roots():
-            candidate = os.path.join(root, workspace_id)
-            marker = os.path.join(candidate, "workspace_meta", "metadata.json")
-            if os.path.isfile(marker):
-                resolved = os.path.normpath(candidate)
-                break
-
-    if not resolved:
-        return None
-    return _to_host_display_path(resolved) or resolved
+    return resolve_workspace_local_path(workspace_id, ctx=ctx)
 
 
 def load_workspace_metadata(workspace_id: str) -> dict:
     """Load workspace metadata.
 
-    Priority:
-    1. workspace_meta/metadata.json read from the workspace's own storage (registry-aware,
-       works for both local and NextCloud workspaces).
-    2. Legacy fallback: global/workspace_meta/<id>/metadata.json on NextCloud.
+    Delegates to ``backend.workspace.metadata`` — the same reader the app's
+    landing page and the REST API use (registry-aware storage read + legacy
+    NextCloud fallback).
     """
-    ctx = _registry_context(workspace_id)
-    if ctx is not None:
-        try:
-            if ctx.storage.exists("workspace_meta/metadata.json"):
-                return json.loads(ctx.storage.read_text("workspace_meta/metadata.json"))
-        except Exception as e:
-            print(f"[workspace_selector] registry-side metadata read failed for {workspace_id}: {e}")
-
-    try:
-        client = get_nextcloud_client("global")
-        metadata_content = client.download_text_file(f"workspace_meta/{workspace_id}/metadata.json")
-        return json.loads(metadata_content)
-    except Exception as e:
-        print(f"Could not load metadata for workspace {workspace_id}: {e}")
-        return {}
+    from backend.workspace import load_workspace_metadata as _load_metadata
+    return _load_metadata(workspace_id)
 
 
 def get_workspace_image(workspace_id: str) -> bytes:
