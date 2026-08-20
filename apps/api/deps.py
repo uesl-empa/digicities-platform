@@ -9,12 +9,22 @@ route. This is the single seam every endpoint shares.
 from __future__ import annotations
 
 import os
+import pathlib
 from functools import lru_cache
 
 from fastapi import HTTPException, Path
 
 from backend.workspace import WorkspaceContext, load_registry
 from backend.graphdb.client import UnifiedGraphDBClient
+
+
+def ws_root(ctx: WorkspaceContext) -> pathlib.Path:
+    """This workspace's file root ($USECASES_DIR/<id>).
+
+    The one place the on-disk layout is spelled out — routers must not
+    re-derive it.
+    """
+    return pathlib.Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
 
 
 def get_ctx(workspace_id: str = Path(..., description="workspace id")) -> WorkspaceContext:
