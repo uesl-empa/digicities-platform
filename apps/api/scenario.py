@@ -1,8 +1,12 @@
 """Scenario Builder endpoints.
 
 Pick component instances from the workspace into a scenario, then build the
-scenario TTL with the platform's own ``build_scenario_ttl`` (usedInScenario +
-ComponentLink edges) and save it under scenarios/.
+scenario TTL and save it under scenarios/. Two builds share one endpoint
+(issue #17): a reference-only spec uses the thin ``build_scenario_ttl``
+(usedInScenario + ComponentLink edges); as soon as any component carries
+``attributes``/``nested_properties`` the request becomes a full ScenarioDraft
+and goes through ``backend.scenario_builder.emitter.generate_full_ttl`` — the
+same emitter the Streamlit Scenario Builder uses.
 """
 from __future__ import annotations
 
@@ -70,11 +74,17 @@ class ScenComponent(BaseModel):
     uri: str
     type: str | None = None
     label: str | None = None
+    # Full-draft fields (issue #17) — shapes match the Scenario Builder's
+    # session state, which is what backend.scenario_builder.emitter consumes.
+    source: str | None = None
+    attributes: dict[str, dict[str, Any]] | None = None
+    nested_properties: dict[str, dict[str, Any]] | None = None
 
 
 class ScenLink(BaseModel):
     source: str
     target: str
+    link_type: str | None = None
 
 
 class ScenarioSpec(BaseModel):
@@ -83,7 +93,15 @@ class ScenarioSpec(BaseModel):
     links: list[ScenLink] = []
     service_name: str | None = None
     description: str | None = None
+    ttl_specificity: str = "High"
+    required_attributes: dict[str, list[str]] | None = None
     save: bool = True
+
+
+def _wants_full_emitter(spec: ScenarioSpec) -> bool:
+    """The full emitter kicks in as soon as any component carries attribute
+    data; the thin reference-only build stays byte-for-byte what it was."""
+    return any(c.attributes or c.nested_properties for c in spec.components)
 
 
 @router.post("/build")
@@ -93,14 +111,47 @@ def build(spec: ScenarioSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
     if not spec.components:
         raise HTTPException(status_code=400, detail="Add at least one component to the scenario.")
 
-    from backend.scenario_builder import build_scenario_ttl
+    if _wants_full_emitter(spec):
+        from backend.scenario_builder.draft import ScenarioDraft
+        from backend.scenario_builder.emitter import generate_full_ttl
 
-    comps = [{"uri": c.uri, "type": c.type, "label": c.label} for c in spec.components]
-    links = [{"source": l.source, "target": l.target} for l in spec.links]
-    ttl = build_scenario_ttl(
-        spec.scenario_name, ctx.id, comps, links,
-        service_name=spec.service_name, description=spec.description,
-    )
+        comps: list[dict[str, Any]] = []
+        for c in spec.components:
+            comp: dict[str, Any] = {"uri": c.uri, "type": c.type, "label": c.label,
+                                    "source": c.source, "attributes": c.attributes,
+                                    "nested_properties": c.nested_properties}
+            comps.append(comp)
+        links = []
+        for l in spec.links:
+            link: dict[str, Any] = {"source": l.source, "target": l.target}
+            if l.link_type is not None:
+                link["link_type"] = l.link_type
+            links.append(link)
+        try:
+            draft = ScenarioDraft.from_request(
+                spec.scenario_name, ctx.id, comps, links,
+                workspace_name=getattr(ctx, "name", None) or ctx.id,
+                service_name=spec.service_name, description=spec.description,
+                ttl_specificity=spec.ttl_specificity,
+                required_attributes=spec.required_attributes,
+            )
+        except ValueError as bad_draft:
+            raise HTTPException(status_code=400, detail=str(bad_draft))
+        ttl = generate_full_ttl(draft)
+    else:
+        from backend.scenario_builder import build_scenario_ttl
+
+        comps = [{"uri": c.uri, "type": c.type, "label": c.label} for c in spec.components]
+        links = []
+        for l in spec.links:
+            link = {"source": l.source, "target": l.target}
+            if l.link_type is not None:
+                link["link_type"] = l.link_type
+            links.append(link)
+        ttl = build_scenario_ttl(
+            spec.scenario_name, ctx.id, comps, links,
+            service_name=spec.service_name, description=spec.description,
+        )
     saved = None
     if spec.save:
         d = ws_root(ctx) / "scenarios"
