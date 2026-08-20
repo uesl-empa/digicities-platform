@@ -1,0 +1,68 @@
+# A small data product exercising the attribute flavors the TTL use-case
+# loader extracts: physical value + QUDT unit, unit-based and simple costs
+# (currency), a new-style categorical, a dynamic attribute with a live time
+# series (nested properties), a curve, and a temporal event.
+# Attribute URIs follow the platform's path-style convention
+# (<component>/<AttributeName>), which is how the extractor discovers them.
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix cur: <http://qudt.org/vocab/currency/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# --- Component 1: a battery -------------------------------------------------
+
+<https://digicities.info/proj/test-ws/Battery/HomeBattery1> a dici_onto:Battery ;
+    rdfs:label "Home Battery 1" .
+
+<https://digicities.info/proj/test-ws/Battery/HomeBattery1/StorageCapacity>
+    a dici_onto:PhysicalAttribute ;
+    qudt:value "13.5"^^xsd:decimal ;
+    qudt:unit unit:KiloW-HR .
+
+<https://digicities.info/proj/test-ws/Battery/HomeBattery1/InvestmentCost>
+    a dici_onto:UnitBasedCostAttribute ;
+    qudt:value "650.0"^^xsd:decimal ;
+    qudt:unit unit:KiloW-HR ;
+    dici_onto:currency cur:CHF .
+
+# New-style categorical: the attribute node is typed CategoricalAttribute plus
+# its attribute class (matching the URI fragment) plus the category value.
+<https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChemistryType>
+    a dici_onto:CategoricalAttribute, dici_onto:ChemistryType, dici_onto:LithiumIon .
+
+<https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChargeEfficiencyCurve>
+    a dici_onto:CurveAttribute ;
+    dici_onto:hasDataPoints "[[0.0, 0.9], [50.0, 0.95], [100.0, 0.92]]" ;
+    dici_onto:xUnit unit:PERCENT ;
+    dici_onto:yUnit unit:None .
+
+# --- Component 2: a building ------------------------------------------------
+
+<https://digicities.info/proj/test-ws/Building/MainOffice> a dici_onto:Building ;
+    rdfs:label "Main Office" .
+
+<https://digicities.info/proj/test-ws/Building/MainOffice/GrossFloorArea>
+    a dici_onto:PhysicalAttribute ;
+    qudt:value "1250.0"^^xsd:decimal ;
+    qudt:unit unit:M2 .
+
+<https://digicities.info/proj/test-ws/Building/MainOffice/AnnualMaintenanceCost>
+    a dici_onto:SimpleCostAttribute ;
+    qudt:value "18000"^^xsd:integer ;
+    dici_onto:currency cur:EUR .
+
+<https://digicities.info/proj/test-ws/Building/MainOffice/ElectricityDemand>
+    a dici_onto:DynamicAttribute ;
+    qudt:unit unit:KiloW ;
+    dici_onto:hasLiveTimeSeriesReference "timeseries/main_office_demand.csv" ;
+    dici_onto:hasLiveTimeSeries <https://digicities.info/proj/test-ws/Building/MainOffice/ElectricityDemand/ts> .
+
+<https://digicities.info/proj/test-ws/Building/MainOffice/ElectricityDemand/ts>
+    qudt:unit unit:KiloW .
+
+<https://digicities.info/proj/test-ws/Building/MainOffice/CommissioningDate>
+    a dici_onto:EventAttribute ;
+    dici_onto:hasTemporalValue "2019-06-01" ;
+    dici_onto:hasTemporalPrecision dici_onto:DayPrecision .

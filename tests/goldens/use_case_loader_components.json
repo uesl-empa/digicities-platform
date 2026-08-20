@@ -1,0 +1,183 @@
+{
+  "Battery": [
+    {
+      "attributes": {
+        "ChargeEfficiencyCurve": {
+          "attribute_type": "CurveAttribute",
+          "category": "curve",
+          "data_points": "[[0.0, 0.9], [50.0, 0.95], [100.0, 0.92]]",
+          "data_type": "curve",
+          "unit": "data_points",
+          "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChargeEfficiencyCurve",
+          "value": "[[0.0, 0.9], [50.0, 0.95], [100.0, 0.92]]",
+          "x_unit": "PERCENT",
+          "y_unit": ""
+        },
+        "ChemistryType": {
+          "attribute_type": "CategoricalAttribute",
+          "category": "categorical",
+          "category_value": "LithiumIon",
+          "data_type": "categorical",
+          "specific_attribute_type": "ChemistryType",
+          "unit": "category",
+          "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChemistryType",
+          "value": "LithiumIon"
+        },
+        "InvestmentCost": {
+          "attribute_type": "UnitBasedCostAttribute",
+          "category": "cost",
+          "currency": "CHF",
+          "unit": "KiloW-HR",
+          "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/InvestmentCost",
+          "value": 650.0
+        },
+        "StorageCapacity": {
+          "attribute_type": "PhysicalAttribute",
+          "category": "physical",
+          "unit": "KiloW-HR",
+          "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/StorageCapacity",
+          "value": 13.5
+        },
+        "URI": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "uri",
+          "value": "https://digicities.info/proj/test-ws/Battery/HomeBattery1"
+        },
+        "label": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "text",
+          "value": "Home Battery 1"
+        }
+      },
+      "label": "Home Battery 1",
+      "nested_properties": {},
+      "relationships": [],
+      "source": "ttl_use_case",
+      "source_file": "fixture",
+      "type": "Battery",
+      "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1",
+      "workspace_id": "test-ws"
+    }
+  ],
+  "Building": [
+    {
+      "attributes": {
+        "AnnualMaintenanceCost": {
+          "attribute_type": "SimpleCostAttribute",
+          "category": "cost",
+          "currency": "EUR",
+          "unit": "EUR",
+          "uri": "https://digicities.info/proj/test-ws/Building/MainOffice/AnnualMaintenanceCost",
+          "value": 18000
+        },
+        "CommissioningDate": {
+          "attribute_type": "EventAttribute",
+          "category": "temporal",
+          "data_type": "temporal",
+          "temporal_precision": "DayPrecision",
+          "temporal_value": "2019-06-01",
+          "unit": "temporal",
+          "uri": "https://digicities.info/proj/test-ws/Building/MainOffice/CommissioningDate",
+          "value": "2019-06-01"
+        },
+        "ElectricityDemand": {
+          "attribute_type": "DynamicAttribute",
+          "category": "dynamic",
+          "time_series_reference": "timeseries/main_office_demand.csv",
+          "time_series_type": "live",
+          "time_series_uri": "https://digicities.info/proj/test-ws/Building/MainOffice/ElectricityDemand/ts",
+          "unit": "KiloW",
+          "uri": "https://digicities.info/proj/test-ws/Building/MainOffice/ElectricityDemand",
+          "value": "Time series: timeseries/main_office_demand.csv"
+        },
+        "GrossFloorArea": {
+          "attribute_type": "PhysicalAttribute",
+          "category": "physical",
+          "unit": "M2",
+          "uri": "https://digicities.info/proj/test-ws/Building/MainOffice/GrossFloorArea",
+          "value": 1250.0
+        },
+        "URI": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "uri",
+          "value": "https://digicities.info/proj/test-ws/Building/MainOffice"
+        },
+        "label": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "text",
+          "value": "Main Office"
+        }
+      },
+      "label": "Main Office",
+      "nested_properties": {
+        "ElectricityDemand": {
+          "hasLiveTimeSeries": "https://digicities.info/proj/test-ws/Building/MainOffice/ElectricityDemand/ts",
+          "hasLiveTimeSeriesReference": "timeseries/main_office_demand.csv",
+          "hasLiveTimeSeries_unit": "KiloW"
+        }
+      },
+      "relationships": [],
+      "source": "ttl_use_case",
+      "source_file": "fixture",
+      "type": "Building",
+      "uri": "https://digicities.info/proj/test-ws/Building/MainOffice",
+      "workspace_id": "test-ws"
+    }
+  ],
+  "ChemistryType": [
+    {
+      "attributes": {
+        "URI": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "uri",
+          "value": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChemistryType"
+        },
+        "label": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "text",
+          "value": "ChemistryType"
+        }
+      },
+      "label": "ChemistryType",
+      "nested_properties": {},
+      "relationships": [],
+      "source": "ttl_use_case",
+      "source_file": "fixture",
+      "type": "ChemistryType",
+      "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChemistryType",
+      "workspace_id": "test-ws"
+    }
+  ],
+  "LithiumIon": [
+    {
+      "attributes": {
+        "URI": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "uri",
+          "value": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChemistryType"
+        },
+        "label": {
+          "attribute_type": "system",
+          "category": "system",
+          "unit": "text",
+          "value": "ChemistryType"
+        }
+      },
+      "label": "ChemistryType",
+      "nested_properties": {},
+      "relationships": [],
+      "source": "ttl_use_case",
+      "source_file": "fixture",
+      "type": "LithiumIon",
+      "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChemistryType",
+      "workspace_id": "test-ws"
+    }
+  ]
+}
