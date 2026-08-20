@@ -386,9 +386,6 @@ def test_stats_table_keeps_plain_set_rows():
     drops NaN index keys, which rendered every full-dataset table empty in
     the UI. The pivot must keep them (and normalize Fuseki's '160.0e0')."""
     st_mod = pytest.importorskip("streamlit")  # noqa: F841 — UI module import
-    import sys
-    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve()
-                           .parents[1] / "apps" / "streamlit"))
     from components.collections_explorer import _stats_table
 
     stats = pd.DataFrame([

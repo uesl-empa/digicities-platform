@@ -18,12 +18,8 @@ these guards exist to stop it quietly widening into "drops links people rely on"
 from __future__ import annotations
 
 from pathlib import Path
-import sys
 
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 rdflib = pytest.importorskip("rdflib")
 openpyxl = pytest.importorskip("openpyxl")

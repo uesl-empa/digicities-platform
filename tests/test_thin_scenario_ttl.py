@@ -12,17 +12,11 @@ replica and QUDT unit codes round-tripping unmangled.
 """
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
 import rdflib
 from rdflib import RDF, URIRef
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-from backend.assumptions.thin_scenario_ttl import build_thin_scenario_ttl  # noqa: E402
-from backend.graphdb.queries.scenarios import materialize_scenario_graphs  # noqa: E402
+from backend.assumptions.thin_scenario_ttl import build_thin_scenario_ttl
+from backend.graphdb.queries.scenarios import materialize_scenario_graphs
 
 NS = "https://digicities.info/ontology#"
 QUDT = "http://qudt.org/schema/qudt/"

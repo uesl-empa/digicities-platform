@@ -9,15 +9,9 @@ format regression here fails loudly.
 """
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
 import rdflib
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-from backend.scenario_builder import build_scenario_ttl, scenario_uri_for  # noqa: E402
+from backend.scenario_builder import build_scenario_ttl, scenario_uri_for
 
 NS = "https://digicities.info/ontology#"
 PROJ = "https://digicities.info/proj/ws1"
