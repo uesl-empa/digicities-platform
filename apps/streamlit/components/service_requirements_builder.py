@@ -1,25 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 
+"""Service Requirements Builder — Streamlit shell.
+
+The logic half (ontology/triplestore discovery, template YAML generation and
+parsing, validation) lives in ``backend.service_requirements`` so the REST API
+can use it without a Streamlit runtime. This module keeps what is inherently
+UI: the tabs, session-state assembly, and status display. The moved names are
+re-exported below, so existing ``from components.service_requirements_builder
+import X`` call sites keep working unchanged.
+"""
+
 import streamlit as st
 import yaml
-import json
-import pandas as pd
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Set, Tuple
-from dataclasses import dataclass, field
-import re
+from typing import Dict, List, Any, Optional, Tuple
 
-from backend.graphdb import queries as gdb_queries
+# Re-exports: the builder's logic, extracted to backend/service_requirements.
+# Every pure name that used to be defined here stays importable from here.
+from backend.service_requirements import (  # noqa: F401
+    AttributeClass,
+    ComponentClass,
+    ComponentEntry,
+    RDFLIB_AVAILABLE,
+    extract_attributes_from_dict,
+    extract_local_name,
+    parse_yaml_to_components,
+)
+from backend.service_requirements import ontology as _sr_ontology
+from backend.service_requirements import template as _sr_template
+from backend.service_requirements import validation as _sr_validation
 
-# Try to import rdflib
-try:
-    import rdflib
-    from rdflib import Graph, Namespace, RDF, RDFS, OWL, URIRef
-
-    RDFLIB_AVAILABLE = True
-except ImportError:
-    RDFLIB_AVAILABLE = False
+if not RDFLIB_AVAILABLE:
     st.error("⚠️ rdflib is required for the Service Requirements Builder. Please install with: pip install rdflib")
 
 # Import GraphDB client (matches the pattern from component_explorer.py)
@@ -31,40 +42,25 @@ except ImportError:
     GRAPHDB_AVAILABLE = False
     st.error("⚠️ Triplestore client not available. Please check your installation.")
 
-# Define namespaces
-DICI_ONTO = Namespace("https://digicities.info/ontology#")
-RDFS_NS = Namespace("http://www.w3.org/2000/01/rdf-schema#")
-OWL_NS = Namespace("http://www.w3.org/2002/07/owl#")
+# Namespaces kept importable from the old location.
+if RDFLIB_AVAILABLE:
+    from rdflib import Namespace
+
+    DICI_ONTO = Namespace("https://digicities.info/ontology#")
+    RDFS_NS = Namespace("http://www.w3.org/2000/01/rdf-schema#")
+    OWL_NS = Namespace("http://www.w3.org/2002/07/owl#")
 
 
-@dataclass
-class ComponentClass:
-    """Represents a component class from the ontology"""
-    uri: str
-    label: str
-    parent_classes: List[str]
-    attributes: List[str]
-
-
-@dataclass
-class AttributeClass:
-    """Represents an attribute class from the ontology"""
-    uri: str
-    label: str
-    domain: str
-    range_type: str
-    unit: Optional[str] = None
-
-
-@dataclass
-class ComponentEntry:
-    """Represents a component entry in the YAML structure"""
-    path: str
-    component_type: str
-    link_pattern: str
-    parent_path: str = ""
-    level: int = 1
-    configured_attributes: Dict[str, List[str]] = field(default_factory=dict)
+def _st_status(level: str, message: str) -> None:
+    """Map backend status events onto the exact old Streamlit calls."""
+    if level == 'error':
+        st.error(message)
+    elif level == 'warning':
+        st.warning(message)
+    elif level == 'success':
+        st.success(message)
+    else:
+        st.info(message)
 
 
 def initialize_session_state():
@@ -98,246 +94,24 @@ def initialize_session_state():
         st.session_state.edit_mode = False
 
 
-def extract_local_name(uri: str) -> str:
-    """Extract the local name from a URI"""
-    if '#' in uri:
-        return uri.split('#')[-1]
-    elif '/' in uri:
-        return uri.split('/')[-1]
-    return uri
-
-
 def parse_ontology_file(uploaded_file) -> Tuple[Dict[str, ComponentClass], Dict[str, AttributeClass]]:
     """Parse uploaded ontology file using rdflib"""
-    if not RDFLIB_AVAILABLE:
-        st.error("rdflib is not installed. Cannot parse ontology file.")
-        return {}, {}
-
-    try:
-        file_content = uploaded_file.read()
-        g = Graph()
-
-        try:
-            g.parse(data=file_content, format='turtle')
-        except:
-            try:
-                g.parse(data=file_content, format='xml')
-            except:
-                try:
-                    g.parse(data=file_content, format='n3')
-                except Exception as e:
-                    st.error(f"Could not parse ontology file: {e}")
-                    return {}, {}
-
-        components = {}
-        attributes = {}
-
-        component_query = """
-        PREFIX dici_onto: <https://digicities.info/ontology#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        SELECT DISTINCT ?class ?label WHERE {
-            ?class rdfs:subClassOf* dici_onto:Component .
-            OPTIONAL { ?class rdfs:label ?label }
-        }
-        """
-
-        attribute_query = """
-        PREFIX dici_onto: <https://digicities.info/ontology#>
-        PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-        SELECT DISTINCT ?class ?label WHERE {
-            {
-                ?class rdfs:subClassOf* dici_onto:StaticAttribute .
-            }
-            UNION
-            {
-                ?class rdfs:subClassOf* dici_onto:DynamicAttribute .
-            }
-            OPTIONAL { ?class rdfs:label ?label }
-        }
-        """
-
-        try:
-            for row in g.query(component_query):
-                class_uri = str(row.class_)
-                class_name = extract_local_name(class_uri)
-                label = str(row.label) if row.label else class_name
-
-                components[class_name] = ComponentClass(
-                    uri=class_uri,
-                    label=label,
-                    parent_classes=[],
-                    attributes=[]
-                )
-
-            for row in g.query(attribute_query):
-                attr_uri = str(row.class_)
-                attr_name = extract_local_name(attr_uri)
-                label = str(row.label) if row.label else attr_name
-
-                attributes[attr_name] = AttributeClass(
-                    uri=attr_uri,
-                    label=label,
-                    domain="",
-                    range_type="string"
-                )
-
-        except Exception as e:
-            st.warning(f"SPARQL queries failed, falling back to basic RDF parsing: {e}")
-
-            for subj, pred, obj in g:
-                if pred == RDFS_NS.subClassOf and obj == DICI_ONTO.Component:
-                    class_name = extract_local_name(str(subj))
-                    components[class_name] = ComponentClass(
-                        uri=str(subj),
-                        label=class_name,
-                        parent_classes=[],
-                        attributes=[]
-                    )
-
-        st.success(f"Parsed ontology: {len(components)} components, {len(attributes)} attributes")
-        return components, attributes
-
-    except Exception as e:
-        st.error(f"Error parsing ontology file: {e}")
-        return {}, {}
+    return _sr_ontology.parse_ontology_content(uploaded_file.read(), on_status=_st_status)
 
 
 def query_graphdb_components(client) -> Tuple[Dict[str, ComponentClass], Dict[str, AttributeClass]]:
     """Query GraphDB for all components and attributes"""
-    if not client:
-        st.warning("No Triplestore client available")
-        return {}, {}
-
-    components = {}
-    attributes = {}
-
-    try:
-        comp_df = gdb_queries.get_component_classes(client)
-        for _, row in comp_df.iterrows():
-            class_uri = row['class']
-            class_name = extract_local_name(class_uri)
-            label = row.get('label', class_name) if pd.notna(row.get('label')) else class_name
-
-            components[class_name] = ComponentClass(
-                uri=class_uri,
-                label=label,
-                parent_classes=[],
-                attributes=[]
-            )
-
-        attr_df = gdb_queries.get_attribute_classes(client)
-        for _, row in attr_df.iterrows():
-            attr_uri = row['class']
-            attr_name = extract_local_name(attr_uri)
-            label = row.get('label', attr_name) if pd.notna(row.get('label')) else attr_name
-
-            attributes[attr_name] = AttributeClass(
-                uri=attr_uri,
-                label=label,
-                domain="",
-                range_type="string"
-            )
-
-        st.success(f"Retrieved from Triplestore: {len(components)} components, {len(attributes)} attributes")
-        return components, attributes
-
-    except Exception as e:
-        st.error(f"Error querying Triplestore for components: {e}")
-        return {}, {}
+    return _sr_ontology.load_components_and_attributes(client, on_status=_st_status)
 
 
 def query_graphdb_component_attributes_new(client) -> Dict[str, List[str]]:
     """Query GraphDB for component-attribute mappings using naming convention"""
-    if not client:
-        return {}
-
-    try:
-        components_result = gdb_queries.get_component_subclasses(client)
-
-        if components_result is None or components_result.empty:
-            st.warning("No components found in Triplestore")
-            return {}
-
-        component_attributes = {}
-
-        for _, row in components_result.iterrows():
-            component_uri = row['component']
-            component_name = extract_local_name(component_uri)
-
-            attribute_class_name = f"{component_name}Attribute"
-
-            try:
-                attributes_result = gdb_queries.get_attribute_subclasses_for(client, attribute_class_name)
-
-                if attributes_result is not None and not attributes_result.empty:
-                    component_attributes[component_name] = []
-
-                    for _, attr_row in attributes_result.iterrows():
-                        attr_uri = attr_row['attribute']
-                        attr_name = extract_local_name(attr_uri)
-
-                        if attr_name not in component_attributes[component_name]:
-                            component_attributes[component_name].append(attr_name)
-
-                    if 'label' not in component_attributes[component_name]:
-                        component_attributes[component_name].insert(0, 'label')
-
-                else:
-                    component_attributes[component_name] = ['label']
-
-            except Exception as attr_e:
-                st.warning(f"Could not find attributes for {component_name}: {attr_e}")
-                component_attributes[component_name] = ['label']
-                continue
-
-        st.success(f"Retrieved component-attribute mappings for {len(component_attributes)} components using naming convention")
-        return component_attributes
-
-    except Exception as e:
-        st.error(f"Error querying Triplestore with new method: {e}")
-        return {}
+    return _sr_ontology.load_attribute_mappings_by_convention(client, on_status=_st_status)
 
 
 def query_graphdb_component_attributes(client) -> Dict[str, List[str]]:
     """Query GraphDB for component-attribute mappings"""
-    if not client:
-        return {}
-
-    component_attributes = query_graphdb_component_attributes_new(client)
-
-    if component_attributes:
-        return component_attributes
-
-    st.info("Falling back to original object property method...")
-
-    try:
-        result = gdb_queries.get_component_attribute_object_properties(client)
-
-        if result is not None and not result.empty:
-            component_attributes = {}
-
-            for _, row in result.iterrows():
-                component_uri = row['component']
-                attribute_uri = row['attribute']
-
-                component_name = extract_local_name(component_uri)
-                attribute_name = extract_local_name(attribute_uri)
-
-                if component_name not in component_attributes:
-                    component_attributes[component_name] = []
-
-                if attribute_name not in component_attributes[component_name]:
-                    component_attributes[component_name].append(attribute_name)
-
-            st.success(f"Retrieved component-attribute mappings for {len(component_attributes)} components (fallback method)")
-            return component_attributes
-        else:
-            st.info("No component-attribute mappings found in Triplestore")
-            return {}
-
-    except Exception as e:
-        st.error(f"Error querying Triplestore: {e}")
-        return {}
+    return _sr_ontology.load_attribute_mappings(client, on_status=_st_status)
 
 
 def get_current_ontology_data():
@@ -362,89 +136,14 @@ def get_current_ontology_data():
 
 def generate_yaml_structure(use_custom_names=True) -> Dict:
     """Generate the complete YAML structure with optional custom field names"""
-    if not st.session_state.service_name:
-        return {}
-
-    structure = {'service_name': st.session_state.service_name}
-    # Preserve template-level metadata (order matches the shipped service
-    # templates: service_name, description, connection, scenario_data).
-    if st.session_state.get('service_description'):
-        structure['description'] = st.session_state.service_description
-    if st.session_state.get('service_connection'):
-        structure['connection'] = st.session_state.service_connection
-    structure['scenario_data'] = {
-        'uri': 'Scenario.URI',
-        'label': 'Scenario.label'
-    }
-
-    def get_field_name(default_name, component_path, attr_name, attr_type):
-        """Get the field name, using custom name if available and requested"""
-        key = f"{component_path}|{attr_name}|{attr_type}"
-        if use_custom_names and key in st.session_state.custom_field_names:
-            return st.session_state.custom_field_names[key]
-        return default_name
-
-    def build_nested_structure(entries, parent_path=""):
-        result = {}
-
-        for entry in entries:
-            if entry.parent_path == parent_path:
-                if entry.level == 1:
-                    entry_structure = {
-                        'name': f'{entry.component_type}.label',
-                        'uri': f'{entry.component_type}.URI'
-                    }
-                else:
-                    entry_structure = {
-                        'link': entry.link_pattern,
-                        'template': {
-                            'uri': f'{entry.component_type}.URI'
-                        }
-                    }
-
-                for attr_name, attr_types in entry.configured_attributes.items():
-                    for attr_type in attr_types:
-                        if attr_type == "Static":
-                            if attr_name == "label":
-                                continue
-                            else:
-                                default_field_name = attr_name
-                                field_name = get_field_name(default_field_name, entry.path, attr_name, attr_type)
-                                reference = f'{entry.component_type}.{attr_name}'
-                        else:
-                            default_field_name = f"{attr_name}_{attr_type.lower()}"
-                            field_name = get_field_name(default_field_name, entry.path, attr_name, attr_type)
-
-                            ts_reference_map = {
-                                'Historic': 'hasHistoricTimeSeriesReference',
-                                'Live': 'hasLiveTimeSeriesReference',
-                                'Future': 'hasFutureTimeSeriesReference'
-                            }
-                            ts_reference = ts_reference_map.get(attr_type, 'hasHistoricTimeSeriesReference')
-                            reference = f'{entry.component_type}.{attr_name}.{ts_reference}'
-
-                        if entry.level == 1:
-                            if not (attr_name == "label" and attr_type == "Static" and "name" in entry_structure):
-                                entry_structure[field_name] = reference
-                        else:
-                            if attr_name == "label" and attr_type == "Static":
-                                entry_structure['template']['label'] = reference
-                            else:
-                                entry_structure['template'][field_name] = reference
-
-                children = build_nested_structure(entries, entry.path)
-                if children:
-                    for child_key, child_value in children.items():
-                        entry_structure[child_key] = child_value
-
-                result[entry.path] = entry_structure
-
-        return result
-
-    nested_structure = build_nested_structure(st.session_state.component_entries)
-    structure['scenario_data'].update(nested_structure)
-
-    return structure
+    return _sr_template.build_service_template(
+        service_name=st.session_state.service_name,
+        component_entries=st.session_state.component_entries,
+        description=st.session_state.get('service_description'),
+        connection=st.session_state.get('service_connection'),
+        custom_field_names=st.session_state.get('custom_field_names'),
+        use_custom_names=use_custom_names,
+    )
 
 
 def validate_component_attributes() -> Dict[str, Any]:
@@ -452,94 +151,12 @@ def validate_component_attributes() -> Dict[str, Any]:
     Validate that all configured component-attribute pairs exist in the ontology mappings
     Returns a validation report with errors, warnings, and successes
     """
-    validation_report = {
-        'errors': [],
-        'warnings': [],
-        'successes': [],
-        'summary': {
-            'total_attributes': 0,
-            'valid_attributes': 0,
-            'invalid_attributes': 0,
-            'unmapped_components': 0
-        }
-    }
-
-    if not st.session_state.component_entries:
-        validation_report['warnings'].append("No components configured to validate")
-        return validation_report
-
-    components, attributes = get_current_ontology_data()
-
-    for entry in st.session_state.component_entries:
-        component_name = entry.component_type
-        component_path = entry.path
-
-        # Check if component exists in ontology
-        if component_name not in components:
-            validation_report['errors'].append({
-                'type': 'UNKNOWN_COMPONENT',
-                'component': component_name,
-                'path': component_path,
-                'message': f"Component '{component_name}' not found in ontology"
-            })
-            validation_report['summary']['unmapped_components'] += 1
-            continue
-
-        # Check if component has any mapped attributes
-        if (component_name not in st.session_state.component_attribute_mappings or
-                not st.session_state.component_attribute_mappings[component_name]):
-            validation_report['warnings'].append({
-                'type': 'NO_MAPPINGS',
-                'component': component_name,
-                'path': component_path,
-                'message': f"Component '{component_name}' has no attribute mappings in Triplestore"
-            })
-            validation_report['summary']['unmapped_components'] += 1
-
-        # Get valid attributes for this component
-        valid_attributes = []
-        if component_name in st.session_state.component_attribute_mappings:
-            valid_attributes = st.session_state.component_attribute_mappings[component_name]
-
-        # Check each configured attribute
-        for attr_name, attr_types in entry.configured_attributes.items():
-            validation_report['summary']['total_attributes'] += 1
-
-            # Special case: 'label' is always valid
-            if attr_name == 'label':
-                validation_report['successes'].append({
-                    'component': component_name,
-                    'path': component_path,
-                    'attribute': attr_name,
-                    'types': attr_types,
-                    'message': f"✓ Standard attribute 'label' is valid"
-                })
-                validation_report['summary']['valid_attributes'] += 1
-                continue
-
-            # Check if attribute is in the valid list for this component
-            if attr_name in valid_attributes:
-                validation_report['successes'].append({
-                    'component': component_name,
-                    'path': component_path,
-                    'attribute': attr_name,
-                    'types': attr_types,
-                    'message': f"✓ Attribute '{attr_name}' is valid for '{component_name}'"
-                })
-                validation_report['summary']['valid_attributes'] += 1
-            else:
-                validation_report['errors'].append({
-                    'type': 'INVALID_ATTRIBUTE',
-                    'component': component_name,
-                    'path': component_path,
-                    'attribute': attr_name,
-                    'types': attr_types,
-                    'message': f"Attribute '{attr_name}' is not valid for component '{component_name}'",
-                    'suggestion': f"Valid attributes for '{component_name}': {', '.join(valid_attributes) if valid_attributes else 'None'}"
-                })
-                validation_report['summary']['invalid_attributes'] += 1
-
-    return validation_report
+    components, _attributes = get_current_ontology_data()
+    return _sr_validation.validate_component_attributes(
+        st.session_state.component_entries,
+        components,
+        st.session_state.component_attribute_mappings,
+    )
 
 
 def display_validation_report(report: Dict[str, Any]):
@@ -610,218 +227,10 @@ def display_validation_report(report: Dict[str, Any]):
 
 def get_validation_suggestions(report: Dict[str, Any]) -> List[str]:
     """Generate actionable suggestions based on validation report"""
-    suggestions = []
-
-    if report['summary']['unmapped_components'] > 0:
-        suggestions.append("🔄 **Reload component-attribute mappings** from Triplestore in the Data Source tab")
-
-    if report['summary']['invalid_attributes'] > 0:
-        suggestions.append("🗑️ **Remove invalid attributes** from the Attributes tab")
-        suggestions.append("🔍 **Check ontology** to verify which attributes are valid for each component")
-
-    if report['summary']['total_attributes'] == 0:
-        suggestions.append("🎯 **Configure attributes** for your components in the Attributes tab")
-
-    if not st.session_state.component_attribute_mappings:
-        suggestions.append("📊 **Load Triplestore mappings** to enable validation")
-
-    return suggestions
-
-
-def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntry]]:
-    """
-    Parse a YAML file and extract components and their attributes
-    Returns: (service_name, list of ComponentEntry objects)
-    """
-    try:
-        yaml_data = yaml.safe_load(yaml_content)
-
-        if not yaml_data or 'service_name' not in yaml_data:
-            raise ValueError("Invalid YAML: missing 'service_name' field")
-
-        service_name = yaml_data['service_name']
-        scenario_data = yaml_data.get('scenario_data', {})
-
-        component_entries = []
-
-        def extract_component_type_from_reference(ref: str) -> str:
-            """Extract component type from a reference like 'ComponentType.attribute'"""
-            if isinstance(ref, str) and '.' in ref:
-                return ref.split('.')[0]
-            return ""
-
-        def parse_component(key, value, parent_path="", parent_component_type="", level=1):
-            """Recursively parse component structure"""
-            # Skip metadata fields
-            if key in ['uri', 'label', 'name']:
-                return None
-
-            entry = ComponentEntry(
-                path=key,
-                component_type="",
-                link_pattern="",
-                parent_path=parent_path,
-                level=level,
-                configured_attributes={}
-            )
-
-            if not isinstance(value, dict):
-                return None
-
-            # Check if this is a child component (has 'link' and 'template')
-            if 'link' in value and 'template' in value:
-                # Child component
-                entry.link_pattern = value['link']
-
-                # Extract component type from link pattern (CL.Parent.ComponentType)
-                if entry.link_pattern.startswith('CL.'):
-                    parts = entry.link_pattern.split('.')
-                    if len(parts) >= 3:
-                        entry.component_type = parts[2]
-
-                # Parse attributes from template
-                template = value.get('template', {})
-                if 'uri' in template:
-                    # Also try to get component type from URI if not found in link
-                    if not entry.component_type:
-                        entry.component_type = extract_component_type_from_reference(template['uri'])
-
-                entry.configured_attributes = extract_attributes_from_dict(template, entry.component_type)
-
-                # Nested child components can live either INSIDE the template
-                # (hand-written services like the demo energy simulator, where
-                # `buildings` sits under the location's template) or as SIBLINGS of
-                # link/template (services exported by this builder). Look in both
-                # so any valid service loads its full component tree, not just the
-                # top level. (Without this, a template-nested child like Building —
-                # and all its attributes — was silently dropped.)
-                child_candidates = {}
-                child_candidates.update(template)
-                child_candidates.update({k: v for k, v in value.items()
-                                         if k not in ('link', 'template')})
-                for child_key, child_value in child_candidates.items():
-                    if child_key in ('uri', 'label', 'name'):
-                        continue
-                    if isinstance(child_value, dict):
-                        child_entry = parse_component(child_key, child_value, key, entry.component_type, level + 1)
-                        if child_entry:
-                            component_entries.append(child_entry)
-
-            # Check if this is a root component (has 'uri' and either 'label' or 'name')
-            elif 'uri' in value and ('label' in value or 'name' in value):
-                # Root component
-                entry.level = 1
-                entry.link_pattern = ""
-
-                # Extract component type from URI reference
-                uri_ref = value.get('uri', '')
-                entry.component_type = extract_component_type_from_reference(uri_ref)
-
-                # If still no component type, try from label/name
-                if not entry.component_type:
-                    label_ref = value.get('label') or value.get('name')
-                    entry.component_type = extract_component_type_from_reference(label_ref)
-
-                # Parse attributes from the component dict
-                entry.configured_attributes = extract_attributes_from_dict(value, entry.component_type)
-
-                # Process nested children
-                for child_key, child_value in value.items():
-                    if child_key not in ['label', 'name', 'uri'] and isinstance(child_value, dict):
-                        child_entry = parse_component(child_key, child_value, key, entry.component_type, level + 1)
-                        if child_entry:
-                            component_entries.append(child_entry)
-
-            return entry if entry.component_type else None
-
-        # Parse all top-level components in scenario_data
-        for key, value in scenario_data.items():
-            if key not in ['uri', 'label', 'name']:
-                entry = parse_component(key, value)
-                if entry:
-                    component_entries.append(entry)
-
-        return service_name, component_entries
-
-    except Exception as e:
-        raise ValueError(f"Error parsing YAML: {str(e)}")
-
-
-def extract_attributes_from_dict(data_dict: Dict, component_type: str) -> Dict[str, List[str]]:
-    """
-    Extract attributes and their types from a component dictionary
-    Returns: Dict mapping attribute names to list of types
-    """
-    attributes = {}
-
-    for key, value in data_dict.items():
-        if key in ['uri', 'link', 'template']:
-            continue
-
-        # Parse the reference to determine attribute name and type
-        if isinstance(value, str) and component_type and component_type in value:
-            # Format: ComponentType.AttributeName or ComponentType.AttributeName.hasXTimeSeriesReference
-            parts = value.split('.')
-
-            if len(parts) >= 2:
-                attr_name = parts[1]
-
-                # Backward compatibility: if field name is 'name' and reference is to 'label', convert to 'label'
-                if key == 'name' and attr_name == 'label':
-                    key = 'label'
-
-                # Determine type based on field name and reference
-                if len(parts) == 2:
-                    # Static attribute
-                    attr_type = "Static"
-                elif len(parts) == 3:
-                    # Dynamic attribute with time series reference
-                    ts_ref = parts[2]
-                    if 'Historic' in ts_ref:
-                        attr_type = "Historic"
-                    elif 'Live' in ts_ref:
-                        attr_type = "Live"
-                    elif 'Future' in ts_ref:
-                        attr_type = "Future"
-                    else:
-                        attr_type = "Static"
-                else:
-                    attr_type = "Static"
-
-                # Handle field names with suffixes like attr_historic, attr_live, etc.
-                if key.endswith('_historic'):
-                    attr_name = key.replace('_historic', '')
-                    attr_type = "Historic"
-                elif key.endswith('_live'):
-                    attr_name = key.replace('_live', '')
-                    attr_type = "Live"
-                elif key.endswith('_future'):
-                    attr_name = key.replace('_future', '')
-                    attr_type = "Future"
-
-                # Add to attributes dict
-                if attr_name not in attributes:
-                    attributes[attr_name] = []
-                if attr_type not in attributes[attr_name]:
-                    attributes[attr_name].append(attr_type)
-
-        # A nested dict that is itself a child component (has link+template, or
-        # uri+label/name) is parsed separately by parse_component — don't fold its
-        # fields into this component's attributes. Recurse only into other nested
-        # structures.
-        elif isinstance(value, dict):
-            if ('link' in value and 'template' in value) or \
-                    ('uri' in value and ('label' in value or 'name' in value)):
-                continue
-            nested_attrs = extract_attributes_from_dict(value, component_type)
-            for attr_name, types in nested_attrs.items():
-                if attr_name not in attributes:
-                    attributes[attr_name] = []
-                for attr_type in types:
-                    if attr_type not in attributes[attr_name]:
-                        attributes[attr_name].append(attr_type)
-
-    return attributes
+    return _sr_validation.get_validation_suggestions(
+        report,
+        mappings_loaded=bool(st.session_state.component_attribute_mappings),
+    )
 
 
 def load_yaml_configuration(yaml_content: str) -> bool:
@@ -830,7 +239,8 @@ def load_yaml_configuration(yaml_content: str) -> bool:
     Returns True if successful, False otherwise
     """
     try:
-        service_name, component_entries = parse_yaml_to_components(yaml_content)
+        service_name, component_entries, description, connection = \
+            _sr_template.parse_service_template(yaml_content)
 
         # Update session state
         st.session_state.service_name = service_name
@@ -840,10 +250,9 @@ def load_yaml_configuration(yaml_content: str) -> bool:
         # components — the `connection:` block (where the service listens, used
         # for auto-registration) and the description — so a load → edit → save
         # round-trip keeps them instead of silently dropping them.
-        raw = yaml.safe_load(yaml_content) or {}
-        st.session_state.service_connection = raw.get('connection')
-        if raw.get('description'):
-            st.session_state.service_description = raw['description']
+        st.session_state.service_connection = connection
+        if description:
+            st.session_state.service_description = description
 
         return True
 
@@ -856,29 +265,7 @@ def get_all_yaml_fields():
     """Extract all editable field names from the current configuration
     Returns: List of (component_path, attr_name, attr_type, default_field_name, reference)
     """
-    fields = []
-
-    for entry in st.session_state.component_entries:
-        for attr_name, attr_types in entry.configured_attributes.items():
-            for attr_type in attr_types:
-                if attr_type == "Static":
-                    if attr_name == "label":
-                        continue
-                    default_field_name = attr_name
-                    reference = f'{entry.component_type}.{attr_name}'
-                else:
-                    default_field_name = f"{attr_name}_{attr_type.lower()}"
-                    ts_reference_map = {
-                        'Historic': 'hasHistoricTimeSeriesReference',
-                        'Live': 'hasLiveTimeSeriesReference',
-                        'Future': 'hasFutureTimeSeriesReference'
-                    }
-                    ts_reference = ts_reference_map.get(attr_type, 'hasHistoricTimeSeriesReference')
-                    reference = f'{entry.component_type}.{attr_name}.{ts_reference}'
-
-                fields.append((entry.path, attr_name, attr_type, default_field_name, reference))
-
-    return fields
+    return _sr_template.list_template_fields(st.session_state.component_entries)
 
 
 def service_requirements_builder(client=None):
