@@ -107,6 +107,76 @@ def _requirements_ttl(spec: ServiceSpec, ctx: WorkspaceContext) -> str:
     return "\n".join(L) + "\n"
 
 
+class SvcEntry(BaseModel):
+    component_type: str
+    parent: str | None = None
+    attributes: list[str] = []
+
+
+class TemplateSpec(BaseModel):
+    service_name: str
+    description: str = ""
+    connection: dict[str, Any] | None = None
+    entries: list[SvcEntry]
+    save: bool = True
+
+
+def _camel(s: str) -> str:
+    p = _pascal(s)
+    return p[:1].lower() + p[1:] if p else s
+
+
+def _scenario_data(entries: list[SvcEntry]) -> dict[str, Any]:
+    """Nested scenario_data mirroring the shipped service templates: level-1 roots
+    carry name/uri + attributes; children are {link: CL.Parent.Child, template: {...}}."""
+    def node(entry: SvcEntry, is_root: bool) -> dict[str, Any]:
+        t = _pascal(entry.component_type)
+        if is_root:
+            s: dict[str, Any] = {"name": f"{t}.label", "uri": f"{t}.URI"}
+            body = s
+        else:
+            parent = _pascal(entry.parent or "")
+            s = {"link": f"CL.{parent}.{t}", "template": {"uri": f"{t}.URI"}}
+            body = s["template"]
+        for a in entry.attributes:
+            if a == "label":
+                if not is_root:
+                    body["label"] = f"{t}.label"
+                continue
+            body[a] = f"{t}.{a}"
+        for child in [e for e in entries if _pascal(e.parent or "") == t]:
+            body[_camel(child.component_type)] = node(child, False)
+        return s
+
+    sd: dict[str, Any] = {"uri": "Scenario.URI", "label": "Scenario.label"}
+    for root in [e for e in entries if not e.parent]:
+        sd[_camel(root.component_type)] = node(root, True)
+    return sd
+
+
+@router.post("/template")
+def template(spec: TemplateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Generate the service-template YAML (connection + nested scenario_data)."""
+    import yaml
+    if not spec.service_name.strip():
+        raise HTTPException(status_code=400, detail="Give the service a name.")
+    doc: dict[str, Any] = {"service_name": spec.service_name}
+    if spec.description:
+        doc["description"] = spec.description
+    if spec.connection:
+        doc["connection"] = spec.connection
+    doc["scenario_data"] = _scenario_data(spec.entries)
+    text = yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
+    saved = None
+    if spec.save:
+        sid = _pascal(spec.service_name)[:40] or "Service"
+        sdir = _ws_root(ctx) / "services"
+        sdir.mkdir(parents=True, exist_ok=True)
+        (sdir / f"{sid}.yaml").write_text(text, encoding="utf-8")
+        saved = f"{sid}.yaml"
+    return {"yaml": text, "saved": saved}
+
+
 @router.post("/requirements")
 def requirements(spec: ServiceSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     if not spec.service_name.strip():
