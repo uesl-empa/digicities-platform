@@ -2,15 +2,20 @@
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 # components/replica_builder/replica_link_manager.py
 """
-Link Manager for Replica Builder
-Manages component relationships for system_description graph
-FIXED: Load link properties from ontology (linksComponent subproperties)
+Link Manager for Replica Builder — UI shell over the backend model.
+
+Link CRUD and the ontology link-property loading moved to
+``backend/replica_builder/model.py`` (Phase 5 of the backend/UI split). What
+stays here is the Streamlit wiring: tab rendering plus session-state adapters
+with the old signatures (``create_link`` / ``delete_link`` /
+``load_link_properties_from_ontology`` read and write ``st.session_state``
+and surface st.error/st.warning exactly as before).
 """
 import streamlit as st
 from typing import Dict, List, Any, Optional
-import pandas as pd
 
-from backend.graphdb.queries import ontology as gq_ont
+from backend.replica_builder import model as _model
+from backend.replica_builder.model import DEFAULT_LINK_PROPERTIES  # noqa: F401
 
 
 def initialize_link_state():
@@ -26,100 +31,41 @@ def initialize_link_state():
 def load_link_properties_from_ontology():
     """Load linksComponent subproperties from ontology"""
     client = st.session_state.get('workspace_client')
-    if not client:
-        # Fallback to basic properties if no client
-        st.session_state.replica_available_link_properties = ['locatedIn', 'connectedTo']
-        return
-
     try:
-        result = gq_ont.get_link_properties(client)
-        if result is not None and not result.empty:
-            properties = []
-            for _, row in result.iterrows():
-                prop_uri = row['property']
-                # Extract local name
-                if '#' in prop_uri:
-                    prop_name = prop_uri.split('#')[-1]
-                elif '/' in prop_uri:
-                    prop_name = prop_uri.split('/')[-1]
-                else:
-                    prop_name = prop_uri
-
-                if prop_name not in properties:
-                    properties.append(prop_name)
-
-            st.session_state.replica_available_link_properties = sorted(properties)
-        else:
-            # Fallback to basic properties if query returns nothing
-            st.session_state.replica_available_link_properties = ['locatedIn', 'connectedTo']
+        st.session_state.replica_available_link_properties = \
+            _model.load_link_properties(client)
     except Exception as e:
         st.warning(f"Could not load link properties from ontology: {e}")
-        st.session_state.replica_available_link_properties = ['locatedIn', 'connectedTo']
+        st.session_state.replica_available_link_properties = list(DEFAULT_LINK_PROPERTIES)
 
 
 def create_link(source_id: str, target_id: str, link_property: str, custom_property: str = None) -> bool:
     """Create a link between instances"""
-
-    # Get instances
-    source = next((inst for inst in st.session_state.replica_instances if inst.id == source_id), None)
-    target = next((inst for inst in st.session_state.replica_instances if inst.id == target_id), None)
-
-    if not source or not target:
+    link, problem = _model.create_link(
+        st.session_state.replica_instances,
+        st.session_state.replica_links,
+        source_id, target_id, link_property, custom_property,
+    )
+    if problem == "not_found":
         st.error("Source or target instance not found")
         return False
-
-    # Use custom property if provided
-    property_name = custom_property if custom_property else link_property
-
-    # Check if link already exists
-    existing = any(
-        link['source_id'] == source_id and
-        link['target_id'] == target_id and
-        link['property'] == property_name
-        for link in st.session_state.replica_links
-    )
-
-    if existing:
+    if problem == "duplicate":
         st.warning("Link already exists")
         return False
-
-    # Create link
-    link = {
-        'source_id': source_id,
-        'target_id': target_id,
-        'source_uri': source.uri,
-        'target_uri': target.uri,
-        'source_type': source.component_type,
-        'target_type': target.component_type,
-        'property': property_name,
-        'source_label': source.label,
-        'target_label': target.label
-    }
-
-    st.session_state.replica_links.append(link)
     return True
 
 
 def delete_link(source_id: str, target_id: str, property_name: str) -> bool:
     """Delete a link"""
-    original_count = len(st.session_state.replica_links)
-
-    st.session_state.replica_links = [
-        link for link in st.session_state.replica_links
-        if not (link['source_id'] == source_id and
-                link['target_id'] == target_id and
-                link['property'] == property_name)
-    ]
-
-    return len(st.session_state.replica_links) < original_count
+    links, deleted = _model.delete_link(
+        st.session_state.replica_links, source_id, target_id, property_name)
+    st.session_state.replica_links = links
+    return deleted
 
 
 def get_links_for_instance(instance_id: str) -> List[Dict[str, Any]]:
     """Get all links involving an instance"""
-    return [
-        link for link in st.session_state.replica_links
-        if link['source_id'] == instance_id or link['target_id'] == instance_id
-    ]
+    return _model.get_links_for_instance(st.session_state.replica_links, instance_id)
 
 
 def tab_manage_links():

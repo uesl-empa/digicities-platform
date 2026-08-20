@@ -2,15 +2,21 @@
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 # components/replica_builder/replica_excel_importer.py
 """
-Excel Importer for Replica Builder
-Converts Excel templates to TTL and integrates instances into session state.
+Excel Importer for Replica Builder — UI shell over the backend converter path.
+
+There is ONE workbook parser: ``process_excel_to_ttl`` in
+``backend/replica_builder/utils``. The session model is read back out of the
+generated TTL via ``backend.replica_builder.excel_import`` (Phase 5 of the
+backend/UI split) — the ~300-line duplicate spreadsheet parser this module
+used to carry is gone. What stays here is the Streamlit wiring: the import
+tab, template download, URI-config UI, and the workspace mirroring of the
+uploaded workbook + converted TTL.
 """
 import streamlit as st
 from typing import Optional, Dict, List, Any
 import tempfile
 import os
 import pandas as pd
-import re
 
 def _save_to_active_workspace(uploaded_file, ttl_content: str) -> None:
     """If a workspace is active, mirror the upload + conversion into its
@@ -38,6 +44,8 @@ def _save_to_active_workspace(uploaded_file, ttl_content: str) -> None:
 # process_excel_to_ttl lives in the utils module — import it here so callers
 # of this module can reach it without caring about the underlying location.
 from backend.replica_builder.utils.create_class_and_attribute_graph import process_excel_to_ttl  # noqa: F401
+
+from backend.replica_builder import excel_import as _excel_import
 
 # Import NextCloud global client for template download
 try:
@@ -484,8 +492,28 @@ def render_excel_preview_and_convert(uploaded_file):
         st.code(traceback.format_exc())
 
 
+def _workspace_default_units() -> Optional[Dict[str, str]]:
+    """The ontology default-unit map for the active workspace, so the converter
+    can stamp a unit onto any Physical/Geospatial attribute the workbook leaves
+    blank — keeping the instance self-describing and constrained to the
+    ontology. ``None`` when unavailable (never blocks the import)."""
+    try:
+        from backend.replica_builder.utils.default_units import load_workspace_default_units
+        _ctx = st.session_state.get("workspace_context")
+        if _ctx is not None:
+            return load_workspace_default_units(storage=getattr(_ctx, "storage", None))
+    except Exception as _e:  # never block the import on a lookup issue
+        print(f"[replica-builder] default-unit map unavailable: {_e}")
+    return None
+
+
 def convert_excel_to_ttl_wrapper(uploaded_file, project_uri: str, uri_mode: str) -> tuple:
     """Wrapper that also returns parsed Excel data for session integration.
+
+    The workbook is parsed ONCE, by ``process_excel_to_ttl`` (the authoritative
+    converter); the session model is read back out of the generated TTL via
+    ``backend.replica_builder.excel_import`` — so what the editor shows is
+    exactly what the TTL says.
 
     Workspace-aware: if a WorkspaceContext is active in session state, the
     uploaded .xlsx is mirrored into the workspace's `ingestion/input/` and the
@@ -495,7 +523,6 @@ def convert_excel_to_ttl_wrapper(uploaded_file, project_uri: str, uri_mode: str)
     """
 
     tmp_input_path = None
-    tmp_output_path = None
 
     try:
         # Save uploaded file
@@ -504,55 +531,21 @@ def convert_excel_to_ttl_wrapper(uploaded_file, project_uri: str, uri_mode: str)
             tmp_input_path = tmp_input.name
         # File is now closed
 
-        # Parse Excel directly for session data
-        excel_data = parse_excel_file(tmp_input_path, project_uri, uri_mode)
-
-        # Create output file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.ttl', mode='w') as tmp_output:
-            tmp_output_path = tmp_output.name
-        # File is now closed
-
-        # Build the ontology default-unit map so the builder can stamp a unit onto
-        # any Physical/Geospatial attribute the workbook leaves blank — keeping the
-        # instance self-describing and constrained to the ontology.
-        _default_units = None
-        try:
-            import streamlit as _st_local
-            from backend.replica_builder.utils.default_units import load_workspace_default_units
-            _ctx = _st_local.session_state.get("workspace_context")
-            if _ctx is not None:
-                _default_units = load_workspace_default_units(storage=getattr(_ctx, "storage", None))
-        except Exception as _e:  # never block the import on a lookup issue
-            print(f"[replica-builder] default-unit map unavailable: {_e}")
-
-        # Call the embedded function
-        process_excel_to_ttl(
-            project_uri=project_uri,
-            file_path=tmp_input_path,
-            output_ttl_path=tmp_output_path,
-            uri_mode=uri_mode,
-            default_units=_default_units,
+        ttl_content, instances = _excel_import.import_workbook(
+            tmp_input_path, project_uri, uri_mode,
+            default_units=_workspace_default_units(),
         )
-
-        # Read TTL content
-        with open(tmp_output_path, 'r', encoding='utf-8') as f:
-            ttl_content = f.read()
+        excel_data = _excel_import.instances_payload(instances)
 
         # Persist input + output into the active workspace if one is selected.
         _save_to_active_workspace(uploaded_file, ttl_content)
 
-        # Clean up temp files
+        # Clean up temp file
         try:
             if tmp_input_path and os.path.exists(tmp_input_path):
                 os.unlink(tmp_input_path)
         except Exception as e:
             print(f"Warning: Could not delete temp input file: {e}")
-
-        try:
-            if tmp_output_path and os.path.exists(tmp_output_path):
-                os.unlink(tmp_output_path)
-        except Exception as e:
-            print(f"Warning: Could not delete temp output file: {e}")
 
         return True, ttl_content, None, excel_data
 
@@ -564,329 +557,23 @@ def convert_excel_to_ttl_wrapper(uploaded_file, project_uri: str, uri_mode: str)
         except:
             pass
 
-        try:
-            if tmp_output_path and os.path.exists(tmp_output_path):
-                os.unlink(tmp_output_path)
-        except:
-            pass
-
         import traceback
         error_detail = traceback.format_exc()
         return False, "", f"Conversion error: {e}\n\nDetails:\n{error_detail}", None
 
 
 def parse_excel_file(file_path: str, project_uri: str, uri_mode: str) -> Dict[str, Any]:
+    """Parse an Excel workbook into the session instance shape.
+
+    Delegates to the backend converter path (``process_excel_to_ttl`` →
+    TTL parse-back): the authoritative parser runs once and the session model
+    is exactly the generated TTL's content. Kept for callers of the old name.
     """
-    Parse Excel file and extract instance data with attributes
-    Returns structured data for adding to session
-    UPDATED: Flexible header detection + proper URI handling
-    """
-
-    def is_nonempty(val):
-        if pd.isna(val):
-            return False
-        if isinstance(val, str):
-            s = val.strip().lower()
-            if s == "" or s == "na":
-                return False
-        return True
-
-    def detect_header_rows(file_path, sheet_name):
-        """Detect number of header rows"""
-        for num_headers in [5, 4, 3, 2, 1, 6]:
-            try:
-                header_list = list(range(num_headers))
-                test_df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_list, nrows=2)
-
-                if len(test_df.columns) > 0:
-                    first_col = test_df.columns[0]
-                    if isinstance(first_col, tuple):
-                        col_name = first_col[0]
-                    else:
-                        col_name = first_col
-
-                    if col_name == 'id':
-                        return header_list
-            except:
-                continue
-
-        return [0]
-
-    def generate_instance_uri(project_uri, sheet_name, row_id, uri_mode):
-        """Generate instance URI based on mode - must match TTL generation exactly"""
-        row_id_str = str(row_id).strip()
-
-        if uri_mode == "default":
-            # Default: project_uri/sheet_name/id
-            return f"{project_uri}/{sheet_name}/{row_id_str}"
-
-        elif uri_mode == "full-uri-in-cell":
-            # Full URI mode: the cell contains the complete URI
-            # Don't add project_uri, just use what's in the cell
-            return row_id_str
-
-        elif uri_mode == "complete-project-uri":
-            # Complete project URI: project_uri#id
-            # The cell might contain the full URI or just the fragment
-            if row_id_str.startswith('http://') or row_id_str.startswith('https://'):
-                # Cell contains full URI, extract just the fragment after #
-                if '#' in row_id_str:
-                    fragment = row_id_str.split('#')[-1]
-                    return f"{project_uri}#{fragment}"
-                else:
-                    # No fragment, use the whole thing as fragment
-                    return f"{project_uri}#{row_id_str}"
-            else:
-                # Cell contains just the ID/fragment
-                return f"{project_uri}#{row_id_str}"
-
-        else:
-            # Fallback to default
-            return f"{project_uri}/{sheet_name}/{row_id_str}"
-
-    # Detect header structure
-    excel_file = pd.ExcelFile(file_path)
-    first_sheet = [s for s in excel_file.sheet_names if s != "Data Validation"][0]
-    header_rows = detect_header_rows(file_path, first_sheet)
-
-    # Read with detected headers
-    sheets = pd.read_excel(file_path, sheet_name=None, header=header_rows)
-
-    instances_data = []
-
-    for sheet_name, df in sheets.items():
-        if sheet_name == "Data Validation":
-            continue
-
-        # Find id column
-        id_col = None
-        for col in df.columns:
-            if isinstance(col, tuple):
-                col_name = col[0]
-            else:
-                col_name = col
-
-            if col_name == "id":
-                id_col = col
-                break
-        if id_col is None:
-            continue
-
-        # Process each row
-        for _, row in df.iterrows():
-            row_id = row[id_col]
-            if not is_nonempty(row_id):
-                continue
-
-            # Generate URI using the same logic as TTL generation
-            instance_uri = generate_instance_uri(project_uri, sheet_name, row_id, uri_mode)
-
-            # For label, extract just the ID part
-            row_id_str = str(row_id).strip()
-
-            # Extract clean label based on mode
-            if uri_mode == "complete-project-uri" or uri_mode == "full-uri-in-cell":
-                # If the cell contains a full URI, extract the fragment/last part for label
-                if '#' in row_id_str:
-                    label = row_id_str.split('#')[-1]
-                elif '/' in row_id_str:
-                    label = row_id_str.split('/')[-1]
-                else:
-                    label = row_id_str
-            else:
-                # Default mode: use the ID as-is
-                label = row_id_str
-
-            instance_data = {
-                'id': row_id_str,  # Keep original ID for uniqueness check
-                'component_type': sheet_name,
-                'uri': instance_uri,
-                'label': label,
-                'attributes': {},
-                'annotations': {},
-                'class_objects': {}  # predicate: target_uri
-            }
-
-            # Parse attributes
-            for col in df.columns:
-                if isinstance(col, tuple):
-                    col_name = col[0]
-                    attr_type = col[1] if len(col) > 1 else None
-                    qudt_unit = col[2] if len(col) > 2 and is_nonempty(col[2]) else None
-                    qudt_unit_y = col[3] if len(col) > 3 and is_nonempty(col[3]) else None
-                    currency = col[4] if len(col) > 4 and is_nonempty(col[4]) else None
-                    predicate = col[5] if len(col) > 5 and is_nonempty(col[5]) else None
-                else:
-                    col_name = col
-                    attr_type = None
-                    qudt_unit = None
-                    qudt_unit_y = None
-                    currency = None
-                    predicate = None
-
-                if col_name == "id" or col_name.endswith("_datasource"):
-                    continue
-
-                if attr_type:
-                    attr_type = attr_type.strip().replace(" ", "")
-
-                value = row[col]
-                if not is_nonempty(value):
-                    continue
-
-                # Handle different attribute types
-                if attr_type == "Annotation":
-                    instance_data['annotations'][col_name] = str(value).strip()
-                    continue
-
-                elif attr_type == "ClassObject":
-                    # Handle ClassObject - creates direct predicate relationships
-                    if predicate and is_nonempty(predicate):
-                        # Generate target URI based on mode
-                        if uri_mode == "default":
-                            target_uri = f"{project_uri}/{str(value).strip()}"
-                        elif uri_mode == "full-uri-in-cell":
-                            target_uri = str(value).strip()
-                        elif uri_mode == "complete-project-uri":
-                            target_uri = f"{project_uri}{str(value).strip()}"
-                        else:
-                            target_uri = f"{project_uri}/{str(value).strip()}"
-
-                        instance_data['class_objects'][predicate] = target_uri
-                    continue
-
-                # Get datasource if exists
-                ds_col = next((c for c in df.columns if (isinstance(c, tuple) and c[0] == f"{col_name}_datasource") or c == f"{col_name}_datasource"), None)
-                datasource = None
-                if ds_col and is_nonempty(row[ds_col]):
-                    datasource = row[ds_col]
-
-                # Build attribute data
-                attr_data = {'type': attr_type or 'Physical'}
-
-                if attr_type in ["Historic", "Live", "Future"]:
-                    attr_data = {
-                        'type': 'Dynamic',
-                        'time_series_type': attr_type,
-                        'reference': str(value),
-                        'unit': qudt_unit
-                    }
-                elif attr_type == "Physical":
-                    try:
-                        numeric_value = float(value)
-                    except:
-                        numeric_value = str(value)
-
-                    attr_data = {
-                        'type': 'Physical',
-                        'value': numeric_value,
-                        'unit': qudt_unit or ''
-                    }
-                elif attr_type == "Categorical":
-                    attr_data = {
-                        'type': 'Categorical',
-                        'category_value': str(value).strip()
-                    }
-                elif attr_type == "Event":
-                    # Determine precision from value
-                    value_str = str(value).strip()
-                    try:
-                        float_val = float(value_str)
-                        if float_val.is_integer() and 1000 <= float_val <= 9999:
-                            value_str = str(int(float_val))
-                    except:
-                        pass
-
-                    precision = "Year"
-                    if re.match(r'^\d{4}$', value_str):
-                        precision = "Year"
-                    elif re.match(r'^\d{4}-\d{2}$', value_str) or re.match(r'^\d{2}\.\d{4}$', value_str):
-                        precision = "YearMonth"
-                    elif 'T' in value_str or ':' in value_str:
-                        precision = "DateTime"
-                    else:
-                        precision = "Date"
-
-                    attr_data = {
-                        'type': 'Event',
-                        'temporal_value': value_str,
-                        'temporal_precision': precision
-                    }
-                elif attr_type in ["SimpleCost", "UnitBasedCost"]:
-                    try:
-                        numeric_value = float(value)
-                    except:
-                        numeric_value = 0.0
-
-                    attr_data = {
-                        'type': attr_type,
-                        'value': numeric_value,
-                        'currency': currency or 'CHF'
-                    }
-                    if attr_type == "UnitBasedCost":
-                        attr_data['unit'] = qudt_unit or ''
-                elif attr_type == "Curve":
-                    attr_data = {
-                        'type': 'Curve',
-                        'data_points': str(value),
-                        'x_unit': qudt_unit or '',
-                        'y_unit': qudt_unit_y or ''
-                    }
-                elif attr_type == "Resource":
-                    attr_data = {
-                        'type': 'Resource',
-                        'data_path': str(value).strip()
-                    }
-                elif attr_type == "SimpleValue":
-                    attr_data = {
-                        'type': 'SimpleValue',
-                        'value': str(value)
-                    }
-                elif attr_type == "CustomPhysicalRatio":
-                    custom_unit = ""
-                    if qudt_unit and qudt_unit_y:
-                        custom_unit = f"{qudt_unit}/{qudt_unit_y}"
-                    elif qudt_unit:
-                        custom_unit = qudt_unit
-                    elif qudt_unit_y:
-                        custom_unit = f"1/{qudt_unit_y}"
-
-                    try:
-                        numeric_value = float(value)
-                    except:
-                        numeric_value = 0.0
-
-                    attr_data = {
-                        'type': 'CustomPhysicalRatio',
-                        'value': numeric_value,
-                        'custom_unit': custom_unit
-                    }
-                elif attr_type == "Identifier":
-                    attr_data = {
-                        'type': 'Identifier',
-                        'identifier_value': str(value).strip()
-                    }
-                else:
-                    # Default to Physical
-                    try:
-                        numeric_value = float(value)
-                    except:
-                        numeric_value = str(value)
-
-                    attr_data = {
-                        'type': 'Physical',
-                        'value': numeric_value,
-                        'unit': qudt_unit or ''
-                    }
-
-                if datasource:
-                    attr_data['datasource'] = datasource
-
-                instance_data['attributes'][col_name] = attr_data
-
-            instances_data.append(instance_data)
-
-    return {'instances': instances_data}
+    _, instances = _excel_import.import_workbook(
+        file_path, project_uri, uri_mode,
+        default_units=_workspace_default_units(),
+    )
+    return _excel_import.instances_payload(instances)
 
 
 def parse_excel_and_add_to_session(excel_data: Dict[str, Any], ttl_content: str) -> int:
