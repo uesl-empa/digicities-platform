@@ -7,7 +7,6 @@ is a later chunk; this covers Excel Import + Preview & Export + config.
 """
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -17,15 +16,12 @@ from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext
 
-from .deps import get_ctx
+from .deps import get_ctx, ws_root
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/replica", tags=["replica"])
 
 _PROJECT_PREFIX = "https://digicities.info/proj"
 
-
-def _ws_root(ctx: WorkspaceContext) -> Path:
-    return Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
 
 
 def _project_uri(ctx: WorkspaceContext) -> str:
@@ -40,7 +36,7 @@ def config(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
 @router.get("/ttl")
 def replica_ttl(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """The workspace's current replica TTL (Preview & Export)."""
-    out = _ws_root(ctx) / "ingestion" / "output"
+    out = ws_root(ctx) / "ingestion" / "output"
     files = sorted(out.glob("*.ttl")) if out.exists() else []
     if not files:
         return {"ttl": "", "file": None}
@@ -58,7 +54,7 @@ async def import_workbook(
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
         raise HTTPException(status_code=400, detail="Upload a .xlsx digital-replica workbook.")
 
-    root = _ws_root(ctx)
+    root = ws_root(ctx)
     in_dir = root / "ingestion" / "input"
     out_dir = root / "ingestion" / "output"
     in_dir.mkdir(parents=True, exist_ok=True)
@@ -127,7 +123,7 @@ def generate(spec: ReplicaSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dic
     """Build a workbook from the in-app replica model and convert it to instance TTL."""
     if not spec.components:
         raise HTTPException(status_code=400, detail="Add at least one component class.")
-    root = _ws_root(ctx)
+    root = ws_root(ctx)
     (root / "ingestion" / "input").mkdir(parents=True, exist_ok=True)
     (root / "ingestion" / "output").mkdir(parents=True, exist_ok=True)
     xlsx = (root / "ingestion" / "input" / f"{ctx.id}.xlsx") if spec.persist \

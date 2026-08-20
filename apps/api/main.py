@@ -68,6 +68,7 @@ class WorkspaceSummary(BaseModel):
     name: str
     graphdb_repository: str = ""
     description: str = ""
+    updated_at: float | None = None  # epoch seconds; the landing page sorts by this
 
 
 class QueryRequest(BaseModel):
@@ -89,16 +90,24 @@ def health() -> dict[str, str]:
 
 @app.get("/api/workspaces", response_model=list[WorkspaceSummary], tags=["workspaces"])
 def list_workspaces() -> list[WorkspaceSummary]:
-    """Every workspace the platform can see (local + discovered)."""
-    reg = load_registry()
-    return [
-        WorkspaceSummary(
+    """Every workspace the platform can see (local + discovered), newest first.
+
+    ``updated_at`` is the same activity-aware stamp the Streamlit landing page
+    sorts by (``backend.workspace.workspace_last_updated``).
+    """
+    from backend.workspace import workspace_last_updated
+    from .deps import ws_root
+    out = []
+    for c in load_registry():
+        root = ws_root(c)
+        out.append(WorkspaceSummary(
             id=c.id, name=c.name,
             graphdb_repository=c.graphdb_repository or "",
             description=c.description or "",
-        )
-        for c in reg
-    ]
+            updated_at=workspace_last_updated(root) if root.exists() else None,
+        ))
+    out.sort(key=lambda w: w.updated_at or 0, reverse=True)
+    return out
 
 
 class CreateWorkspace(BaseModel):
@@ -137,9 +146,9 @@ def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
 def workspace_info(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Fuller workspace info for the sidebar panel (type/location/path/status)."""
     import json
-    import os
-    from pathlib import Path
-    root = Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
+    from backend.workspace import workspace_last_updated
+    from .deps import ws_root
+    root = ws_root(ctx)
     meta: dict[str, Any] = {}
     mp = root / "workspace_meta" / "metadata.json"
     if mp.exists():
@@ -158,6 +167,7 @@ def workspace_info(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
         "description": ctx.description or meta.get("description", ""),
         "nextcloud": False,
         "triplestore": True,
+        "updated_at": workspace_last_updated(root) if root.exists() else None,
     }
 
 
@@ -200,39 +210,3 @@ def query(req: QueryRequest, ctx: WorkspaceContext = Depends(get_ctx)) -> QueryR
     cols = [str(c) for c in df.columns]
     rows = df.astype(object).where(df.notna(), None).to_dict(orient="records")
     return QueryResponse(columns=cols, rows=rows, count=len(rows))
-
-
-# ── not-yet-wired: declared with the backend call each will wrap ───────────────
-_NEXT = {
-    "replica": "backend.replica_builder…process_excel_to_ttl (multipart .xlsx upload → instance TTL)",
-    "scenario": "backend.scenario_builder.build_scenario_ttl + save_scenario_ttl",
-    "submit": "backend.api_submission.ttl_converter.convert_scenario (needs service template + scenario TTL)",
-    "agent": "onboarding_agent LangGraph over SSE/WebSocket (streamed tokens + gate prompts)",
-}
-
-
-def _todo(name: str):
-    raise HTTPException(
-        status_code=501,
-        detail=f"not implemented yet — will wrap {_NEXT[name]}",
-    )
-
-
-@app.post("/api/workspaces/{workspace_id}/replica", tags=["build"])
-def replica(ctx: WorkspaceContext = Depends(get_ctx)):
-    _todo("replica")
-
-
-@app.post("/api/workspaces/{workspace_id}/scenario", tags=["build"])
-def scenario(ctx: WorkspaceContext = Depends(get_ctx)):
-    _todo("scenario")
-
-
-@app.post("/api/workspaces/{workspace_id}/submit", tags=["build"])
-def submit(ctx: WorkspaceContext = Depends(get_ctx)):
-    _todo("submit")
-
-
-@app.get("/api/workspaces/{workspace_id}/agent", tags=["agent"])
-def agent(ctx: WorkspaceContext = Depends(get_ctx)):
-    _todo("agent")

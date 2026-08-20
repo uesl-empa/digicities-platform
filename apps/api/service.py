@@ -8,9 +8,7 @@ here and saved to the workspace's services/.
 """
 from __future__ import annotations
 
-import os
 import re
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,7 +16,7 @@ from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext
 
-from .deps import get_ctx, graph_client
+from .deps import get_ctx, graph_client, ws_root
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/service", tags=["service"])
 
@@ -26,12 +24,15 @@ _PREFIX = "https://digicities.info/proj"
 _DICI = "dici_onto"
 
 
-def _ws_root(ctx: WorkspaceContext) -> Path:
-    return Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
-
-
 def _pascal(s: str) -> str:
     return "".join(w[:1].upper() + w[1:] for w in re.split(r"[^0-9A-Za-z]+", s) if w) or s
+
+
+def _ttl_str(s: str) -> str:
+    """Escape a user-supplied string for a quoted Turtle literal — an unescaped
+    quote or backslash in a label would break (or worse, rewrite) the document."""
+    return (s.replace("\\", "\\\\").replace('"', '\\"')
+            .replace("\n", "\\n").replace("\r", "\\r"))
 
 
 @router.get("/palette")
@@ -86,7 +87,7 @@ def _requirements_ttl(spec: ServiceSpec, ctx: WorkspaceContext) -> str:
         "@prefix dici_onto: <https://digicities.info/ontology#> .",
         "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .", "",
         f"<{base}{sid}> a dici_onto:Service ;",
-        f'\trdfs:label "{spec.label or spec.service_name}"@en .', "",
+        f'\trdfs:label "{_ttl_str(spec.label or spec.service_name)}"@en .', "",
     ]
     n = 0
     for req in spec.requirements:

@@ -6,9 +6,7 @@ ComponentLink edges) and save it under scenarios/.
 """
 from __future__ import annotations
 
-import os
 import re
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,13 +14,10 @@ from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext
 
-from .deps import get_ctx, graph_client
+from .deps import get_ctx, graph_client, ws_root
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/scenario", tags=["scenario"])
 
-
-def _ws_root(ctx: WorkspaceContext) -> Path:
-    return Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
 
 
 def _safe(name: str) -> str:
@@ -59,13 +54,13 @@ def instances(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
 
 @router.get("/list")
 def list_scenarios(ctx: WorkspaceContext = Depends(get_ctx)) -> list[str]:
-    d = _ws_root(ctx) / "scenarios"
+    d = ws_root(ctx) / "scenarios"
     return sorted(p.name for p in d.glob("*.ttl")) if d.exists() else []
 
 
 @router.get("/ttl")
 def scenario_ttl(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
-    p = _ws_root(ctx) / "scenarios" / name
+    p = ws_root(ctx) / "scenarios" / name
     if not p.exists():
         raise HTTPException(status_code=404, detail="scenario not found")
     return {"name": name, "ttl": p.read_text(encoding="utf-8")}
@@ -108,7 +103,7 @@ def build(spec: ScenarioSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
     )
     saved = None
     if spec.save:
-        d = _ws_root(ctx) / "scenarios"
+        d = ws_root(ctx) / "scenarios"
         d.mkdir(parents=True, exist_ok=True)
         path = d / f"{_safe(spec.scenario_name)}.ttl"
         path.write_text(ttl, encoding="utf-8")

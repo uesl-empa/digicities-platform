@@ -7,6 +7,7 @@ mapping, then send messages to walk the decisions, build, and ask the graph.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import tempfile
 import uuid
@@ -34,9 +35,9 @@ _SESSIONS: dict[str, Any] = {}
 
 def _new_session(ctx: WorkspaceContext):
     from onboarding_agent.headless import AgentSession
-    ws_root = str(Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id)
+    from .deps import ws_root
     return AgentSession(
-        ctx.id, ws_root, ctx, ctx.graphdb_repository or ctx.id,
+        ctx.id, str(ws_root(ctx)), ctx, ctx.graphdb_repository or ctx.id,
         model=os.getenv("LLM_MODEL", "sonnet"),
     )
 
@@ -131,15 +132,32 @@ async def upload(
     sess = _get(session_id)
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Upload the working folder as a .zip")
-    tmp = Path(tempfile.mkdtemp())
-    zpath = tmp / file.filename
+    # One upload dir per session: the build step re-reads the folder in a later
+    # turn, so it must outlive this request — but a re-upload replaces it.
+    prev = getattr(sess, "_upload_tmp", None)
+    if prev:
+        shutil.rmtree(prev, ignore_errors=True)
+    tmp = Path(tempfile.mkdtemp(prefix="oa-upload-"))
+    sess._upload_tmp = str(tmp)
+    zpath = tmp / "upload.zip"
     zpath.write_bytes(await file.read())
+    root = (tmp / "x").resolve()
     try:
         with zipfile.ZipFile(zpath) as z:
-            z.extractall(tmp / "x")
+            for m in z.infolist():
+                # zip-slip guard: no entry may land outside the extract root
+                target = (root / m.filename).resolve()
+                if root != target and root not in target.parents:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Zip entry escapes its root: {m.filename!r}")
+            z.extractall(root)
+    except HTTPException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
     except Exception as exc:
+        shutil.rmtree(tmp, ignore_errors=True)
         raise HTTPException(status_code=400, detail=f"Bad zip: {exc}") from exc
-    root = tmp / "x"
     # If the zip had a single top-level folder, descend into it.
     entries = [p for p in root.iterdir() if not p.name.startswith("__MACOSX")]
     folder = entries[0] if len(entries) == 1 and entries[0].is_dir() else root

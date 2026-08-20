@@ -6,8 +6,6 @@ and submit it to the service's connection endpoint.
 """
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,18 +13,15 @@ from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext
 
-from .deps import get_ctx
+from .deps import get_ctx, ws_root
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/submission", tags=["submission"])
 
 
-def _ws_root(ctx: WorkspaceContext) -> Path:
-    return Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
-
 
 def _load_template(ctx: WorkspaceContext, file: str) -> dict:
     import yaml
-    p = _ws_root(ctx) / "services" / file
+    p = ws_root(ctx) / "services" / file
     if not p.exists() or not file.endswith((".yaml", ".yml")):
         raise HTTPException(status_code=404, detail="service template not found")
     return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
@@ -34,7 +29,7 @@ def _load_template(ctx: WorkspaceContext, file: str) -> dict:
 
 @router.get("/templates")
 def templates(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
-    d = _ws_root(ctx) / "services"
+    d = ws_root(ctx) / "services"
     out = []
     if d.exists():
         import yaml
@@ -55,7 +50,7 @@ def templates(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
 
 @router.get("/scenarios")
 def scenarios(ctx: WorkspaceContext = Depends(get_ctx)) -> list[str]:
-    d = _ws_root(ctx) / "scenarios"
+    d = ws_root(ctx) / "scenarios"
     return sorted(p.name for p in d.glob("*.ttl")) if d.exists() else []
 
 
@@ -67,7 +62,7 @@ class ConvertReq(BaseModel):
 @router.post("/convert")
 def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     template = _load_template(ctx, req.template_file)
-    scen = _ws_root(ctx) / "scenarios" / req.scenario_file
+    scen = ws_root(ctx) / "scenarios" / req.scenario_file
     if not scen.exists():
         raise HTTPException(status_code=404, detail="scenario not found")
     from backend.api_submission.ttl_converter import convert_scenario
