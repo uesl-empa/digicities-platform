@@ -7,10 +7,22 @@ Handles attribute configuration for instances WITH ONTOLOGY CONSTRAINTS
 - Units constrained to ontology defaults
 - Categorical values constrained to named individuals
 - All attribute types properly structured for TTL generation
+
+The typing/unit/value RULES (which units are offered and preselected, currency
+and precision vocabularies, ratio-unit split/join, the file-reference
+heuristic) live in ``backend/replica_builder/attribute_rules.py`` (Phase 5 of
+the backend/UI split); this module keeps the Streamlit widgets and reads the
+rules from there. Form behavior is unchanged.
 """
 import streamlit as st
 from typing import Dict, List, Any, Optional
 import json
+
+from backend.replica_builder import attribute_rules as _rules
+from backend.replica_builder.attribute_rules import (  # noqa: F401
+    CURRENCY_OPTIONS,
+    TEMPORAL_PRECISIONS,
+)
 
 # Import ontology helper functions
 try:
@@ -38,9 +50,9 @@ except ImportError:
     NEXTCLOUD_AVAILABLE = False
 
 
-# File-type filters per attribute kind.
-_DATA_FILE_TYPES = ['csv', 'json', 'parquet', 'xlsx', 'txt']
-_GEO_FILE_TYPES = ['geojson', 'json', 'shp', 'kml', 'gpx', 'gml', 'zip']
+# File-type filters per attribute kind (rules live in the backend).
+_DATA_FILE_TYPES = _rules.DATA_FILE_TYPES
+_GEO_FILE_TYPES = _rules.GEO_FILE_TYPES
 
 
 def _select_existing_timeseries_file(label: str, state_key: str, file_types=None) -> None:
@@ -571,20 +583,16 @@ def render_attribute_type_fields_constrained(
         with col1:
             data['value'] = st.number_input("Value", value=0.0, format="%.6f")
         with col2:
-            # Use default unit from ontology
+            # Use default unit from ontology (option list + preselection rule
+            # in backend attribute_rules.unit_options)
             if constraints.default_unit:
-                available_units = st.session_state.get('replica_available_units', [constraints.default_unit])
-                if constraints.default_unit not in available_units:
-                    available_units.insert(0, constraints.default_unit)
-
-                # Check if default unit is in the list, otherwise add it
-                default_index = 0
-                if constraints.default_unit in available_units:
-                    default_index = available_units.index(constraints.default_unit)
-
+                options, default_index = _rules.unit_options(
+                    st.session_state.get('replica_available_units'),
+                    default_unit=constraints.default_unit,
+                )
                 data['unit'] = st.selectbox(
                     "Unit",
-                    options=available_units,
+                    options=options,
                     index=default_index,
                     help=f"Ontology default: {constraints.default_unit}"
                 )
@@ -632,7 +640,7 @@ def render_attribute_type_fields_constrained(
                 placeholder="e.g., 1970, 2024-01-15, 07.1970"
             )
         with col2:
-            temporal_precisions = get_temporal_precisions() if ONTOLOGY_HELPERS_AVAILABLE else ["Year", "YearMonth", "Date", "DateTime"]
+            temporal_precisions = get_temporal_precisions() if ONTOLOGY_HELPERS_AVAILABLE else list(TEMPORAL_PRECISIONS)
             data['temporal_precision'] = st.selectbox(
                 "Precision",
                 options=temporal_precisions
@@ -643,7 +651,7 @@ def render_attribute_type_fields_constrained(
         with col1:
             data['value'] = st.number_input("Cost", value=0.0, format="%.2f")
         with col2:
-            data['currency'] = st.selectbox("Currency", options=["CHF", "EUR", "USD", "GBP"], index=0)
+            data['currency'] = st.selectbox("Currency", options=CURRENCY_OPTIONS, index=0)
 
     elif attr_type == "UnitBasedCost":
         col1, col2, col3 = st.columns(3)
@@ -657,7 +665,7 @@ def render_attribute_type_fields_constrained(
             else:
                 data['unit'] = st.text_input("Unit", placeholder="e.g., kWh")
         with col3:
-            data['currency'] = st.selectbox("Currency", options=["CHF", "EUR", "USD", "GBP"], index=0)
+            data['currency'] = st.selectbox("Currency", options=CURRENCY_OPTIONS, index=0)
 
     elif attr_type == "Curve":
         # X and Y units with ontology constraints
@@ -723,8 +731,7 @@ def render_attribute_type_fields_constrained(
         with col1:
             data['value'] = st.number_input("Value", value=0.0, format="%.4f")
         if available_units:
-            ont_num = constraints.ratio_numerator_unit if constraints else None
-            ont_den = constraints.ratio_denominator_unit if constraints else None
+            ont_num, ont_den = _rules.split_ratio_unit("", constraints)
             num_idx = available_units.index(ont_num) if ont_num and ont_num in available_units else 0
             den_idx = available_units.index(ont_den) if ont_den and ont_den in available_units else 0
             with col2:
@@ -735,7 +742,7 @@ def render_attribute_type_fields_constrained(
                 denominator_unit = st.selectbox(
                     "/ Denominator unit", options=available_units, index=den_idx, key=f"cpr_den_{attr_name}"
                 )
-            data['custom_unit'] = f"{numerator_unit}/{denominator_unit}"
+            data['custom_unit'] = _rules.compose_ratio_unit(numerator_unit, denominator_unit)
         else:
             with col2:
                 data['custom_unit'] = st.text_input(
@@ -845,20 +852,18 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
         with col2:
             current_unit = current_data.get('unit', '')
             if constraints and constraints.default_unit:
-                available_units = st.session_state.get('replica_available_units', [constraints.default_unit])
-                if current_unit and current_unit not in available_units:
-                    available_units.insert(0, current_unit)
-                if constraints.default_unit not in available_units:
-                    available_units.insert(0, constraints.default_unit)
-                default_index = available_units.index(current_unit) if current_unit in available_units else 0
-                data['unit'] = st.selectbox("Unit", options=available_units, index=default_index)
+                options, default_index = _rules.unit_options(
+                    st.session_state.get('replica_available_units'),
+                    default_unit=constraints.default_unit,
+                    current_unit=current_unit,
+                )
+                data['unit'] = st.selectbox("Unit", options=options, index=default_index)
             else:
                 available_units = st.session_state.get('replica_available_units', [])
                 if available_units:
-                    if current_unit and current_unit not in available_units:
-                        available_units.insert(0, current_unit)
-                    default_index = available_units.index(current_unit) if current_unit in available_units else 0
-                    data['unit'] = st.selectbox("Unit", options=available_units, index=default_index)
+                    options, default_index = _rules.unit_options(
+                        available_units, current_unit=current_unit)
+                    data['unit'] = st.selectbox("Unit", options=options, index=default_index)
                 else:
                     data['unit'] = st.text_input("Unit", value=current_unit, placeholder="e.g., kW, m, kg")
 
@@ -934,7 +939,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
         else:
             data['temporal_precision'] = st.selectbox(
                 "Temporal Precision",
-                options=["Year", "YearMonth", "Date", "DateTime"],
+                options=list(TEMPORAL_PRECISIONS),
                 index=2
             )
         data['temporal_value'] = st.text_input(
@@ -954,10 +959,9 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
             available_units = st.session_state.get('replica_available_units', [])
             current_unit = current_data.get('unit', '')
             if available_units:
-                if current_unit and current_unit not in available_units:
-                    available_units.insert(0, current_unit)
-                default_index = available_units.index(current_unit) if current_unit in available_units else 0
-                data['unit'] = st.selectbox("Per Unit", options=available_units, index=default_index)
+                options, default_index = _rules.unit_options(
+                    available_units, current_unit=current_unit)
+                data['unit'] = st.selectbox("Per Unit", options=options, index=default_index)
             else:
                 data['unit'] = st.text_input("Per Unit", value=current_unit, placeholder="e.g., kWh, m2")
 
@@ -966,7 +970,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
         current_value = current_data.get('value', '')
 
         # Determine current type based on value (if it looks like a filename, default to file reference)
-        is_file_ref = current_value and ('.' in current_value or '/' in current_value)
+        is_file_ref = _rules.looks_like_file_reference(current_value)
         default_type = "File Reference" if is_file_ref else "Text Value"
 
         value_type = st.radio(
@@ -1009,13 +1013,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
             st.caption(f"Ontology default unit: **{constraints.default_unit}**")
         # Pre-fill from stored value (format: "Num/Den"), falling back to ontology-defined units
         existing_unit = current_data.get('custom_unit', '')
-        parts = existing_unit.split('/', 1)
-        existing_num = parts[0] if len(parts) > 0 else ''
-        existing_den = parts[1] if len(parts) > 1 else ''
-        if not existing_num and constraints and constraints.ratio_numerator_unit:
-            existing_num = constraints.ratio_numerator_unit
-        if not existing_den and constraints and constraints.ratio_denominator_unit:
-            existing_den = constraints.ratio_denominator_unit
+        existing_num, existing_den = _rules.split_ratio_unit(existing_unit, constraints)
         col1, col2, col3 = st.columns([2, 2, 2])
         with col1:
             data['value'] = st.number_input("Value", value=float(current_data.get('value', 0.0)), format="%.4f")
@@ -1032,7 +1030,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
                     "/ Denominator unit", options=available_units, index=den_idx,
                     key=f"cpr_den_edit_{attr_name}"
                 )
-            data['custom_unit'] = f"{numerator_unit}/{denominator_unit}"
+            data['custom_unit'] = _rules.compose_ratio_unit(numerator_unit, denominator_unit)
         else:
             with col2:
                 data['custom_unit'] = st.text_input(
@@ -1050,23 +1048,17 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
 
         with col1:
             if available_units:
-                if current_x_unit and current_x_unit not in available_units:
-                    available_units_x = [current_x_unit] + available_units
-                else:
-                    available_units_x = available_units
-                default_index = available_units_x.index(current_x_unit) if current_x_unit in available_units_x else 0
-                data['x_unit'] = st.selectbox("X Unit", options=available_units_x, index=default_index)
+                options, default_index = _rules.unit_options(
+                    available_units, current_unit=current_x_unit)
+                data['x_unit'] = st.selectbox("X Unit", options=options, index=default_index)
             else:
                 data['x_unit'] = st.text_input("X Unit", value=current_x_unit, placeholder="e.g., m")
 
         with col2:
             if available_units:
-                if current_y_unit and current_y_unit not in available_units:
-                    available_units_y = [current_y_unit] + available_units
-                else:
-                    available_units_y = available_units
-                default_index = available_units_y.index(current_y_unit) if current_y_unit in available_units_y else 0
-                data['y_unit'] = st.selectbox("Y Unit", options=available_units_y, index=default_index)
+                options, default_index = _rules.unit_options(
+                    available_units, current_unit=current_y_unit)
+                data['y_unit'] = st.selectbox("Y Unit", options=options, index=default_index)
             else:
                 data['y_unit'] = st.text_input("Y Unit", value=current_y_unit, placeholder="e.g., kW")
 
@@ -1089,7 +1081,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
         current_value = current_data.get('value', '')
 
         # Determine current type based on value
-        is_file_ref = current_value and ('.' in current_value or '/' in current_value)
+        is_file_ref = _rules.looks_like_file_reference(current_value)
         default_type = "File Reference" if is_file_ref else "Text/Coordinates"
 
         value_type = st.radio(
@@ -1161,11 +1153,7 @@ def render_attribute_value_display(attr_data: Dict[str, Any]):
         unit = attr_data.get('unit', '')
 
         # Check if this is a time series only attribute (no static value)
-        has_timeseries = (
-                attr_data.get('historic_reference') or
-                attr_data.get('future_reference') or
-                attr_data.get('live_reference')
-        )
+        has_timeseries = _rules.has_timeseries(attr_data)
 
         if value and value != 0:
             st.write(f"Value: {value} {unit}")

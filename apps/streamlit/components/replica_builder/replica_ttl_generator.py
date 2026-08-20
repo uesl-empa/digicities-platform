@@ -2,17 +2,28 @@
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 # components/replica_builder/replica_ttl_generator.py
 """
-TTL Generator for Replica Builder
-Generates TTL content for both graphs
-FIXED: Proper semicolon handling in instance declarations
+TTL Generator for Replica Builder — UI shell over the backend generators.
+
+The generators moved to ``backend/replica_builder/ttl.py`` (Phase 5 of the
+backend/UI split) and take the model explicitly. What stays here is the
+Streamlit wiring: the Preview & Export tab and session-state adapters with the
+old signatures (``generate_classes_and_attributes_ttl()`` defaulting to the
+session's instances, ``generate_system_description_ttl()`` reading the
+session's links). Output is unchanged.
 """
 import streamlit as st
 from typing import Dict, List, Any, Optional
-from backend.replica_builder.utils.ttl_attribute_helpers import (
+
+from backend.replica_builder import ttl as _ttl
+
+# Pure helpers + validators, re-exported verbatim from the backend (same objects).
+from backend.replica_builder.ttl import (  # noqa: F401
     format_decimal,
     escape_ttl_string,
     process_curve_data_string,
     generate_attribute_ttl,
+    generate_instance_ttl,
+    validate_ttl,
 )
 
 
@@ -22,117 +33,14 @@ def generate_classes_and_attributes_ttl(instances=None) -> str:
     ``instances`` defaults to the whole replica (``st.session_state.replica_instances``);
     pass a subset (e.g. one component type's instances) to export just that slice.
     """
-
     if instances is None:
         instances = st.session_state.replica_instances
-
-    lines = []
-
-    # Add prefixes
-    lines.extend([
-        "@prefix dici_onto: <https://digicities.info/ontology#> .",
-        "@prefix qudt: <http://qudt.org/schema/qudt/> .",
-        "@prefix unit: <http://qudt.org/vocab/unit/> .",
-        "@prefix dcterms: <http://purl.org/dc/terms/> .",
-        "@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .",
-        "@prefix cur: <http://qudt.org/vocab/currency/> .",
-        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
-        "",
-        ""
-    ])
-
-    # Process each instance
-    for instance in instances:
-        instance_lines = generate_instance_ttl(instance)
-        lines.extend(instance_lines)
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-def generate_instance_ttl(instance) -> List[str]:
-    """Generate TTL for a single instance - FIXED semicolon handling"""
-    lines = []
-
-    # Instance declaration with proper semicolons
-    lines.append(f"<{instance.uri}> a dici_onto:{instance.component_type} ;")
-
-    # Add annotations (rdfs properties)
-    if instance.annotations:
-        for key, value in instance.annotations.items():
-            escaped_value = escape_ttl_string(value)
-            lines.append(f'\trdfs:{key} "{escaped_value}" ;')
-
-    # Add class object relationships (direct predicates)
-    if hasattr(instance, 'class_objects') and instance.class_objects:
-        for predicate, target_uri in instance.class_objects.items():
-            lines.append(f'\tdici_onto:{predicate} <{target_uri}> ;')
-
-    # Add label
-    lines.append(f'\trdfs:label "{escape_ttl_string(instance.label)}"')
-
-    # Collect attribute URIs
-    attribute_uris = []
-    attribute_declarations = []
-
-    for attr_name, attr_data in instance.attributes.items():
-        attr_uri = f"{instance.uri}/{attr_name}"
-        attribute_uris.append(f"<{attr_uri}>")
-
-        # Generate attribute declaration
-        attr_lines = generate_attribute_ttl(attr_uri, attr_name, attr_data, instance.component_type)
-        attribute_declarations.extend(attr_lines)
-
-    # Add hasAttribute predicates
-    if attribute_uris:
-        lines.append(f' ;\n\tdici_onto:hasAttribute {", ".join(attribute_uris)}')
-
-    # Close instance declaration with period
-    lines[-1] = lines[-1] + " ."
-
-    # Add specific attribute predicates
-    if attribute_uris:
-        lines.append("")
-        for attr_name, attr_uri_str in zip(instance.attributes.keys(), attribute_uris):
-            lines.append(f"<{instance.uri}> dici_onto:has{instance.component_type}{attr_name}Attribute {attr_uri_str} .")
-
-    # Add attribute declarations
-    if attribute_declarations:
-        lines.append("")
-        lines.extend(attribute_declarations)
-
-    return lines
+    return _ttl.generate_classes_and_attributes_ttl(instances)
 
 
 def generate_system_description_ttl() -> str:
-    """Generate TTL for system_description graph"""
-
-    lines = []
-
-    # Add prefixes
-    lines.extend([
-        "@prefix dici_onto: <https://digicities.info/ontology#> .",
-        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
-        "",
-        ""
-    ])
-
-    # Process each link
-    for link in st.session_state.replica_links:
-        lines.append(f"<{link['source_uri']}> dici_onto:{link['property']} <{link['target_uri']}> .")
-
-    return "\n".join(lines)
-
-
-def validate_ttl(ttl_content: str) -> tuple:
-    """Validate TTL syntax"""
-    try:
-        from rdflib import Graph
-        g = Graph()
-        g.parse(data=ttl_content, format="turtle")
-        return True, None
-    except Exception as e:
-        return False, str(e)
+    """Generate TTL for system_description graph (from session links)."""
+    return _ttl.generate_system_description_ttl(st.session_state.replica_links)
 
 
 def tab_preview_and_export(client):

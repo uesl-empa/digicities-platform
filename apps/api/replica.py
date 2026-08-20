@@ -44,6 +44,47 @@ def replica_ttl(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     return {"ttl": f.read_text(encoding="utf-8"), "file": f.name}
 
 
+@router.get("/model")
+def replica_model(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """The workspace's current replica TTL parsed back into the in-app model —
+    the round-trip enabler for an in-app editor.
+
+    Response shape::
+
+        {
+          "file": "<workspace>.ttl" | null,
+          "instances": [{id, component_type, uri, label,
+                         attributes: {name: {type, ...}},
+                         annotations: {...}, class_objects: {...}}, ...],
+          "draft": {"components": [{cls, columns: [{name, type, unit, unit_y,
+                                                    currency, predicate, key}],
+                                    rows: [...]}]}
+        }
+
+    ``draft`` is the same :class:`ReplicaDraft` schema ``POST /generate``
+    accepts, so a client can GET the model, edit it, and POST it back.
+    """
+    from backend.replica_builder.draft import ReplicaDraft
+    from backend.replica_builder.excel_import import parse_generated_ttl
+
+    out = ws_root(ctx) / "ingestion" / "output"
+    files = sorted(out.glob("*.ttl")) if out.exists() else []
+    if not files:
+        return {"file": None, "instances": [], "draft": {"components": []}}
+    f = files[0]
+    project_uri = _project_uri(ctx)
+    try:
+        instances = parse_generated_ttl(f.read_text(encoding="utf-8"), project_uri=project_uri)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not parse {f.name}: {exc}") from exc
+    draft = ReplicaDraft.from_instances(instances, project_uri=project_uri)
+    return {
+        "file": f.name,
+        "instances": [inst.to_dict() for inst in instances],
+        "draft": draft.to_dict(),
+    }
+
+
 @router.post("/import")
 async def import_workbook(
     file: UploadFile = File(...),
@@ -76,7 +117,9 @@ async def import_workbook(
 
 
 # ── in-app builder: a replica model (classes + typed attribute columns + instance
-# rows) -> a workbook -> process_excel_to_ttl. Same 6-row header the agent writes. ──
+# rows) -> a workbook -> process_excel_to_ttl. Same 6-row header the agent writes.
+# The draft itself is formalized as backend.replica_builder.draft.ReplicaDraft;
+# these pydantic models are its wire validation. ──
 class Column(BaseModel):
     name: str
     type: str | None = None
@@ -84,6 +127,7 @@ class Column(BaseModel):
     unit_y: str | None = None
     currency: str | None = None
     predicate: str | None = None
+    key: str | None = None  # optional row-lookup key (defaults to name)
 
 
 class Component(BaseModel):
@@ -97,32 +141,17 @@ class ReplicaSpec(BaseModel):
     persist: bool = True
 
 
-def _build_workbook(spec: ReplicaSpec, path: Path) -> None:
-    from openpyxl import Workbook
-
-    wb = Workbook()
-    wb.remove(wb.active)
-    for comp in spec.components:
-        ws = wb.create_sheet(title=comp.cls[:31])
-        columns = [Column(name="id")] + comp.columns
-        for c, col in enumerate(columns, start=1):
-            ws.cell(row=1, column=c, value=col.name)
-            ws.cell(row=2, column=c, value=col.type)
-            ws.cell(row=3, column=c, value=col.unit)
-            ws.cell(row=4, column=c, value=col.unit_y)
-            ws.cell(row=5, column=c, value=col.currency)
-            ws.cell(row=6, column=c, value=col.predicate)
-        for r, row in enumerate(comp.rows, start=7):
-            for c, col in enumerate(columns, start=1):
-                ws.cell(row=r, column=c, value=row.get(col.name))
-    wb.save(str(path))
-
-
 @router.post("/generate")
 def generate(spec: ReplicaSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Build a workbook from the in-app replica model and convert it to instance TTL."""
+    from backend.replica_builder.draft import ReplicaDraft, build_workbook
+
     if not spec.components:
         raise HTTPException(status_code=400, detail="Add at least one component class.")
+    try:
+        draft = ReplicaDraft.from_request([c.model_dump() for c in spec.components])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     root = ws_root(ctx)
     (root / "ingestion" / "input").mkdir(parents=True, exist_ok=True)
     (root / "ingestion" / "output").mkdir(parents=True, exist_ok=True)
@@ -130,7 +159,7 @@ def generate(spec: ReplicaSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dic
         else Path(tempfile.mkdtemp()) / "replica.xlsx"
     ttl_path = (root / "ingestion" / "output" / f"{ctx.id}.ttl") if spec.persist \
         else Path(tempfile.mkdtemp()) / "replica.ttl"
-    _build_workbook(spec, xlsx)
+    build_workbook(draft, xlsx)
 
     from backend.replica_builder.utils.create_class_and_attribute_graph import process_excel_to_ttl
 

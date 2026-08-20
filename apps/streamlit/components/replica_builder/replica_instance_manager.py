@@ -2,36 +2,23 @@
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 # components/replica_builder/replica_instance_manager.py
 """
-Instance Manager for Replica Builder
-Creates and manages component instances
+Instance Manager for Replica Builder — UI shell over the backend model.
+
+The instance model (ComponentInstance) and its CRUD rules moved to
+``backend/replica_builder/model.py`` (Phase 5 of the backend/UI split). What
+stays here is the Streamlit wiring: the tab rendering and session-state
+adapters with the old signatures (``create_instance`` / ``delete_instance``
+read and write ``st.session_state`` exactly as before).
 """
 import streamlit as st
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, field
-import uuid
 
-
-@dataclass
-class ComponentInstance:
-    """Represents a component instance"""
-    id: str
-    component_type: str
-    uri: str
-    label: str
-    attributes: Dict[str, Any] = field(default_factory=dict)
-    annotations: Dict[str, str] = field(default_factory=dict)
-    class_objects: Dict[str, str] = field(default_factory=dict)  # predicate: target_uri
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'component_type': self.component_type,
-            'uri': self.uri,
-            'label': self.label,
-            'attributes': self.attributes,
-            'annotations': self.annotations,
-            'class_objects': self.class_objects
-        }
+# The model dataclass and pure URI rule, re-exported verbatim (same objects).
+from backend.replica_builder.model import (  # noqa: F401
+    ComponentInstance,
+    generate_instance_uri,
+)
+from backend.replica_builder import model as _model
 
 
 def initialize_instance_state():
@@ -43,78 +30,43 @@ def initialize_instance_state():
         st.session_state.replica_instance_filter = ""
 
 
-def generate_instance_uri(project_uri: str, component_type: str, instance_id: str, uri_mode: str) -> str:
-    """Generate instance URI based on mode"""
-    if uri_mode == "default":
-        return f"{project_uri}/{component_type}/{instance_id}"
-    elif uri_mode == "complete-project-uri":
-        return f"{project_uri}#{instance_id}"
-    elif uri_mode == "full-uri-in-cell":
-        return f"{project_uri}/{instance_id}"
-    else:
-        return f"{project_uri}/{component_type}/{instance_id}"
-
-
 def create_instance(component_type: str, instance_id: str, label: str = None) -> Optional[ComponentInstance]:
-    """Create a new component instance"""
-
-    # Check if ID already exists
-    if any(inst.id == instance_id for inst in st.session_state.replica_instances):
-        st.error(f"Instance with ID '{instance_id}' already exists")
+    """Create a new component instance (in session state)."""
+    try:
+        return _model.create_instance(
+            st.session_state.replica_instances,
+            component_type,
+            instance_id,
+            st.session_state.replica_project_uri,
+            st.session_state.replica_uri_mode,
+            label,
+        )
+    except ValueError as exc:
+        st.error(str(exc))
         return None
-
-    # Generate URI
-    uri = generate_instance_uri(
-        st.session_state.replica_project_uri,
-        component_type,
-        instance_id,
-        st.session_state.replica_uri_mode
-    )
-
-    # Create instance
-    instance = ComponentInstance(
-        id=instance_id,
-        component_type=component_type,
-        uri=uri,
-        label=label or instance_id,
-        attributes={},
-        annotations={}
-    )
-
-    st.session_state.replica_instances.append(instance)
-    return instance
 
 
 def delete_instance(instance_id: str) -> bool:
-    """Delete an instance"""
-    original_count = len(st.session_state.replica_instances)
-    st.session_state.replica_instances = [
-        inst for inst in st.session_state.replica_instances
-        if inst.id != instance_id
-    ]
-
-    # Also remove any links involving this instance
-    if len(st.session_state.replica_instances) < original_count:
-        st.session_state.replica_links = [
-            link for link in st.session_state.replica_links
-            if link['source_id'] != instance_id and link['target_id'] != instance_id
-        ]
-        return True
-
-    return False
+    """Delete an instance (and its links) from session state."""
+    instances, links, deleted = _model.delete_instance(
+        st.session_state.replica_instances,
+        st.session_state.replica_links,
+        instance_id,
+    )
+    st.session_state.replica_instances = instances
+    if deleted:
+        st.session_state.replica_links = links
+    return deleted
 
 
 def get_instance_by_id(instance_id: str) -> Optional[ComponentInstance]:
     """Get instance by ID"""
-    for inst in st.session_state.replica_instances:
-        if inst.id == instance_id:
-            return inst
-    return None
+    return _model.get_instance_by_id(st.session_state.replica_instances, instance_id)
 
 
 def get_instances_by_type(component_type: str) -> List[ComponentInstance]:
     """Get all instances of a specific type"""
-    return [inst for inst in st.session_state.replica_instances if inst.component_type == component_type]
+    return _model.get_instances_by_type(st.session_state.replica_instances, component_type)
 
 
 def tab_manage_instances():
@@ -126,10 +78,7 @@ def tab_manage_instances():
         return
 
     # Get available component types
-    component_types = [
-        name for name, comp in st.session_state.replica_ontology_components.items()
-        if not name.endswith('Attribute') and name not in ['Attribute', 'Component']
-    ]
+    component_types = _model.component_type_names(st.session_state.replica_ontology_components)
 
     if not component_types:
         st.error("No component types available in ontology")
@@ -313,7 +262,4 @@ def render_instances_table(instances: List[ComponentInstance], comp_type: str):
 
 def get_available_component_types() -> List[str]:
     """Get list of available component types"""
-    return [
-        name for name, comp in st.session_state.replica_ontology_components.items()
-        if not name.endswith('Attribute') and name not in ['Attribute', 'Component']
-    ]
+    return _model.component_type_names(st.session_state.replica_ontology_components)
