@@ -171,7 +171,7 @@ def template(spec: TemplateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
     saved = None
     if spec.save:
         sid = _pascal(spec.service_name)[:40] or "Service"
-        sdir = _ws_root(ctx) / "services"
+        sdir = ws_root(ctx) / "services"
         sdir.mkdir(parents=True, exist_ok=True)
         (sdir / f"{sid}.yaml").write_text(text, encoding="utf-8")
         saved = f"{sid}.yaml"
@@ -186,7 +186,7 @@ def requirements(spec: ServiceSpec, ctx: WorkspaceContext = Depends(get_ctx)) ->
     saved = None
     if spec.save:
         sid = _pascal(spec.service_name)[:40] or "Service"
-        sdir = _ws_root(ctx) / "services"
+        sdir = ws_root(ctx) / "services"
         sdir.mkdir(parents=True, exist_ok=True)
         path = sdir / f"{sid}.ttl"
         path.write_text(ttl, encoding="utf-8")
