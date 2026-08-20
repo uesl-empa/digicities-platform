@@ -249,6 +249,15 @@ def publish(body: ExtRef, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str,
     return _funcs(ctx).update_temp_and_export(body.extension)
 
 
+@router.post("/upload")
+def upload_to_graphdb(body: ExtRef, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Upload the extension to the workspace's triplestore repository."""
+    ok, info = _funcs(ctx).upload_to_graphdb(body.extension, ctx.graphdb_repository or ctx.id)
+    if not ok:
+        raise HTTPException(status_code=400, detail=str(info))
+    return {"ok": True, "info": info}
+
+
 # ── mapping subsystem: map ontology terms onto a source model's classes/properties ──
 class MapClass(BaseModel):
     chosen: str
