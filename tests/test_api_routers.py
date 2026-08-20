@@ -84,6 +84,84 @@ def test_scenario_build_saves_valid_ttl_and_lists_it(client, ws):
     assert got.json()["ttl"] == body["ttl"]
 
 
+def test_scenario_build_full_draft_uses_full_emitter(client, ws):
+    """A spec whose components carry attributes/nested_properties routes to the
+    full backend emitter (issue #17): typed attribute nodes, High-specificity
+    property names, a TimeSeries resource, and typed links come back."""
+    wt = "https://digicities.info/proj/testws/WindTurbine/WT1"
+    edp = "https://digicities.info/proj/testws/ElectricityDemandProfile/EDP1"
+    ts = "https://digicities.info/proj/testws/ts/demand"
+    spec = {
+        "scenario_name": "Full Draft",
+        "service_name": "golden_service",
+        "ttl_specificity": "High",
+        "required_attributes": {
+            "WindTurbine": ["hubHeight"],
+            "ElectricityDemandProfile": ["Power.hasHistoricTimeSeriesReference"],
+        },
+        "components": [
+            {"uri": wt, "type": "WindTurbine", "label": "Turbine One",
+             "source": "ttl_use_case",
+             "attributes": {"hubHeight": {"value": 120, "unit": "m",
+                                          "attribute_type": "PhysicalAttribute"}}},
+            {"uri": edp, "type": "ElectricityDemandProfile", "label": "Demand One",
+             "source": "data_products",
+             "attributes": {"Power": {"value": "timeseries", "unit": "kW"}},
+             "nested_properties": {"Power": {
+                 "hasHistoricTimeSeriesReference": "resources/demand.csv",
+                 "hasHistoricTimeSeries": ts,
+                 "unit": "kW"}}},
+        ],
+        "links": [
+            {"source": "scenario", "target": wt, "link_type": "scenario_automatic"},
+            {"source": edp, "target": wt, "link_type": "feeds"},
+        ],
+    }
+    r = client.post(f"{B}/scenario/build", json=spec)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["saved"] == "Full_Draft.ttl"
+
+    g = rdflib.Graph()
+    g.parse(data=body["ttl"], format="turtle")
+    dici = rdflib.Namespace("https://digicities.info/ontology#")
+    qudt = rdflib.Namespace("http://qudt.org/schema/qudt/")
+    xsd = rdflib.namespace.XSD
+    scenario = rdflib.URIRef("https://digicities.info/proj/testws/Full_Draft")
+
+    # Full-emitter attribute node with the High-specificity property name.
+    attr = rdflib.URIRef(f"{wt}/hubHeight")
+    assert (rdflib.URIRef(wt), dici.hasWindTurbinehubHeightAttribute, attr) in g
+    assert (attr, rdflib.RDF.type, dici.PhysicalAttribute) in g
+    assert (attr, qudt.value, rdflib.Literal("120", datatype=xsd.decimal)) in g
+
+    # Nested time-series promotion: DynamicAttribute + TimeSeries resource.
+    power = rdflib.URIRef(f"{edp}/Power")
+    assert (power, rdflib.RDF.type, dici.DynamicAttribute) in g
+    assert (rdflib.URIRef(ts), rdflib.RDF.type, dici.TimeSeries) in g
+    assert (rdflib.URIRef(ts), dici.storedAt,
+            rdflib.Literal("resources/demand.csv", datatype=xsd.string)) in g
+
+    # Scenario header and both link flavors (with the pinned typo predicate).
+    assert (scenario, dici.builtForService, rdflib.Literal("golden_service")) in g
+    link_targets = set(g.objects(None, dici.linksInputyEntityTo))
+    assert link_targets == {rdflib.URIRef(wt)}
+    link_types = {str(o) for o in g.objects(None, dici.linkType)}
+    assert link_types == {"scenario_automatic", "feeds"}
+
+
+def test_scenario_build_full_draft_requires_component_types(client, ws):
+    """Full-emitter specs must type every component; the ValueError surfaces
+    as a 400, not a 500."""
+    r = client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Bad",
+        "components": [{"uri": "https://x/WT1",
+                        "attributes": {"a": {"value": 1}}}],
+    })
+    assert r.status_code == 400
+    assert "type" in r.json()["detail"]
+
+
 def test_scenario_build_requires_name_and_components(client, ws):
     r = client.post(f"{B}/scenario/build",
                     json={"scenario_name": " ", "components": [{"uri": "x"}]})
