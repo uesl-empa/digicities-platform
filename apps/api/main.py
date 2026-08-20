@@ -99,6 +99,38 @@ def list_workspaces() -> list[WorkspaceSummary]:
     ]
 
 
+class CreateWorkspace(BaseModel):
+    name: str
+    workspace_id: str = ""
+    description: str = ""
+    workspace_type: str = ""
+    location: str = ""
+
+
+@app.post("/api/workspaces", response_model=WorkspaceSummary, tags=["workspaces"])
+def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
+    """Create a new local workspace (folder + graph dataset)."""
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="Workspace name is required.")
+    from backend.workspace import create_workspace as _create
+    try:
+        ctx = _create(
+            body.name.strip(),
+            workspace_id=body.workspace_id.strip() or None,
+            description=body.description,
+            workspace_type=body.workspace_type,
+            location=body.location,
+            provision_graph=True,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Create failed: {exc}") from exc
+    return WorkspaceSummary(
+        id=ctx.id, name=ctx.name,
+        graphdb_repository=ctx.graphdb_repository or "",
+        description=ctx.description or "",
+    )
+
+
 @app.get("/api/workspaces/{workspace_id}", response_model=WorkspaceSummary, tags=["workspaces"])
 def get_workspace(ctx: WorkspaceContext = Depends(get_ctx)) -> WorkspaceSummary:
     return WorkspaceSummary(
