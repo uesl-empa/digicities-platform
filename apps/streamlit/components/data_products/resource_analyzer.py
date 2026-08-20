@@ -7,6 +7,10 @@ File: components/data_products/resource_analyzer.py
 
 Handles analysis and visualization of resource files from data products.
 Supports CSV timeseries, GeoJSON visualization, and raw data viewing.
+
+Phase 5: the pure format sniffing/parsing (type grouping, type info,
+datetime-column detection) moved to ``backend.data_products.analyzer``;
+this module keeps the Streamlit rendering and delegates the logic.
 """
 
 import streamlit as st
@@ -21,6 +25,9 @@ import io
 
 # Import data loader for resource loading
 from .data_loader import DataProductLoader
+
+# Pure format sniffing/parsing now lives in the backend (shared with the API).
+from backend.data_products import analyzer as _analyzer
 
 
 class ResourceAnalyzer:
@@ -77,15 +84,7 @@ class ResourceAnalyzer:
 
     def _group_resources_by_type(self, resources: List[Dict]) -> Dict[str, List[Dict]]:
         """Group resources by file type"""
-        grouped = {}
-
-        for resource in resources:
-            file_type = resource.get('type', 'unknown')
-            if file_type not in grouped:
-                grouped[file_type] = []
-            grouped[file_type].append(resource)
-
-        return grouped
+        return _analyzer.group_resources_by_type(resources)
 
     def _display_resource_summary(self, resource_types: Dict[str, List[Dict]]) -> None:
         """Display summary of available resource types"""
@@ -105,16 +104,7 @@ class ResourceAnalyzer:
 
     def _get_type_info(self, file_type: str) -> Dict[str, str]:
         """Get display information for file types"""
-        type_mapping = {
-            'csv': {'emoji': '📊', 'description': 'Tabular data'},
-            'geojson': {'emoji': '🗺️', 'description': 'Geographic data'},
-            'json': {'emoji': '📄', 'description': 'Structured data'},
-            'epw': {'emoji': '🌤️', 'description': 'Weather data'},
-            'txt': {'emoji': '📝', 'description': 'Text data'},
-            'xml': {'emoji': '🏷️', 'description': 'XML data'},
-            'unknown': {'emoji': '❓', 'description': 'Unknown format'}
-        }
-        return type_mapping.get(file_type, type_mapping['unknown'])
+        return _analyzer.get_type_info(file_type)
 
     def _render_resource_selection_interface(self, resources: List[Dict]) -> None:
         """Render the resource selection and analysis interface"""
@@ -272,20 +262,9 @@ class ResourceAnalyzer:
         """Detect timeseries columns and create visualizations"""
         st.markdown("#### 📈 Timeseries Visualization")
 
-        # Try to detect datetime columns
-        datetime_cols = []
-        for col in df.columns:
-            if df[col].dtype == 'object':
-                # Try to parse as datetime
-                try:
-                    pd.to_datetime(df[col].head(10))
-                    datetime_cols.append(col)
-                except:
-                    pass
-            elif 'datetime' in str(df[col].dtype):
-                datetime_cols.append(col)
-
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        # Detect datetime + numeric columns (backend logic, shared with the API)
+        datetime_cols = _analyzer.detect_datetime_columns(df)
+        numeric_cols = _analyzer.numeric_columns(df)
 
         if datetime_cols and numeric_cols:
             col1, col2 = st.columns(2)

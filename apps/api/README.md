@@ -6,7 +6,8 @@ Streamlit. This is the backend half of the "off Streamlit" move.
 
 Every module of the React app is served: workspaces, explorer, query manager,
 ontology manager, replica builder, service requirements, scenario builder,
-API submission, collections, and the onboarding agent (with SSE streaming).
+API submission, collections, data products, workspace file browsing, and the
+onboarding agent (with SSE streaming).
 
 ## Run
 
@@ -51,6 +52,11 @@ All workspace-scoped paths start with `/api/workspaces/{id}`, shortened to `…`
 | GET  | `…/collections`, `…/collections/options`, `…/collections/{name}` | `backend.collections` reads |
 | POST | `…/collections` | `materialize_set` / `materialize_grouped_set` |
 | DELETE | `…/collections/{name}` | `delete_collection` |
+| GET  | `…/data-products` | `backend.data_products.DataProductProcessor` listings (private + open) |
+| GET  | `…/data-products/{name}` | processed product: metadata + components + resources |
+| GET  | `…/data-products/{name}/resource?path=` | one resource, parsed (CSV rows capped / GeoJSON / EPW-text head) |
+| GET  | `…/files?path=` | workspace directory listing (name, type, size, mtime; traversal-guarded) |
+| GET  | `…/files/content?path=` | small-file fetch (≤ 2 MB, guessed content type; traversal-guarded) |
 | GET  | `…/agent/models`, `…/agent/chats`, `…/agent/state` | onboarding agent (headless `AgentSession`) |
 | POST | `…/agent/session`, `…/agent/model`, `…/agent/message`, `…/agent/upload` | agent lifecycle + turns |
 | GET  | `…/agent/message/stream` | SSE: `token` events, then `result`, then `done` |
