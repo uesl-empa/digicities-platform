@@ -48,13 +48,45 @@ def _get(session_id: str):
     return sess
 
 
+class StartBody(BaseModel):
+    model: str | None = None
+    chat_id: str | None = None
+
+
+@router.get("/models")
+def models() -> list[dict[str, str]]:
+    from onboarding_agent.headless import MODELS
+    return MODELS
+
+
+@router.get("/chats")
+def chats(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+    """Persisted conversations for this workspace."""
+    return _new_session(ctx).list_chats()
+
+
 @router.post("/session")
-def start_session(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
-    """Open a fresh onboarding conversation."""
+def start_session(body: StartBody | None = None, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Open a conversation — fresh, or load a persisted chat_id; optional model."""
     sid = uuid.uuid4().hex
-    _SESSIONS[sid] = _new_session(ctx)
-    snap = _SESSIONS[sid].snapshot()
-    return {"session_id": sid, **snap}
+    sess = _new_session(ctx)
+    if body and body.model:
+        sess.set_model(body.model)
+    _SESSIONS[sid] = sess
+    if body and body.chat_id:
+        sess.load_chat(body.chat_id)
+    return {"session_id": sid, **sess.snapshot()}
+
+
+class ModelBody(BaseModel):
+    session_id: str
+    model: str
+
+
+@router.post("/model")
+def set_model(body: ModelBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
+    _get(body.session_id).set_model(body.model)
+    return {"model": body.model}
 
 
 class Message(BaseModel):
