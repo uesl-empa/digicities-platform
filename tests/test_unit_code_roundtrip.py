@@ -6,19 +6,12 @@
 The workspace TTL loader must surface QUDT unit *codes* (``KiloW``,
 ``KiloW-HR``), never lossy display abbreviations (``kW``) — abbreviations can't
 be turned back into valid ``qudt:unit`` IRIs by the TTL emitters and used to
-degrade to ``UNITLESS``. The loader lives in a Streamlit component module, so
-`apps/streamlit` goes on sys.path the same way the app's own imports expect.
+degrade to ``UNITLESS``. The loader lives in a Streamlit component module
+(``apps/streamlit`` is on sys.path via tests/conftest.py).
 """
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "apps" / "streamlit"))
-
-from components.scenario_builder.ttl_use_case_loader import (  # noqa: E402
+from components.scenario_builder.ttl_use_case_loader import (
     NextCloudTTLUseCaseLoader,
 )
 

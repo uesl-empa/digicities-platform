@@ -12,13 +12,10 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import sys
 
 import rdflib
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "apps" / "streamlit"))
 
 PRODUCTS_DIR = REPO_ROOT / "data" / "global_open_data_products"
 NS = "https://digicities.info/ontology#"

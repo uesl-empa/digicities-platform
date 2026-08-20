@@ -23,15 +23,8 @@ network and no Streamlit rendering.
 """
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
 import pandas as pd
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "apps" / "streamlit"))
 
 rdflib = pytest.importorskip("rdflib")
 

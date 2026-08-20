@@ -15,13 +15,7 @@ transitivity, instance typing with named ancestors) and strip the noise.
 """
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 rdflib = pytest.importorskip("rdflib")
 pytest.importorskip("owlrl")

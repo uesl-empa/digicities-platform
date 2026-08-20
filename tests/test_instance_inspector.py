@@ -24,14 +24,8 @@ Deterministic: an in-memory rdflib dataset stands in for the triplestore.
 """
 from __future__ import annotations
 
-from pathlib import Path
-import sys
-
 import pandas as pd
 import pytest
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 rdflib = pytest.importorskip("rdflib")
 

@@ -1,0 +1,97 @@
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix cur: <http://qudt.org/vocab/currency/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# Scenario declaration for workspace: Golden Workspace
+# Generated from NextCloud workspace: ws_golden
+<https://digicities.info/proj/ws_golden/Golden_Scenario> a dici_onto:Scenario ;
+    rdfs:label "Golden Scenario" ;
+    dcterms:description "Scenario built in workspace Golden Workspace" ;
+    dici_onto:builtForService "golden_service" ;
+    dici_onto:createdInWorkspace "ws_golden" .
+
+# Component instance declarations with NextCloud source tracking
+
+<https://digicities.info/proj/ws_golden/WindTurbine/WT1> a dici_onto:WindTurbine ;
+    rdfs:label "Turbine One" ;
+    dici_onto:sourceType "ttl_use_case" ;
+    dici_onto:sourceWorkspace "ws_golden" ;
+    dici_onto:hasWindTurbinehubHeightAttribute <https://digicities.info/proj/ws_golden/WindTurbine/WT1/hubHeight> ;
+    dici_onto:hasWindTurbinemanufacturerAttribute <https://digicities.info/proj/ws_golden/WindTurbine/WT1/manufacturer> ;
+    dici_onto:hasWindTurbineisOffshoreAttribute <https://digicities.info/proj/ws_golden/WindTurbine/WT1/isOffshore> ;
+    dici_onto:hasWindTurbinecommissioningDateAttribute <https://digicities.info/proj/ws_golden/WindTurbine/WT1/commissioningDate> ;
+    dici_onto:hasWindTurbineturbineClassAttribute <https://digicities.info/proj/ws_golden/WindTurbine/WT1/turbineClass> ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+<https://digicities.info/proj/ws_golden/WindTurbine/WT1/hubHeight> a dici_onto:hubHeight ;
+    a dici_onto:PhysicalAttribute ;
+    qudt:value "120"^^xsd:decimal ;
+    qudt:unit <http://qudt.org/vocab/unit/M> ;
+    dici_onto:sourceType "ttl_use_case" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+<https://digicities.info/proj/ws_golden/WindTurbine/WT1/manufacturer> a dici_onto:manufacturer ;
+    a dici_onto:PhysicalAttribute ;
+    qudt:value "Vestas"^^xsd:string ;
+    dici_onto:sourceType "ttl_use_case" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+<https://digicities.info/proj/ws_golden/WindTurbine/WT1/isOffshore> a dici_onto:isOffshore ;
+    a dici_onto:PhysicalAttribute ;
+    qudt:value "True"^^xsd:decimal ;
+    qudt:unit <http://qudt.org/vocab/unit/UNITLESS> ;
+    dici_onto:sourceType "ttl_use_case" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+<https://digicities.info/proj/ws_golden/WindTurbine/WT1/commissioningDate> a dici_onto:commissioningDate ;
+    a dici_onto:EventAttribute ;
+    dici_onto:hasTemporalValue "2020-05"^^xsd:gYearMonth ;
+    dici_onto:hasTemporalPrecision dici_onto:YearMonth ;
+    dici_onto:sourceType "ttl_use_case" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+<https://digicities.info/proj/ws_golden/WindTurbine/WT1/turbineClass> a dici_onto:turbineClass ;
+    a dici_onto:CategoricalAttribute ;
+    a dici_onto:IECClassII ;
+    dici_onto:sourceType "ttl_use_case" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+<https://digicities.info/proj/ws_golden/ElectricityDemandProfile/EDP1> a dici_onto:ElectricityDemandProfile ;
+    rdfs:label "Demand Profile One" ;
+    dici_onto:sourceType "data_products" ;
+    dici_onto:sourceCatalog "catalog_a" ;
+    dici_onto:hasElectricityDemandProfilePowerAttribute <https://digicities.info/proj/ws_golden/ElectricityDemandProfile/EDP1/Power> ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+<https://digicities.info/proj/ws_golden/ElectricityDemandProfile/EDP1/Power> a dici_onto:Power ;
+    a dici_onto:DynamicAttribute ;
+    dici_onto:hasHistoricTimeSeriesReference "resources/demand.csv"^^xsd:string ;
+    qudt:unit <http://qudt.org/vocab/unit/KiloW> ;
+    dici_onto:sourceType "data_products" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+# Time Series Resources
+
+<https://digicities.info/proj/ws_golden/ts/demand> a dici_onto:TimeSeries ;
+    dici_onto:storedAt "resources/demand.csv"^^xsd:string ;
+    dici_onto:hasFileName "resources/demand.csv"^^xsd:string ;
+    qudt:unit <http://qudt.org/vocab/unit/KiloW> ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+# Scenario component links (automatic) for workspace: Golden Workspace
+<https://digicities.info/proj/ws_golden/Golden_Scenario/ComponentLink_1> a dici_onto:ComponentLink ;
+    dici_onto:hasInputEntity <https://digicities.info/proj/ws_golden/Golden_Scenario> ;
+    dici_onto:linksInputyEntityTo <https://digicities.info/proj/ws_golden/WindTurbine/WT1> ;
+    dici_onto:linkType "scenario_automatic" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
+
+# Component relationships (manual)
+<https://digicities.info/proj/ws_golden/Golden_Scenario/RelationshipLink_1> a dici_onto:ComponentLink ;
+    dici_onto:hasInputEntity <https://digicities.info/proj/ws_golden/ElectricityDemandProfile/EDP1> ;
+    dici_onto:linksInputyEntityTo <https://digicities.info/proj/ws_golden/WindTurbine/WT1> ;
+    dici_onto:linkType "feeds" ;
+    dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
