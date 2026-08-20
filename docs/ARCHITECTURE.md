@@ -49,6 +49,7 @@ The tutorial notebooks under `tutorial/` exercise this directly — they import 
 | `backend/assumptions/` | `components/assumptions/` | **Mostly thin.** The assumption/manual-modification engines and thin-scenario TTL generation (`thin_scenario_ttl.py`, emitting `supersedesAttribute` overrides) live in backend; the UI shell is the load-baseline / apply / export forms. |
 | `backend/data_products/` | `components/data_products/` | **Medium.** TTL parsing is in backend; NextCloud I/O and path resolution are in the UI shell. |
 | `backend/api_submission/` | `components/api_submission_module/` | **Medium.** Generic HTTP/Redis transports + the TTL→payload converter are in backend (`transports.py`, `ttl_converter.py`); the UI inlines service registration and result rendering. |
+| `backend/explorer/` | `components/component_explorer.py` | **Thin shell.** Instance fetching, attribute processing, curve parsing, unit/currency mapping and provenance live in backend; the UI renders the table, plots and debug panels. The REST API (`apps/api`) consumes the same backend package. |
 
 ## UI-only modules (no backend twin, by design)
 
@@ -64,8 +65,7 @@ These don't have a `backend/` counterpart because they're *about* the UI shell, 
 Places where logic *should* migrate into `backend/` but currently sits in a Streamlit file. Contributors picking up these areas should consider extracting first:
 
 1. **`components/query_manager.py`** — embeds SPARQL execution, Nextcloud query-file I/O, and session caching directly. No `backend/query_manager/` module exists yet. ~300 LOC.
-2. **`components/component_explorer.py`** — four+ SPARQL queries for component-type discovery and attribute lookup live inline. No backend twin. ~400 LOC.
-3. **`components/service_requirements_builder.py`** — ontology-parsing SPARQL queries embedded; rdflib used directly from the UI.
+2. **`components/service_requirements_builder.py`** — ontology-parsing SPARQL queries embedded; rdflib used directly from the UI.
 
 These are pragmatic tech-debt items, not architectural commitments — they were faster to ship as Streamlit-first and will move to `backend/` when they grow a second consumer (notebook, CLI, or API).
 
