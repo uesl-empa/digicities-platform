@@ -1,0 +1,67 @@
+{
+  "errors": [
+    {
+      "attribute": "power",
+      "component": "Building",
+      "message": "Attribute 'power' is not valid for component 'Building'",
+      "path": "buildings",
+      "suggestion": "Valid attributes for 'Building': floorArea",
+      "type": "INVALID_ATTRIBUTE",
+      "types": [
+        "Historic",
+        "Live"
+      ]
+    },
+    {
+      "component": "FusionPlant",
+      "message": "Component 'FusionPlant' not found in ontology",
+      "path": "plants",
+      "type": "UNKNOWN_COMPONENT"
+    }
+  ],
+  "successes": [
+    {
+      "attribute": "label",
+      "component": "Region",
+      "message": "✓ Standard attribute 'label' is valid",
+      "path": "region",
+      "types": [
+        "Static"
+      ]
+    },
+    {
+      "attribute": "area",
+      "component": "Region",
+      "message": "✓ Attribute 'area' is valid for 'Region'",
+      "path": "region",
+      "types": [
+        "Static"
+      ]
+    },
+    {
+      "attribute": "label",
+      "component": "Building",
+      "message": "✓ Standard attribute 'label' is valid",
+      "path": "buildings",
+      "types": [
+        "Static"
+      ]
+    },
+    {
+      "attribute": "floorArea",
+      "component": "Building",
+      "message": "✓ Attribute 'floorArea' is valid for 'Building'",
+      "path": "buildings",
+      "types": [
+        "Static"
+      ]
+    }
+  ],
+  "summary": {
+    "invalid_attributes": 1,
+    "total_attributes": 5,
+    "unmapped_components": 1,
+    "valid_attributes": 4
+  },
+  "warnings": []
+}

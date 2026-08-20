@@ -1,0 +1,20 @@
+service_name: golden_service
+description: Characterization fixture service
+connection:
+  protocol: redis
+  host: localhost
+  port: 6379
+scenario_data:
+  uri: Scenario.URI
+  label: Scenario.label
+  region:
+    name: Region.label
+    uri: Region.URI
+    area: Region.area
+    buildings:
+      link: CL.Region.Building
+      template:
+        uri: Building.URI
+        floorArea: Building.floorArea
+        power_historic: Building.power.hasHistoricTimeSeriesReference
+        power_live: Building.power.hasLiveTimeSeriesReference

@@ -35,7 +35,10 @@ def _golden_path(name: str) -> Path:
 
 def _maybe_record(path: Path, content: str) -> None:
     if _UPDATE or not path.exists():
-        path.write_text(content, encoding="utf-8", newline="\n")
+        # Path.write_text() only grew `newline=` in Python 3.10; open() has it
+        # everywhere, and LF-only goldens must not vary with the recording OS.
+        with path.open("w", encoding="utf-8", newline="\n") as fh:
+            fh.write(content)
         pytest.fail(
             f"golden (re)recorded: {path.relative_to(GOLDENS_DIR.parent)} — "
             "inspect the diff, commit it, and re-run without GOLDEN_UPDATE"

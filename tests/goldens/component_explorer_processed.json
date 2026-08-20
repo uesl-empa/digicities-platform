@@ -1,0 +1,43 @@
+[
+  {
+    "MountingType": null,
+    "URI": "https://digicities.info/proj/ws_golden/PV/PV1",
+    "_curve__powerCurve": {
+      "points": [
+        [
+          0.0,
+          0.0
+        ],
+        [
+          5.0,
+          120.5
+        ],
+        [
+          10.0,
+          250.0
+        ]
+      ],
+      "raw": "[(0, 0); (5, 120.5); (10, 250)]",
+      "reference": null,
+      "x_unit": "m/s",
+      "y_unit": "kW"
+    },
+    "generation": null,
+    "instance_id": "PV1",
+    "investmentCost": "1200 CHF/kW",
+    "label": "Rooftop PV One",
+    "powerCurve": "Curve (3 points): kW vs m/s",
+    "ratedPower": "21.5 MW"
+  },
+  {
+    "MountingType": "Rooftop",
+    "URI": "https://digicities.info/proj/ws_golden/PV/PV2",
+    "_curve__powerCurve": null,
+    "generation": "Historic Time Series: pv_generation.csv (kW)",
+    "instance_id": "PV2",
+    "investmentCost": null,
+    "label": "PV2",
+    "powerCurve": null,
+    "ratedPower": null
+  }
+]
