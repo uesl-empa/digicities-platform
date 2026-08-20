@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext, load_registry, ensure_workspace_repo
 
+from .auth import require_auth
 from .deps import get_ctx, graph_client
 from .explorer import router as explorer_router
 from .queries import router as queries_router
@@ -42,6 +43,10 @@ app = FastAPI(
     title="Digicities API",
     version="0.1.0",
     description="HTTP access to the Digicities platform backend (round one: onboarding-agent paths).",
+    # Optional bearer-token auth on every route — a no-op until
+    # API_AUTH_ENABLED is set (see apps/api/auth.py). Reads the raw request
+    # header, so the OpenAPI snapshot is unaffected.
+    dependencies=[Depends(require_auth)],
 )
 
 # The React app is served from a different origin in dev; open CORS here and

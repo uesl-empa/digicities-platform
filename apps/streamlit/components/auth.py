@@ -2,14 +2,23 @@
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 # auth.py
 
+"""Streamlit shell for authentication.
+
+The Keycloak/OIDC mechanics (login URL, code→token exchange, refresh, expiry
+math) live in ``backend.auth.keycloak`` as pure functions. This module adds
+the Streamlit-specific bits: session-state storage of tokens, query-param
+handling on the redirect back, local-environment detection, and the
+AUTH_DISABLED local mode.
+"""
+
 import streamlit as st
-import requests
-import base64
-import json
 import os
-import urllib.parse
 import socket
+import time
 from dotenv import load_dotenv
+
+from backend.auth import KeycloakConfig
+from backend.auth import keycloak as _kc
 
 load_dotenv()
 
@@ -21,6 +30,17 @@ REDIRECT_URI = os.getenv("KEYCLOAK_REDIRECT_URI")
 
 AUTH_DISABLED = os.getenv("AUTH_DISABLED", "false").lower() == "true"
 LOCAL_WORKSPACE = os.getenv("LOCAL_WORKSPACE", "workspace_local")
+
+
+def _config() -> KeycloakConfig:
+    """The realm coordinates this module was loaded with."""
+    return KeycloakConfig(
+        base_url=KEYCLOAK_BASE_URL or "",
+        realm=REALM or "",
+        client_id=CLIENT_ID or "",
+        client_secret=CLIENT_SECRET or "",
+        redirect_uri=REDIRECT_URI or "",
+    )
 
 
 def setup_local_auth():
@@ -191,17 +211,19 @@ def build_login_url():
     Build login URL with environment-appropriate redirect URI
     """
     redirect_uri = get_redirect_uri()
-
-    login_url = (
-        f"{KEYCLOAK_BASE_URL}/realms/{REALM}/protocol/openid-connect/auth?"
-        f"response_type=code&"
-        f"client_id={urllib.parse.quote(CLIENT_ID)}&"
-        f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
-        f"scope=openid email profile"
-    )
-
+    login_url = _kc.build_login_url(_config(), redirect_uri)
     print(f"DEBUG: Built login URL with redirect: {redirect_uri}")
     return login_url
+
+
+def _store_token_response(token_data: dict) -> None:
+    """Park a token-endpoint response (exchange or refresh) in session state."""
+    st.session_state["access_token"] = token_data.get("access_token")
+    st.session_state["refresh_token"] = token_data.get("refresh_token")  # may rotate
+    st.session_state["nextcloud_token"] = token_data["access_token"]
+    st.session_state["token_expires_in"] = token_data.get("expires_in", _kc.DEFAULT_TOKEN_LIFETIME)
+    st.session_state["token_timestamp"] = time.time()
+    st.session_state["access_payload"] = _kc.decode_token_payload(token_data.get("access_token"))
 
 
 def handle_login():
@@ -212,39 +234,13 @@ def handle_login():
     code = query_params.get("code")
 
     if code and not st.session_state.get("authenticated"):
-        token_url = f"{KEYCLOAK_BASE_URL}/realms/{REALM}/protocol/openid-connect/token"
-
         # Use the same redirect URI that was used for the login
         redirect_uri = get_redirect_uri()
-
-        data = {
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": redirect_uri,  # Must match the one used in login
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-        }
-
         print(f"DEBUG: Token exchange using redirect URI: {redirect_uri}")
 
         try:
-            res = requests.post(token_url, data=data)
-            res.raise_for_status()
-            token_data = res.json()
-
-            # Store tokens in session (including refresh token!)
-            st.session_state["access_token"] = token_data.get("access_token")
-            st.session_state["refresh_token"] = token_data.get("refresh_token")  # NEW: Store refresh token
-            st.session_state["nextcloud_token"] = token_data["access_token"]
-            st.session_state["token_expires_in"] = token_data.get("expires_in", 28800)  # Default 8 hours
-            st.session_state["token_timestamp"] = __import__('time').time()  # Track when token was issued
-
-            # Decode payload
-            payload_part = token_data.get("access_token").split(".")[1]
-            padded = payload_part + '=' * (-len(payload_part) % 4)
-            decoded = base64.urlsafe_b64decode(padded).decode()
-            payload = json.loads(decoded)
-            st.session_state["access_payload"] = payload
+            token_data = _kc.exchange_code(_config(), code, redirect_uri)
+            _store_token_response(token_data)
             st.session_state["authenticated"] = True
 
             # Clear code from URL to prevent re-use
@@ -257,9 +253,10 @@ def handle_login():
         except Exception as e:
             st.error(f"Token exchange failed: {e}")
             print(f"DEBUG: Token exchange error: {e}")
-            if 'res' in locals() and res is not None:
-                st.code(res.text)
-                print(f"DEBUG: Response text: {res.text}")
+            response = getattr(getattr(e, "response", None), "text", None)
+            if response:
+                st.code(response)
+                print(f"DEBUG: Response text: {response}")
 
     return st.session_state.get("authenticated", False)
 
@@ -273,34 +270,10 @@ def refresh_access_token():
         print("DEBUG: No refresh token available")
         return False
 
-    token_url = f"{KEYCLOAK_BASE_URL}/realms/{REALM}/protocol/openid-connect/token"
-
-    data = {
-        "grant_type": "refresh_token",
-        "refresh_token": st.session_state["refresh_token"],
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-    }
-
     try:
         print("DEBUG: Attempting to refresh access token...")
-        res = requests.post(token_url, data=data)
-        res.raise_for_status()
-        token_data = res.json()
-
-        # Update tokens in session
-        st.session_state["access_token"] = token_data.get("access_token")
-        st.session_state["refresh_token"] = token_data.get("refresh_token")  # Refresh token can also be rotated
-        st.session_state["nextcloud_token"] = token_data["access_token"]
-        st.session_state["token_expires_in"] = token_data.get("expires_in", 28800)
-        st.session_state["token_timestamp"] = __import__('time').time()
-
-        # Update payload
-        payload_part = token_data.get("access_token").split(".")[1]
-        padded = payload_part + '=' * (-len(payload_part) % 4)
-        decoded = base64.urlsafe_b64decode(padded).decode()
-        payload = json.loads(decoded)
-        st.session_state["access_payload"] = payload
+        token_data = _kc.refresh_access_token(_config(), st.session_state["refresh_token"])
+        _store_token_response(token_data)
 
         # Update GraphDB client if it exists
         if st.session_state.get("workspace_client"):
@@ -315,8 +288,9 @@ def refresh_access_token():
 
     except Exception as e:
         print(f"DEBUG: Token refresh failed: {e}")
-        if 'res' in locals() and res is not None:
-            print(f"DEBUG: Response text: {res.text}")
+        response = getattr(getattr(e, "response", None), "text", None)
+        if response:
+            print(f"DEBUG: Response text: {response}")
         return False
 
 
@@ -336,16 +310,13 @@ def check_token_expiry():
         print("DEBUG: No token timestamp, attempting refresh...")
         return refresh_access_token()
 
-    import time
-    token_age = time.time() - st.session_state["token_timestamp"]
-    token_expires_in = st.session_state.get("token_expires_in", 28800)
-
-    # Refresh token if it's older than 90% of its lifetime
+    # Refresh once the token is past 90% of its lifetime
     # e.g., for 8 hour token (28800s), refresh after 7.2 hours (25920s)
-    refresh_threshold = token_expires_in * 0.9
-
-    if token_age >= refresh_threshold:
-        print(f"DEBUG: Token is {token_age:.0f}s old (threshold: {refresh_threshold:.0f}s), refreshing...")
+    if _kc.is_token_expired(
+        st.session_state["token_timestamp"],
+        st.session_state.get("token_expires_in", _kc.DEFAULT_TOKEN_LIFETIME),
+    ):
+        print("DEBUG: Token past refresh threshold, refreshing...")
         if refresh_access_token():
             st.toast("🔄 Session refreshed successfully!", icon="✅")
             return True
@@ -363,10 +334,7 @@ def logout():
     redirect_uri = get_redirect_uri()
 
     st.session_state.clear()
-    keycloak_logout_url = (
-        f"{KEYCLOAK_BASE_URL}/realms/{REALM}/protocol/openid-connect/logout"
-        f"?redirect_uri={urllib.parse.quote(redirect_uri)}"
-    )
+    keycloak_logout_url = _kc.build_logout_url(_config(), redirect_uri)
 
     print(f"DEBUG: Logout redirect URI: {redirect_uri}")
     st.markdown(f"<meta http-equiv='refresh' content='0;URL={keycloak_logout_url}'>", unsafe_allow_html=True)
