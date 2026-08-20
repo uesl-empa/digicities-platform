@@ -129,6 +129,34 @@ def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
     )
 
 
+@app.get("/api/workspaces/{workspace_id}/info", tags=["workspaces"])
+def workspace_info(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Fuller workspace info for the sidebar panel (type/location/path/status)."""
+    import json
+    import os
+    from pathlib import Path
+    root = Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
+    meta: dict[str, Any] = {}
+    mp = root / "workspace_meta" / "metadata.json"
+    if mp.exists():
+        try:
+            meta = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:
+            meta = {}
+    return {
+        "name": ctx.name,
+        "id": ctx.id,
+        "type": meta.get("type", ""),
+        "location": meta.get("location", ""),
+        "user": "local_user",
+        "path": str(root) if root.exists() else None,
+        "repository": ctx.graphdb_repository or ctx.id,
+        "description": ctx.description or meta.get("description", ""),
+        "nextcloud": False,
+        "triplestore": True,
+    }
+
+
 @app.get("/api/workspaces/{workspace_id}", response_model=WorkspaceSummary, tags=["workspaces"])
 def get_workspace(ctx: WorkspaceContext = Depends(get_ctx)) -> WorkspaceSummary:
     return WorkspaceSummary(
