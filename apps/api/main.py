@@ -18,7 +18,17 @@ request/response contract is pinned down with the frontend.
 from __future__ import annotations
 
 import os
+import sys
 from typing import Any
+
+# Windows consoles default to a legacy codepage (cp1252); backend progress
+# prints use emoji and must never crash a request over an un-encodable glyph.
+# No-op on UTF-8 terminals/containers.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
