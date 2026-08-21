@@ -422,9 +422,10 @@ def agent_env(monkeypatch, ws):
     pkg.headless = mod
     monkeypatch.setitem(sys.modules, "onboarding_agent", pkg)
     monkeypatch.setitem(sys.modules, "onboarding_agent.headless", mod)
-    # a clean session store per test
+    # a clean session store per test (the real store is an LRU OrderedDict)
+    import collections
     import apps.api.agent as agent_mod
-    monkeypatch.setattr(agent_mod, "_SESSIONS", {})
+    monkeypatch.setattr(agent_mod, "_SESSIONS", collections.OrderedDict())
     return agent_mod
 
 
@@ -499,3 +500,34 @@ def test_agent_upload_rejects_non_zip(client, agent_env):
                     data={"session_id": sid},
                     files={"file": ("notes.txt", b"x", "text/plain")})
     assert r.status_code == 400
+
+
+def test_agent_stream_post_body_variant(client, agent_env):
+    """Long messages ride in the POST body, not the query string (issue #14)."""
+    sid = _start_session(client)
+    r = client.post(f"{B}/agent/message/stream",
+                    json={"session_id": sid, "text": "hi " * 2000})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = [line.split(": ", 1)[1] for line in r.text.splitlines()
+              if line.startswith("event: ")]
+    assert events[-2:] == ["result", "done"]
+
+
+def test_agent_session_store_evicts_oldest(client, agent_env, monkeypatch):
+    """The session store is a bounded LRU: the cap evicts the least recently
+    used session and releases its upload tmp dir."""
+    monkeypatch.setenv("AGENT_SESSION_CAP", "2")
+    disposed = []
+    monkeypatch.setattr(agent_env, "_dispose", lambda s: disposed.append(s))
+
+    s1 = _start_session(client)
+    s2 = _start_session(client)
+    # touch s1 so s2 becomes the LRU victim when s3 arrives
+    client.get(f"{B}/agent/state", params={"session_id": s1})
+    s3 = _start_session(client)
+
+    assert set(agent_env._SESSIONS) == {s1, s3}
+    assert len(disposed) == 1
+    r = client.post(f"{B}/agent/message", json={"session_id": s2, "text": "x"})
+    assert r.status_code == 404

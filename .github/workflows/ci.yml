@@ -24,6 +24,9 @@ jobs:
       - name: Install platform + API deps
         run: |
           pip install -r requirements.txt -r apps/api/requirements.txt
-          pip install pytest httpx
+          pip install pytest pytest-cov httpx
+      # Coverage ratchet: the floor records where backend/ coverage stands
+      # (measured total minus 2 points of headroom), so it can only go up.
+      # Raise it when new tests land; never chase it with filler tests.
       - name: Run test suite
-        run: pytest -v
+        run: pytest -v --cov=backend --cov-fail-under=51

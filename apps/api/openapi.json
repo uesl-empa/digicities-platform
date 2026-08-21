@@ -1328,7 +1328,7 @@
     },
     "/api/workspaces/{workspace_id}/agent/message/stream": {
       "get": {
-        "description": "Server-sent events: `token` as the LLM writes, then `result` with the full turn.",
+        "description": "Server-sent events: `token` as the LLM writes, then `result` with the full turn.\n\nGET exists for EventSource clients; long messages should use the POST\nvariant so the text rides in the body, not the query string / access logs.",
         "operationId": "message_stream_api_workspaces__workspace_id__agent_message_stream_get",
         "parameters": [
           {
@@ -1382,6 +1382,57 @@
           }
         },
         "summary": "Message Stream",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "description": "Same SSE stream, message in the request body (fetch + ReadableStream).",
+        "operationId": "message_stream_post_api_workspaces__workspace_id__agent_message_stream_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Message"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Message Stream Post",
         "tags": [
           "agent"
         ]

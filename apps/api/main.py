@@ -17,6 +17,7 @@ request/response contract is pinned down with the frontend.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -49,11 +50,12 @@ app = FastAPI(
     dependencies=[Depends(require_auth)],
 )
 
-# The React app is served from a different origin in dev; open CORS here and
-# tighten to the deployed frontend origin before this leaves a laptop.
+# The React app is served from a different origin in dev. CORS_ORIGINS is a
+# comma-separated allow-list of origins; the default "*" keeps dev open —
+# set it to the deployed frontend origin(s) before this leaves a laptop.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )

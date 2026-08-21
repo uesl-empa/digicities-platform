@@ -86,6 +86,52 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  api:
+    # REST API (apps/api) — the HTTP seam the React frontend drives. Same
+    # image as streamlit (same deps + backend code); only the entrypoint
+    # differs. The image's ENTRYPOINT is `streamlit run ...`, so it must be
+    # reset here or the uvicorn command would be swallowed as script args.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: digicities-api
+    entrypoint: []
+    command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Known gotcha: backend.* imports fail without the repo root on the path.
+      PYTHONPATH: /app
+      ONTOLOGY_DIR: /app/data/ontology
+      TRIPLESTORE_BACKEND: "${TRIPLESTORE_BACKEND:-fuseki}"
+      GRAPHDB_URL: "${GRAPHDB_URL:-http://fuseki:3030}"
+      FUSEKI_URL: "${FUSEKI_URL:-http://fuseki:3030}"
+      FUSEKI_ADMIN_USER: "${FUSEKI_ADMIN_USER:-admin}"
+      FUSEKI_ADMIN_PASSWORD: "${FUSEKI_ADMIN_PASSWORD:-admin}"
+      # Workspace files + mounted onboarding-agent module (paths inside the
+      # container; the dev override mounts host folders onto them).
+      USECASES_DIR: /app/data/usecases
+      MODULES_DIR: /app/data/modules
+      # Onboarding agent: default LLM + bounded in-memory session store.
+      LLM_MODEL: "${LLM_MODEL:-sonnet}"
+      AGENT_SESSION_CAP: "${AGENT_SESSION_CAP:-32}"
+      # Optional bearer-token auth (off by default; see apps/api/auth.py) and
+      # CORS allow-list ("*" = dev-open; comma-separated origins to tighten).
+      API_AUTH_ENABLED: "${API_AUTH_ENABLED:-}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+    depends_on:
+      fuseki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
   demo_energy_simulator:
     # Bundled example service for the API submission tab: a small, self-contained
     # building energy simulator (heuristic, synthetic-weather fallback, no external
