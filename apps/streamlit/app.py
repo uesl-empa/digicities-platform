@@ -1,6 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 
+import sys
+
+# Windows consoles default to a legacy codepage (cp1252); the backend's progress
+# prints use emoji, and one un-encodable character used to crash whole module
+# initialisations (e.g. OntologyFunctions). Replace instead of raising — a
+# mangled glyph in a log beats a dead module. No-op on UTF-8 terminals/containers.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 import streamlit as st
 import os
 import socket
