@@ -1064,6 +1064,11 @@
       },
       "WorkspaceSummary": {
         "properties": {
+          "created_date": {
+            "default": "",
+            "title": "Created Date",
+            "type": "string"
+          },
           "description": {
             "default": "",
             "title": "Description",
@@ -1081,6 +1086,11 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "protected": {
+            "default": false,
+            "title": "Protected",
+            "type": "boolean"
           },
           "updated_at": {
             "anyOf": [
@@ -1177,6 +1187,61 @@
       }
     },
     "/api/workspaces/{workspace_id}": {
+      "delete": {
+        "description": "Delete a workspace: its files, its triplestore dataset, its registration.\n\nWraps ``backend.workspace.delete_workspace`` — the exact call behind the\nStreamlit landing page's danger zone. Bundled demos are refused (403).\n``drop_dataset=false`` keeps the triplestore dataset (mirrors the\nStreamlit \"keep the triplestore dataset\" checkbox).",
+        "operationId": "delete_workspace_api_workspaces__workspace_id__delete",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "drop_dataset",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Drop Dataset",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Workspace Api Workspaces  Workspace Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Workspace",
+        "tags": [
+          "workspaces"
+        ]
+      },
       "get": {
         "operationId": "get_workspace_api_workspaces__workspace_id__get",
         "parameters": [
