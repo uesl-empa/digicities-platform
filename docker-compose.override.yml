@@ -37,6 +37,13 @@ services:
         for r in /app/data/modules/requirements.txt /app/data/modules/*/requirements.txt; do
           if [ -f "$$r" ]; then echo "[modules] installing $$r"; pip install -q -r "$$r"; fi
         done
+        # Start the FastAPI backend (the React UI talks to it on :8000, fronted by
+        # the api-proxy socat container) in the background, THEN exec Streamlit as the
+        # container's main process — so a `docker restart` brings the API back too
+        # instead of leaving :8000 dead until uvicorn is started by hand.
+        if [ -f /app/apps/api/requirements.txt ]; then echo "[api] installing deps"; pip install -q -r /app/apps/api/requirements.txt; fi
+        echo "[api] starting uvicorn on :8000"
+        ( cd /app && PYTHONPATH=/app uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 & )
         exec streamlit run apps/streamlit/app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true --server.fileWatcherType=poll
 
   fuseki:
