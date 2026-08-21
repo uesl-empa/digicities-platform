@@ -90,6 +90,8 @@ class WorkspaceSummary(BaseModel):
     graphdb_repository: str = ""
     description: str = ""
     updated_at: float | None = None  # epoch seconds; the landing page sorts by this
+    created_date: str = ""  # "created_date" from workspace_meta/metadata.json (YYYY-MM-DD; often absent)
+    protected: bool = False  # bundled demo — delete refuses these
 
 
 class QueryRequest(BaseModel):
@@ -116,16 +118,20 @@ def list_workspaces() -> list[WorkspaceSummary]:
     ``updated_at`` is the same activity-aware stamp the Streamlit landing page
     sorts by (``backend.workspace.workspace_last_updated``).
     """
-    from backend.workspace import workspace_last_updated
+    from backend.workspace import read_workspace_metadata, workspace_last_updated
+    from backend.workspace.registry import BUNDLED_DEMO_IDS
     from .deps import ws_root
     out = []
     for c in load_registry():
         root = ws_root(c)
+        meta = read_workspace_metadata(c)
         out.append(WorkspaceSummary(
             id=c.id, name=c.name,
             graphdb_repository=c.graphdb_repository or "",
             description=c.description or "",
             updated_at=workspace_last_updated(root) if root.exists() else None,
+            created_date=str(meta.get("created") or meta.get("created_date") or ""),
+            protected=c.id in BUNDLED_DEMO_IDS,
         ))
     out.sort(key=lambda w: w.updated_at or 0, reverse=True)
     return out
@@ -189,11 +195,47 @@ def workspace_info(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
 
 @app.get("/api/workspaces/{workspace_id}", response_model=WorkspaceSummary, tags=["workspaces"])
 def get_workspace(ctx: WorkspaceContext = Depends(get_ctx)) -> WorkspaceSummary:
+    from backend.workspace import read_workspace_metadata, workspace_last_updated
+    from backend.workspace.registry import BUNDLED_DEMO_IDS
+    from .deps import ws_root
+    root = ws_root(ctx)
+    meta = read_workspace_metadata(ctx)
     return WorkspaceSummary(
         id=ctx.id, name=ctx.name,
         graphdb_repository=ctx.graphdb_repository or "",
         description=ctx.description or "",
+        updated_at=workspace_last_updated(root) if root.exists() else None,
+        created_date=str(meta.get("created") or meta.get("created_date") or ""),
+        protected=ctx.id in BUNDLED_DEMO_IDS,
     )
+
+
+@app.delete("/api/workspaces/{workspace_id}", tags=["workspaces"])
+def delete_workspace(drop_dataset: bool = True,
+                     ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Delete a workspace: its files, its triplestore dataset, its registration.
+
+    Wraps ``backend.workspace.delete_workspace`` — the exact call behind the
+    Streamlit landing page's danger zone. Bundled demos are refused (403).
+    ``drop_dataset=false`` keeps the triplestore dataset (mirrors the
+    Streamlit "keep the triplestore dataset" checkbox).
+    """
+    from backend.workspace import WorkspaceProtected, delete_workspace as _delete
+    try:
+        result = _delete(ctx.id, drop_dataset=drop_dataset, ctx=ctx)
+    except WorkspaceProtected as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if not result.get("files_removed"):
+        # Folder still on disk (e.g. a file is open in another program) —
+        # surface it as a conflict so the client doesn't report success.
+        raise HTTPException(
+            status_code=409,
+            detail=f"Could not remove the files of '{ctx.id}' — "
+                   "they may be open in another program.",
+        )
+    return {"workspace": ctx.id, **result}
 
 
 # ── provision (load + materialise the workspace graph) ─────────────────────────

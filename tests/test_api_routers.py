@@ -531,3 +531,75 @@ def test_agent_session_store_evicts_oldest(client, agent_env, monkeypatch):
     assert len(disposed) == 1
     r = client.post(f"{B}/agent/message", json={"session_id": s2, "text": "x"})
     assert r.status_code == 404
+
+
+# ── workspace delete ──────────────────────────────────────────────────────────
+def test_delete_workspace_wraps_backend_and_reports(client, ws, monkeypatch):
+    import apps.api.main as m
+
+    calls = {}
+
+    def fake_delete(ws_id, *, drop_dataset=True, ctx=None):
+        calls["ws_id"] = ws_id
+        calls["drop_dataset"] = drop_dataset
+        return {"files_removed": True, "dataset_dropped": drop_dataset,
+                "registry_entry_removed": False}
+
+    monkeypatch.setattr("backend.workspace.delete_workspace", fake_delete)
+    r = client.delete(f"{B}")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["workspace"] == "testws"
+    assert body["files_removed"] is True
+    assert calls == {"ws_id": "testws", "drop_dataset": True}
+
+    r = client.delete(f"{B}", params={"drop_dataset": "false"})
+    assert r.status_code == 200
+    assert calls["drop_dataset"] is False
+
+
+def test_delete_workspace_protected_demo_is_403(client, ws, monkeypatch):
+    from backend.workspace import WorkspaceProtected
+
+    def refuse(ws_id, **kw):
+        raise WorkspaceProtected(f"'{ws_id}' is a bundled demo")
+
+    monkeypatch.setattr("backend.workspace.delete_workspace", refuse)
+    r = client.delete(f"{B}")
+    assert r.status_code == 403
+    assert "demo" in r.json()["detail"]
+
+
+def test_delete_workspace_stuck_files_is_409(client, ws, monkeypatch):
+    monkeypatch.setattr(
+        "backend.workspace.delete_workspace",
+        lambda ws_id, **kw: {"files_removed": False, "dataset_dropped": True,
+                             "registry_entry_removed": True})
+    r = client.delete(f"{B}")
+    assert r.status_code == 409
+    assert "another program" in r.json()["detail"]
+
+
+def test_workspace_summaries_carry_created_date_and_protection(client, ws, api_app, monkeypatch):
+    import apps.api.main as m
+    from apps.api.deps import get_ctx
+
+    meta = ws / "workspace_meta"
+    meta.mkdir()
+    (meta / "metadata.json").write_text(
+        json.dumps({"created_date": "2026-08-21"}), encoding="utf-8")
+
+    demo = types.SimpleNamespace(id="energy-simulation", name="Demo",
+                                 graphdb_repository="", description="")
+    # the fixture's ctx carries the storage read_workspace_metadata reads through
+    ctx = api_app.dependency_overrides[get_ctx]()
+    monkeypatch.setattr(m, "load_registry", lambda: [demo, ctx])
+
+    by_id = {w["id"]: w for w in client.get("/api/workspaces").json()}
+    assert by_id["testws"]["created_date"] == "2026-08-21"
+    assert by_id["testws"]["protected"] is False
+    assert by_id["energy-simulation"]["protected"] is True
+
+    one = client.get(f"{B}").json()
+    assert one["created_date"] == "2026-08-21"
+    assert one["updated_at"] is not None
