@@ -39,6 +39,26 @@ services:
         done
         exec streamlit run apps/streamlit/app.py --server.port=8501 --server.address=0.0.0.0 --server.runOnSave=true --server.fileWatcherType=poll
 
+  api:
+    # Same dev mounts as streamlit: live code, workspaces, and external modules
+    # (the onboarding agent is a mounted module — the agent endpoints import it
+    # from /app/data/modules, so the mount must exist here too).
+    volumes:
+      - .:/app
+      - ${USECASES_HOST_PATH:-./demo_workspaces}:/app/data/usecases
+      - ${MODULES_HOST_PATH:-./modules}:/app/data/modules
+    # Install any mounted module's extra dependencies before launching, exactly
+    # as the streamlit service does above, then start uvicorn with hot reload.
+    # entrypoint is already [] in the base file; repeated here so this override
+    # stands on its own if the base command changes.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for r in /app/data/modules/requirements.txt /app/data/modules/*/requirements.txt; do
+          if [ -f "$$r" ]; then echo "[modules] installing $$r"; pip install -q -r "$$r"; fi
+        done
+        exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+
   fuseki:
     # Local-dev only: make the triplestore anonymous so the Fuseki web UI on
     # http://localhost:3030 loads without a login. The stock image hides the

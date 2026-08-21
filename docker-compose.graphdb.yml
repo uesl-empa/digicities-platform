@@ -66,5 +66,18 @@ services:
       graphdb:
         condition: service_healthy
 
+  api:
+    environment:
+      TRIPLESTORE_BACKEND: graphdb
+      # The API resolves its SPARQL base URL as FUSEKI_URL || GRAPHDB_URL
+      # (apps/api/deps.py), so both must point at GraphDB here.
+      GRAPHDB_URL: http://graphdb:7200
+      FUSEKI_URL: http://graphdb:7200
+    # Same reason as streamlit above: fuseki is profile-disabled, so the base
+    # depends_on must be replaced wholesale, not merged.
+    depends_on: !override
+      graphdb:
+        condition: service_healthy
+
 volumes:
   graphdb_data:

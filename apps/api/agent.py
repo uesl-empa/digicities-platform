@@ -12,6 +12,7 @@ import sys
 import tempfile
 import uuid
 import zipfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -29,8 +30,33 @@ if _MODULES not in sys.path:
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/agent", tags=["agent"])
 
-# session_id -> AgentSession (in-memory; one process)
-_SESSIONS: dict[str, Any] = {}
+# session_id -> AgentSession. In-memory, one process, and *bounded*: an LRU
+# capped at $AGENT_SESSION_CAP (default 32). Every session the store holds
+# keeps a live LLM conversation plus (after an upload) a temp working folder,
+# so an unbounded dict leaks both under any real traffic.
+_SESSIONS: "OrderedDict[str, Any]" = OrderedDict()
+
+
+def _session_cap() -> int:
+    try:
+        return max(1, int(os.getenv("AGENT_SESSION_CAP", "32")))
+    except ValueError:
+        return 32
+
+
+def _dispose(sess: Any) -> None:
+    """Release an evicted session's on-disk footprint (its upload tmp dir)."""
+    tmp = getattr(sess, "_upload_tmp", None)
+    if tmp:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _put(session_id: str, sess: Any) -> None:
+    _SESSIONS[session_id] = sess
+    _SESSIONS.move_to_end(session_id)
+    while len(_SESSIONS) > _session_cap():
+        _, oldest = _SESSIONS.popitem(last=False)
+        _dispose(oldest)
 
 
 def _new_session(ctx: WorkspaceContext):
@@ -46,6 +72,7 @@ def _get(session_id: str):
     sess = _SESSIONS.get(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="agent session not found — start a new one")
+    _SESSIONS.move_to_end(session_id)  # touched → most recently used
     return sess
 
 
@@ -73,7 +100,7 @@ def start_session(body: StartBody | None = None, ctx: WorkspaceContext = Depends
     sess = _new_session(ctx)
     if body and body.model:
         sess.set_model(body.model)
-    _SESSIONS[sid] = sess
+    _put(sid, sess)
     if body and body.chat_id:
         sess.load_chat(body.chat_id)
     return {"session_id": sid, **sess.snapshot()}
@@ -100,13 +127,9 @@ def message(body: Message, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     return _get(body.session_id).send(body.text)
 
 
-@router.get("/message/stream")
-def message_stream(session_id: str, text: str, ctx: WorkspaceContext = Depends(get_ctx)):
-    """Server-sent events: `token` as the LLM writes, then `result` with the full turn."""
+def _stream_response(sess, text: str):
     import json as _json
     from fastapi.responses import StreamingResponse
-
-    sess = _get(session_id)
 
     def gen():
         for kind, data in sess.send_stream(text):
@@ -115,6 +138,22 @@ def message_stream(session_id: str, text: str, ctx: WorkspaceContext = Depends(g
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.get("/message/stream")
+def message_stream(session_id: str, text: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    """Server-sent events: `token` as the LLM writes, then `result` with the full turn.
+
+    GET exists for EventSource clients; long messages should use the POST
+    variant so the text rides in the body, not the query string / access logs.
+    """
+    return _stream_response(_get(session_id), text)
+
+
+@router.post("/message/stream")
+def message_stream_post(body: Message, ctx: WorkspaceContext = Depends(get_ctx)):
+    """Same SSE stream, message in the request body (fetch + ReadableStream)."""
+    return _stream_response(_get(body.session_id), body.text)
 
 
 @router.get("/state")

@@ -18,9 +18,20 @@ uvicorn apps.api.main:app --reload --port 8000    # PYTHONPATH must include the 
 
 Interactive docs at `http://localhost:8000/docs`.
 
-The service reads the same env the platform does — `FUSEKI_URL` / `GRAPHDB_URL`
-for the triplestore, `USECASES_DIR` for workspace files, `MODULES_DIR` for the
-mounted onboarding-agent module, `LLM_MODEL` for the agent's default model.
+Or run the whole stack: `docker compose up` starts the `api` service on :8000
+next to Streamlit and the triplestore (same image, healthchecked).
+
+The service reads the same env the platform does, plus its own knobs:
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `FUSEKI_URL` / `GRAPHDB_URL` | `http://localhost:3030` | triplestore |
+| `USECASES_DIR` | `/app/data/usecases` | workspace file root |
+| `MODULES_DIR` | `/app/data/modules` | mounted onboarding-agent module |
+| `LLM_MODEL` | `sonnet` | agent default model |
+| `CORS_ORIGINS` | `*` | comma-separated origin allow-list; set to the deployed frontend origin(s) |
+| `API_AUTH_ENABLED` | off | truthy → every route requires a valid Bearer token (Keycloak) |
+| `AGENT_SESSION_CAP` | `32` | LRU cap on in-memory agent sessions (evicted sessions drop their upload dirs) |
 
 ## Endpoints
 
@@ -59,7 +70,7 @@ All workspace-scoped paths start with `/api/workspaces/{id}`, shortened to `…`
 | GET  | `…/files/content?path=` | small-file fetch (≤ 2 MB, guessed content type; traversal-guarded) |
 | GET  | `…/agent/models`, `…/agent/chats`, `…/agent/state` | onboarding agent (headless `AgentSession`) |
 | POST | `…/agent/session`, `…/agent/model`, `…/agent/message`, `…/agent/upload` | agent lifecycle + turns |
-| GET  | `…/agent/message/stream` | SSE: `token` events, then `result`, then `done` |
+| GET/POST | `…/agent/message/stream` | SSE: `token` events, then `result`, then `done` (POST body variant for long messages — GET stays for EventSource) |
 
 ## Design notes
 

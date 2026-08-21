@@ -14,9 +14,12 @@ RUN apt-get update && apt-get install -y \
 
 # Copy the correct requirements.txt file from your repo
 COPY  requirements.txt /app/requirements.txt
+# REST API deps (fastapi/uvicorn) — the same image runs both the Streamlit
+# app and the `api` compose service, so bake both requirement sets in.
+COPY  apps/api/requirements.txt /app/api-requirements.txt
 
 # Install Python dependencies
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt -r api-requirements.txt
 
 # Now copy all your app code
 COPY . /app
