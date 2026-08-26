@@ -32,6 +32,7 @@ from backend.explorer.attributes import (
     process_enhanced_component_data,
 )
 from backend.explorer.instances import (
+    get_catalogue_instance_uris,
     get_component_attributes_comprehensive,
     get_component_basic_properties,
     get_component_data_unified,
@@ -65,6 +66,7 @@ __all__ = [
     "extract_uri_fragment",
     "get_component_attributes_comprehensive",
     "get_component_basic_properties",
+    "get_catalogue_instance_uris",
     "get_component_data_unified",
     "get_component_instances",
     "get_component_sources",

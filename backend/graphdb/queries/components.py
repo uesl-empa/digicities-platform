@@ -57,6 +57,7 @@ _EMPTY_COLS = {
     "all_attr_values": ["instance", "attribute", "property", "value"],
     "all_direct_props": ["instance", "property", "value"],
     "instances": ["instance", "instanceLabel"],
+    "catalogue instances": ["instance"],
     "comprehensive": ["instance", "attribute", "property", "value"],
     "basic": ["instance", "property", "value"],
     "classes": ["class", "label"],
@@ -265,6 +266,28 @@ def get_component_instances(client, component_type_label: str) -> pd.DataFrame:
     ORDER BY ?instance
     """
     return _run(client, query, "instances")
+
+
+def get_catalogue_instances(client, component_type_label: str) -> pd.DataFrame:
+    """Instances of a component type that are catalogue / reference entries.
+
+    Two signals, either suffices: the explicit ``dici_onto:isCatalogueEntry true``
+    marker the onboarder writes for promoted catalogue rows (covers entries no
+    sited instance uses), and being the object of a ``dici_onto:derivedFromCatalogue``
+    link (covers graphs built before the marker existed). Column: instance.
+    """
+    query = f"""
+    {_PREFIXES}
+    SELECT DISTINCT ?instance
+    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
+      ?componentType rdfs:label "{component_type_label}" .
+      ?instance a ?componentType .
+      {{ ?instance dici_onto:isCatalogueEntry true }}
+      UNION
+      {{ ?sited dici_onto:derivedFromCatalogue ?instance }}
+    }}
+    """
+    return _run(client, query, "catalogue instances")
 
 
 def get_component_attributes_comprehensive(client, component_type_label: str) -> pd.DataFrame:

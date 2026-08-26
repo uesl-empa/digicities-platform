@@ -17,6 +17,7 @@ and handle presentation only.
 
 from backend.graphdb.queries.components import (
     get_component_types_with_instances,
+    get_catalogue_instances,
     get_component_instances,
     get_component_attributes_comprehensive,
     get_component_basic_properties,
@@ -49,6 +50,7 @@ __all__ = [
     "workspace_queries",
     "available_workspace_queries",
     "get_component_types_with_instances",
+    "get_catalogue_instances",
     "get_component_instances",
     "get_component_attributes_comprehensive",
     "get_component_basic_properties",
