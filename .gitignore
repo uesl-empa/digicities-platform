@@ -164,3 +164,7 @@ demo_workspaces/empa-campus-test/
 # External modules dropped into the bundled mount point (cloned repos) - not shipped.
 modules/*
 !modules/README.md
+
+# Agent LLM keys persisted by the onboarding settings panel — never commit
+.agent-keys.json
+**/.agent-keys.json
