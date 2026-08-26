@@ -117,6 +117,29 @@ def set_model(body: ModelBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
     return {"model": body.model}
 
 
+class ApiKeyBody(BaseModel):
+    provider: str            # "anthropic" | "mistral"
+    key: str | None = None   # falsy clears the stored key
+
+
+@router.post("/api-key")
+def set_api_key(body: ApiKeyBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Set (and persist) an LLM provider key from the settings panel; returns the
+    updated settings (key status never echoes the key itself)."""
+    if body.provider not in ("anthropic", "mistral"):
+        raise HTTPException(status_code=400, detail="provider must be 'anthropic' or 'mistral'")
+    sess = _new_session(ctx)
+    sess.set_api_key(body.provider, (body.key or "").strip() or None)
+    return sess.settings()
+
+
+@router.get("/settings")
+def settings(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Settings-panel data: per-provider key status + the read-only folder where the
+    agent stores this workspace's artifacts (chats, ingestion report, provenance)."""
+    return _new_session(ctx).settings()
+
+
 class Message(BaseModel):
     session_id: str
     text: str
