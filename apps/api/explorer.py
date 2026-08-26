@@ -53,12 +53,14 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
         attach_sources,
         get_visible_columns,
         curve_columns,
+        get_catalogue_instance_uris,
     )
 
     client = graph_client(ctx)
     instances, attributes = get_component_data_unified(client, name)
     if not instances:
-        return {"columns": [], "rows": [], "curves": {}, "sources": {}, "has_sources": False}
+        return {"columns": [], "rows": [], "curves": {}, "sources": {}, "has_sources": False,
+                "catalogue": [], "has_catalogue": False}
 
     df = process_enhanced_component_data(instances, attributes)
     df = attach_sources(df, get_component_sources(client, name))
@@ -89,6 +91,14 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
         if per:
             curves[iid] = per
 
+    # Catalogue / reference entries (isCatalogueEntry marker or a
+    # derivedFromCatalogue link), as instance ids — the UI's show/hide filter.
+    cat_uris = get_catalogue_instance_uris(client, name)
+    catalogue = sorted(
+        str(row.get("instance_id")) for _, row in df.iterrows()
+        if str(row.get("URI") or "") in cat_uris
+    )
+
     rows = [{c: _clean(row.get(c)) for c in columns} for _, row in df.iterrows()]
     return {
         "columns": columns,
@@ -96,4 +106,6 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
         "curves": curves,
         "sources": sources,
         "has_sources": has_sources,
+        "catalogue": catalogue,
+        "has_catalogue": bool(catalogue),
     }

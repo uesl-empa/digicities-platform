@@ -43,6 +43,20 @@ def get_component_instances(client, component_type_label: str) -> Optional[List[
     return instances
 
 
+def get_catalogue_instance_uris(client, component_type_label: str) -> set:
+    """URIs of this component type's catalogue / reference instances.
+
+    Reads the ``isCatalogueEntry`` marker plus ``derivedFromCatalogue`` objects
+    (see ``backend.graphdb.queries.get_catalogue_instances``). Failure degrades
+    to "no catalogue entries" — the filter is a convenience, never a blocker.
+    """
+    try:
+        df = gdb_queries.get_catalogue_instances(client, component_type_label)
+        return {str(u) for u in df["instance"].tolist()} if not df.empty else set()
+    except Exception:
+        return set()
+
+
 def get_component_attributes_comprehensive(client, component_type_label: str) -> Optional[List[Dict[str, Any]]]:
     """Get comprehensive attribute data for all instances of a component type.
 
