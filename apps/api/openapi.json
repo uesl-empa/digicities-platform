@@ -108,6 +108,30 @@
         "title": "AddNamedIndividual",
         "type": "object"
       },
+      "ApiKeyBody": {
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "ApiKeyBody",
+        "type": "object"
+      },
       "Body_import_workbook_api_workspaces__workspace_id__replica_import_post": {
         "properties": {
           "file": {
@@ -1285,6 +1309,63 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/agent/api-key": {
+      "post": {
+        "description": "Set (and persist) an LLM provider key from the settings panel; returns the\nupdated settings (key status never echoes the key itself).",
+        "operationId": "set_api_key_api_workspaces__workspace_id__agent_api_key_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Api Key Api Workspaces  Workspace Id  Agent Api Key Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Api Key",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/agent/chats": {
       "get": {
         "description": "Persisted conversations for this workspace.",
@@ -1648,6 +1729,53 @@
           }
         },
         "summary": "Start Session",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/agent/settings": {
+      "get": {
+        "description": "Settings-panel data: per-provider key status + the read-only folder where the\nagent stores this workspace's artifacts (chats, ingestion report, provenance).",
+        "operationId": "settings_api_workspaces__workspace_id__agent_settings_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Settings Api Workspaces  Workspace Id  Agent Settings Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Settings",
         "tags": [
           "agent"
         ]
