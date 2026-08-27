@@ -16,7 +16,10 @@ pip install -r apps/api/requirements.txt          # on top of the platform's own
 uvicorn apps.api.main:app --reload --port 8000    # PYTHONPATH must include the repo root
 ```
 
-Interactive docs at `http://localhost:8000/docs`.
+Interactive docs (Swagger UI) at `http://localhost:8000/docs`, a reference view
+(ReDoc) at `http://localhost:8000/redoc`, and the raw OpenAPI spec at
+`http://localhost:8000/openapi.json`. Endpoint groups and routes carry their own
+descriptions there, so `/docs` is the place to explore and try the API.
 
 Or run the whole stack: `docker compose up` starts the `api` service on :8000
 next to Streamlit and the triplestore (same image, healthchecked).

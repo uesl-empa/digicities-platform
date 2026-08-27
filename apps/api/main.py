@@ -50,10 +50,74 @@ from .agent import router as agent_router
 from .data_products import router as data_products_router
 from .files import router as files_router
 
+# Tag metadata shown as group headers in Swagger UI (/docs) and ReDoc
+# (/redoc). Order here sets the display order.
+openapi_tags = [
+    {"name": "meta",
+     "description": "Service liveness."},
+    {"name": "workspaces",
+     "description": "List, create, inspect and delete workspaces. A workspace "
+                    "bundles one use case: its files, its ontology extension and "
+                    "its graph. Every other group below is scoped under "
+                    "`/api/workspaces/{workspace_id}`."},
+    {"name": "graph",
+     "description": "Provision the workspace graph (load its TTL with RDFS-plus "
+                    "materialisation) and run SPARQL SELECT queries over it."},
+    {"name": "explorer",
+     "description": "Digital Replica Explorer reads: component types with "
+                    "instance counts, and per-type instance/attribute tables "
+                    "including catalogue-entry marking."},
+    {"name": "queries",
+     "description": "The workspace's saved SPARQL query library."},
+    {"name": "ontology",
+     "description": "Ontology Manager: inspect core and extension terms; author "
+                    "extension components, attributes, links, categories, named "
+                    "individuals and mappings; export and publish the extension "
+                    "TTL."},
+    {"name": "replica",
+     "description": "Replica Builder: turn an Excel workbook (uploaded or built "
+                    "in-app) into the workspace's replica TTL; read the current "
+                    "TTL and project config."},
+    {"name": "collections",
+     "description": "Materialised sets and grouped sets over replica instances, "
+                    "with aggregate stats."},
+    {"name": "service",
+     "description": "Service Requirements Builder: the component/attribute "
+                    "palette a service can require, plus requirements TTL and "
+                    "service-template YAML authoring."},
+    {"name": "scenario",
+     "description": "Scenario Builder: instance palette, saved scenarios, and "
+                    "scenario TTL builds."},
+    {"name": "submission",
+     "description": "Convert a scenario into a service payload and submit it to "
+                    "the service's endpoint."},
+    {"name": "data-products",
+     "description": "Processed data products (private and open): metadata, "
+                    "components, and parsed resources (CSV, GeoJSON, EPW)."},
+    {"name": "files",
+     "description": "Read-only browsing of the workspace's files "
+                    "(traversal-guarded, small files only)."},
+    {"name": "agent",
+     "description": "Onboarding-agent sessions: lifecycle, model selection, "
+                    "file uploads, chat turns, and token streaming over SSE."},
+]
+
 app = FastAPI(
     title="Digicities API",
     version="0.1.0",
-    description="HTTP access to the Digicities platform backend (round one: onboarding-agent paths).",
+    description=(
+        "HTTP access to the Digicities platform backend: the same functions the "
+        "Streamlit app calls in-process, exposed for the React frontend "
+        "(`digicities-frontend`) and any other client.\n\n"
+        "Almost every route is scoped to a workspace via "
+        "`/api/workspaces/{workspace_id}`; start with **workspaces** to find or "
+        "create one.\n\n"
+        "Authentication is off by default (open local mode). With "
+        "`API_AUTH_ENABLED` set, every route requires an "
+        "`Authorization: Bearer <token>` header (Keycloak token; see "
+        "`apps/api/auth.py`)."
+    ),
+    openapi_tags=openapi_tags,
     # Optional bearer-token auth on every route — a no-op until
     # API_AUTH_ENABLED is set (see apps/api/auth.py). Reads the raw request
     # header, so the OpenAPI snapshot is unaffected.
