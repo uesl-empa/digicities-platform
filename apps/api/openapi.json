@@ -1138,7 +1138,7 @@
     }
   },
   "info": {
-    "description": "HTTP access to the Digicities platform backend (round one: onboarding-agent paths).",
+    "description": "HTTP access to the Digicities platform backend: the same functions the Streamlit app calls in-process, exposed for the React frontend (`digicities-frontend`) and any other client.\n\nAlmost every route is scoped to a workspace via `/api/workspaces/{workspace_id}`; start with **workspaces** to find or create one.\n\nAuthentication is off by default (open local mode). With `API_AUTH_ENABLED` set, every route requires an `Authorization: Bearer <token>` header (Keycloak token; see `apps/api/auth.py`).",
     "title": "Digicities API",
     "version": "0.1.0"
   },
@@ -5211,5 +5211,63 @@
         ]
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "description": "Service liveness.",
+      "name": "meta"
+    },
+    {
+      "description": "List, create, inspect and delete workspaces. A workspace bundles one use case: its files, its ontology extension and its graph. Every other group below is scoped under `/api/workspaces/{workspace_id}`.",
+      "name": "workspaces"
+    },
+    {
+      "description": "Provision the workspace graph (load its TTL with RDFS-plus materialisation) and run SPARQL SELECT queries over it.",
+      "name": "graph"
+    },
+    {
+      "description": "Digital Replica Explorer reads: component types with instance counts, and per-type instance/attribute tables including catalogue-entry marking.",
+      "name": "explorer"
+    },
+    {
+      "description": "The workspace's saved SPARQL query library.",
+      "name": "queries"
+    },
+    {
+      "description": "Ontology Manager: inspect core and extension terms; author extension components, attributes, links, categories, named individuals and mappings; export and publish the extension TTL.",
+      "name": "ontology"
+    },
+    {
+      "description": "Replica Builder: turn an Excel workbook (uploaded or built in-app) into the workspace's replica TTL; read the current TTL and project config.",
+      "name": "replica"
+    },
+    {
+      "description": "Materialised sets and grouped sets over replica instances, with aggregate stats.",
+      "name": "collections"
+    },
+    {
+      "description": "Service Requirements Builder: the component/attribute palette a service can require, plus requirements TTL and service-template YAML authoring.",
+      "name": "service"
+    },
+    {
+      "description": "Scenario Builder: instance palette, saved scenarios, and scenario TTL builds.",
+      "name": "scenario"
+    },
+    {
+      "description": "Convert a scenario into a service payload and submit it to the service's endpoint.",
+      "name": "submission"
+    },
+    {
+      "description": "Processed data products (private and open): metadata, components, and parsed resources (CSV, GeoJSON, EPW).",
+      "name": "data-products"
+    },
+    {
+      "description": "Read-only browsing of the workspace's files (traversal-guarded, small files only).",
+      "name": "files"
+    },
+    {
+      "description": "Onboarding-agent sessions: lifecycle, model selection, file uploads, chat turns, and token streaming over SSE.",
+      "name": "agent"
+    }
+  ]
 }
