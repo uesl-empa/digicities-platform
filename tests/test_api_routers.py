@@ -464,6 +464,41 @@ def test_agent_stream_emits_tokens_then_result_then_done(client, agent_env):
     assert events[-2:] == ["result", "done"]
 
 
+def test_agent_upload_single_file_makes_one_file_folder(client, agent_env):
+    from pathlib import Path
+    sid = _start_session(client)
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid},
+                    files={"file": ("model-guide.txt", b"description:\nwind model\n", "text/plain")})
+    assert r.status_code == 200, r.text
+    sess = _FakeAgentSession.instances[-1]
+    folder = Path(sess.proposed)
+    assert (folder / "model-guide.txt").read_text().startswith("description:")   # a one-file folder
+    assert any("Uploaded `model-guide.txt`" in m[1] for m in sess.state.oa_messages)
+
+
+def test_agent_upload_single_file_added_to_existing_folder(client, agent_env, tmp_path):
+    from pathlib import Path
+    sid = _start_session(client)
+    sess = _FakeAgentSession.instances[-1]
+    existing = tmp_path / "work"                       # simulate a prior (.zip) upload folder
+    existing.mkdir()
+    (existing / "config.yml").write_text("x: 1")
+    sess._upload_folder = str(existing)
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid},
+                    files={"file": ("guide.txt", b"inputs:\nWindTurbine (a)\n", "text/plain")})
+    assert r.status_code == 200, r.text
+    assert (existing / "guide.txt").exists()           # added INTO the existing folder
+    assert sess.proposed == str(existing)              # and re-proposed on it
+    assert any("Added `guide.txt`" in m[1] for m in sess.state.oa_messages)
+
+
+def test_agent_upload_rejects_empty_filename(client, agent_env):
+    sid = _start_session(client)
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid},
+                    files={"file": ("", b"data", "application/octet-stream")})
+    assert r.status_code in (400, 422)                 # no usable filename
+
+
 def _zip_bytes(entries: dict[str, bytes]) -> bytes:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
@@ -494,12 +529,13 @@ def test_agent_upload_rejects_zip_slip(client, agent_env):
     assert "escapes" in r.json()["detail"]
 
 
-def test_agent_upload_rejects_non_zip(client, agent_env):
+def test_agent_upload_accepts_single_non_zip_file(client, agent_env):
+    # A non-.zip file is no longer rejected — it becomes a one-file working folder.
     sid = _start_session(client)
     r = client.post(f"{B}/agent/upload",
                     data={"session_id": sid},
                     files={"file": ("notes.txt", b"x", "text/plain")})
-    assert r.status_code == 400
+    assert r.status_code == 200, r.text
 
 
 def test_agent_stream_post_body_variant(client, agent_env):
