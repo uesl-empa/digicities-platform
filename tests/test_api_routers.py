@@ -639,3 +639,25 @@ def test_workspace_summaries_carry_created_date_and_protection(client, ws, api_a
     one = client.get(f"{B}").json()
     assert one["created_date"] == "2026-08-21"
     assert one["updated_at"] is not None
+
+
+def test_agent_upload_second_zip_accumulates_into_folder(client, agent_env, tmp_path):
+    import io, zipfile
+    from pathlib import Path
+    sid = _start_session(client)
+    sess = _FakeAgentSession.instances[-1]
+    existing = tmp_path / "work"                        # a prior working folder with data
+    existing.mkdir()
+    (existing / "first.txt").write_text("park one")
+    sess._upload_folder = str(existing)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("park2/config.yml", "x: 2")          # a second folder of data
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid},
+                    files={"file": ("park2.zip", buf.getvalue(), "application/zip")})
+    assert r.status_code == 200, r.text
+    assert (existing / "first.txt").exists()            # original data kept
+    assert (existing / "park2" / "config.yml").exists() # second zip nested in, not replacing
+    assert sess.proposed == str(existing)               # re-proposed on the combined folder
+    assert any("Added `park2.zip`" in m[1] for m in sess.state.oa_messages)
