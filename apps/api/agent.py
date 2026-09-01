@@ -117,6 +117,18 @@ def set_model(body: ModelBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
     return {"model": body.model}
 
 
+class ModeBody(BaseModel):
+    session_id: str
+    mode: str                # "auto" (apply defaults) | "manual" (walk decisions)
+
+
+@router.post("/mode")
+def set_mode(body: ModeBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
+    sess = _get(body.session_id)
+    sess.set_mode(body.mode)
+    return {"mode": sess.state.oa_mode}
+
+
 class ApiKeyBody(BaseModel):
     provider: str            # "anthropic" | "mistral"
     key: str | None = None   # falsy clears the stored key
