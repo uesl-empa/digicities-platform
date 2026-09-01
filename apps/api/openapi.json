@@ -525,6 +525,24 @@
         "title": "Message",
         "type": "object"
       },
+      "ModeBody": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "mode"
+        ],
+        "title": "ModeBody",
+        "type": "object"
+      },
       "ModelBody": {
         "properties": {
           "model": {
@@ -1584,6 +1602,64 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/agent/mode": {
+      "post": {
+        "operationId": "set_mode_api_workspaces__workspace_id__agent_mode_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Set Mode Api Workspaces  Workspace Id  Agent Mode Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Mode",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/agent/model": {
       "post": {
         "operationId": "set_model_api_workspaces__workspace_id__agent_model_post",
@@ -1838,7 +1914,7 @@
     },
     "/api/workspaces/{workspace_id}/agent/upload": {
       "post": {
-        "description": "Upload a working folder as a .zip; the agent reads it and proposes a mapping.",
+        "description": "Upload a working folder as a .zip, OR a single file. A single file is ADDED to the\ncurrent working folder when one already exists (e.g. drop in an onboarding guide, or a\nfile a previous read missed) and the folder is re-read; otherwise it becomes a one-file\nworking folder. The agent reads the result and proposes a mapping.",
         "operationId": "upload_api_workspaces__workspace_id__agent_upload_post",
         "parameters": [
           {
