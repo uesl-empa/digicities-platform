@@ -190,39 +190,65 @@ async def upload(
     file: UploadFile = File(...),
     ctx: WorkspaceContext = Depends(get_ctx),
 ) -> dict[str, Any]:
-    """Upload a working folder as a .zip; the agent reads it and proposes a mapping."""
+    """Upload a working folder as a .zip, OR a single file. A single file is ADDED to the
+    current working folder when one already exists (e.g. drop in an onboarding guide, or a
+    file a previous read missed) and the folder is re-read; otherwise it becomes a one-file
+    working folder. The agent reads the result and proposes a mapping."""
     sess = _get(session_id)
-    if not file.filename or not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Upload the working folder as a .zip")
-    # One upload dir per session: the build step re-reads the folder in a later
-    # turn, so it must outlive this request — but a re-upload replaces it.
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file was uploaded")
+    name = Path(file.filename).name            # basename only — no path traversal
+    data = await file.read()
+
+    # ── a .zip → a fresh working folder (replaces any prior upload) ──────────────
+    if name.lower().endswith(".zip"):
+        prev = getattr(sess, "_upload_tmp", None)
+        if prev:
+            shutil.rmtree(prev, ignore_errors=True)
+        tmp = Path(tempfile.mkdtemp(prefix="oa-upload-"))
+        sess._upload_tmp = str(tmp)
+        zpath = tmp / "upload.zip"
+        zpath.write_bytes(data)
+        root = (tmp / "x").resolve()
+        try:
+            with zipfile.ZipFile(zpath) as z:
+                for m in z.infolist():
+                    # zip-slip guard: no entry may land outside the extract root
+                    target = (root / m.filename).resolve()
+                    if root != target and root not in target.parents:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Zip entry escapes its root: {m.filename!r}")
+                z.extractall(root)
+        except HTTPException:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
+        except Exception as exc:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=f"Bad zip: {exc}") from exc
+        # If the zip had a single top-level folder, descend into it.
+        entries = [p for p in root.iterdir() if not p.name.startswith("__MACOSX")]
+        folder = entries[0] if len(entries) == 1 and entries[0].is_dir() else root
+        sess._upload_folder = str(folder)
+        sess.state.oa_messages.append(("user", f"📦 Uploaded `{name}`"))
+        return sess.propose(folder)
+
+    # ── a single file added to the current working folder → re-read it ───────────
+    existing = getattr(sess, "_upload_folder", None)
+    if existing and Path(existing).is_dir():
+        (Path(existing) / name).write_bytes(data)
+        sess.state.oa_messages.append(("user", f"📎 Added `{name}` to the working folder"))
+        return sess.propose(Path(existing))
+
+    # ── a single file with no prior folder → a one-file working folder ───────────
     prev = getattr(sess, "_upload_tmp", None)
     if prev:
         shutil.rmtree(prev, ignore_errors=True)
     tmp = Path(tempfile.mkdtemp(prefix="oa-upload-"))
     sess._upload_tmp = str(tmp)
-    zpath = tmp / "upload.zip"
-    zpath.write_bytes(await file.read())
-    root = (tmp / "x").resolve()
-    try:
-        with zipfile.ZipFile(zpath) as z:
-            for m in z.infolist():
-                # zip-slip guard: no entry may land outside the extract root
-                target = (root / m.filename).resolve()
-                if root != target and root not in target.parents:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Zip entry escapes its root: {m.filename!r}")
-            z.extractall(root)
-    except HTTPException:
-        shutil.rmtree(tmp, ignore_errors=True)
-        raise
-    except Exception as exc:
-        shutil.rmtree(tmp, ignore_errors=True)
-        raise HTTPException(status_code=400, detail=f"Bad zip: {exc}") from exc
-    # If the zip had a single top-level folder, descend into it.
-    entries = [p for p in root.iterdir() if not p.name.startswith("__MACOSX")]
-    folder = entries[0] if len(entries) == 1 and entries[0].is_dir() else root
-    # record the uploaded-file marker the way the UI does, for the chat log
-    sess.state.oa_messages.append(("user", f"📦 Uploaded `{file.filename}`"))
+    folder = tmp / "x"
+    folder.mkdir()
+    (folder / name).write_bytes(data)
+    sess._upload_folder = str(folder)
+    sess.state.oa_messages.append(("user", f"📄 Uploaded `{name}`"))
     return sess.propose(folder)
