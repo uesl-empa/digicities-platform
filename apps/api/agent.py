@@ -202,26 +202,23 @@ async def upload(
     file: UploadFile = File(...),
     ctx: WorkspaceContext = Depends(get_ctx),
 ) -> dict[str, Any]:
-    """Upload a working folder as a .zip, OR a single file. A single file is ADDED to the
-    current working folder when one already exists (e.g. drop in an onboarding guide, or a
-    file a previous read missed) and the folder is re-read; otherwise it becomes a one-file
-    working folder. The agent reads the result and proposes a mapping."""
+    """Upload a working folder as a .zip, OR a single file. When a working folder already exists
+    in the session, more data ACCUMULATES into it: a second .zip is nested under a subfolder, a
+    single file is dropped in (e.g. an onboarding guide, or a file a previous read missed) — then
+    the folder is re-read. With no prior folder, the upload becomes the working folder (a .zip's
+    contents, or a one-file folder). Start fresh = New chat. The agent proposes a mapping."""
     sess = _get(session_id)
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file was uploaded")
     name = Path(file.filename).name            # basename only — no path traversal
     data = await file.read()
 
-    # ── a .zip → a fresh working folder (replaces any prior upload) ──────────────
+    # ── a .zip → extract (with a zip-slip guard) ────────────────────────────────
     if name.lower().endswith(".zip"):
-        prev = getattr(sess, "_upload_tmp", None)
-        if prev:
-            shutil.rmtree(prev, ignore_errors=True)
-        tmp = Path(tempfile.mkdtemp(prefix="oa-upload-"))
-        sess._upload_tmp = str(tmp)
-        zpath = tmp / "upload.zip"
+        scratch = Path(tempfile.mkdtemp(prefix="oa-zip-"))
+        zpath = scratch / "upload.zip"
         zpath.write_bytes(data)
-        root = (tmp / "x").resolve()
+        root = (scratch / "x").resolve()
         try:
             with zipfile.ZipFile(zpath) as z:
                 for m in z.infolist():
@@ -233,17 +230,38 @@ async def upload(
                             detail=f"Zip entry escapes its root: {m.filename!r}")
                 z.extractall(root)
         except HTTPException:
-            shutil.rmtree(tmp, ignore_errors=True)
+            shutil.rmtree(scratch, ignore_errors=True)
             raise
         except Exception as exc:
-            shutil.rmtree(tmp, ignore_errors=True)
+            shutil.rmtree(scratch, ignore_errors=True)
             raise HTTPException(status_code=400, detail=f"Bad zip: {exc}") from exc
         # If the zip had a single top-level folder, descend into it.
         entries = [p for p in root.iterdir() if not p.name.startswith("__MACOSX")]
-        folder = entries[0] if len(entries) == 1 and entries[0].is_dir() else root
-        sess._upload_folder = str(folder)
+        content = entries[0] if len(entries) == 1 and entries[0].is_dir() else root
+
+        existing = getattr(sess, "_upload_folder", None)
+        if existing and Path(existing).is_dir():
+            # ADD MORE DATA: nest this zip under a subfolder of the current working folder so
+            # its files accumulate (the intake reads the folder recursively). Start fresh = New chat.
+            base = Path(name).stem or "added"
+            dest = Path(existing) / base
+            i = 2
+            while dest.exists():
+                dest = Path(existing) / f"{base}-{i}"
+                i += 1
+            shutil.copytree(content, dest)
+            shutil.rmtree(scratch, ignore_errors=True)
+            sess.state.oa_messages.append(("user", f"📦 Added `{name}` to the working folder"))
+            return sess.propose(Path(existing))
+
+        # a fresh working folder (no prior upload in this session)
+        prev = getattr(sess, "_upload_tmp", None)
+        if prev:
+            shutil.rmtree(prev, ignore_errors=True)
+        sess._upload_tmp = str(scratch)
+        sess._upload_folder = str(content)
         sess.state.oa_messages.append(("user", f"📦 Uploaded `{name}`"))
-        return sess.propose(folder)
+        return sess.propose(content)
 
     # ── a single file added to the current working folder → re-read it ───────────
     existing = getattr(sess, "_upload_folder", None)
