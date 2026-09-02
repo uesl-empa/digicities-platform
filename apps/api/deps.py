@@ -40,6 +40,9 @@ def get_ctx(workspace_id: str = Path(..., description="workspace id"),
     """
     from .registry_cache import by_id as _cached_by_id
     ctx = _cached_by_id(workspace_id)
+    from .auth_local import auth_required
+    if user is None and auth_required():
+        raise HTTPException(status_code=401, detail="Sign in to access workspaces.")
     if ctx is None:
         raise HTTPException(status_code=404, detail=f"workspace '{workspace_id}' not found")
     from backend.db import workspaces_repo

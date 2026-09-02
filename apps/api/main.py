@@ -146,7 +146,7 @@ app.include_router(agent_router)
 app.include_router(data_products_router)
 app.include_router(files_router)
 
-from .auth_local import router as auth_router, current_user_optional  # noqa: E402
+from .auth_local import router as auth_router, current_user_optional, auth_required  # noqa: E402
 app.include_router(auth_router)
 
 
@@ -196,6 +196,8 @@ def list_workspaces(user: dict | None = Depends(current_user_optional)) -> list[
     """
     from backend.workspace import read_workspace_metadata, workspace_last_updated
     from backend.workspace.registry import BUNDLED_DEMO_IDS
+    if user is None and auth_required():
+        raise HTTPException(status_code=401, detail="Sign in to see your workspaces.")
     from backend.db import workspaces_repo
     from .deps import ws_root
     from .registry_cache import all_contexts
@@ -232,6 +234,8 @@ def create_workspace(body: CreateWorkspace,
                      user: dict | None = Depends(current_user_optional)) -> WorkspaceSummary:
     """Create a new local workspace (folder + graph dataset). A signed-in user becomes the
     owner and picks private/shared; with auth off it stays unowned + shared (as today)."""
+    if user is None and auth_required():
+        raise HTTPException(status_code=401, detail="Sign in to create a workspace.")
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Workspace name is required.")
     from backend.workspace import create_workspace as _create

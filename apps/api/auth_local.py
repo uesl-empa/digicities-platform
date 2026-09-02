@@ -29,6 +29,17 @@ def _secret() -> str:
     return os.getenv("JWT_SECRET", "dev-insecure-secret-change-me-in-production")
 
 
+def auth_required() -> bool:
+    """When true (``REQUIRE_LOGIN``), a signed-in user is required to see or open any workspace —
+    a signed-out caller gets 401 on the workspace routes (``/health`` and ``/api/auth/*`` stay
+    open). When false, the app is open (a signed-out caller sees the shared workspaces only).
+
+    NB: this is the JWT-account scheme's own switch — distinct from ``API_AUTH_ENABLED``, which
+    drives the older static-bearer app-level guard in ``auth.py``. Don't reuse that one here or
+    it gates ``/health`` too."""
+    return os.getenv("REQUIRE_LOGIN", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def hash_password(pw: str) -> str:
     import bcrypt
     return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")

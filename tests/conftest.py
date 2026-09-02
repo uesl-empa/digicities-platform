@@ -46,3 +46,26 @@ def api_client(api_app):
 
     with TestClient(api_app) as client:
         yield client
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _isolate_db(monkeypatch):
+    """Isolate the metadata DB per test: default to NO database (so the API behaves as the
+    filesystem-registry app unless a test opts in), and clear the lru_cached engine so a
+    per-test DATABASE_URL (e.g. a temp SQLite) can't leak into later tests. Tests that want a
+    DB set DATABASE_URL themselves (this runs first; their setenv wins)."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    def _clear():
+        try:
+            import backend.db.session as S
+            S._engine.cache_clear()
+            S._sessionmaker.cache_clear()
+        except Exception:
+            pass
+    _clear()
+    yield
+    _clear()
