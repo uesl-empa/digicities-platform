@@ -12,10 +12,11 @@ import os
 import pathlib
 from functools import lru_cache
 
-from fastapi import HTTPException, Path
+from fastapi import Depends, HTTPException, Path
 
 from backend.workspace import WorkspaceContext, load_registry
 from backend.graphdb.client import UnifiedGraphDBClient
+from .auth_local import current_user_optional
 
 
 def ws_root(ctx: WorkspaceContext) -> pathlib.Path:
@@ -27,16 +28,27 @@ def ws_root(ctx: WorkspaceContext) -> pathlib.Path:
     return pathlib.Path(os.getenv("USECASES_DIR", "/app/data/usecases")) / ctx.id
 
 
-def get_ctx(workspace_id: str = Path(..., description="workspace id")) -> WorkspaceContext:
+def get_ctx(workspace_id: str = Path(..., description="workspace id"),
+            user: "dict | None" = Depends(current_user_optional)) -> WorkspaceContext:
     """Resolve a workspace's context, or 404.
 
     Reads the in-memory registry cache (refreshed in the background) instead of
     re-scanning the filesystem on every request; the cache falls back to a direct
-    registry lookup on a miss, so a just-created workspace is never missed.
+    registry lookup on a miss, so a just-created workspace is never missed. A signed-in
+    user may only reach workspaces they can see (own + shared + granted); with auth off
+    (no user) every workspace is reachable — unchanged behaviour.
     """
     from .registry_cache import by_id as _cached_by_id
     ctx = _cached_by_id(workspace_id)
+    from .auth_local import auth_required
+    if user is None and auth_required():
+        raise HTTPException(status_code=401, detail="Sign in to access workspaces.")
     if ctx is None:
+        raise HTTPException(status_code=404, detail=f"workspace '{workspace_id}' not found")
+    from backend.db import workspaces_repo
+    allowed = workspaces_repo.visible_to(user["id"] if user else None)   # None = DB off (show all)
+    if allowed is not None and workspace_id not in allowed:
+        # 404 (not 403) so a private workspace's existence isn't leaked — for anon callers too.
         raise HTTPException(status_code=404, detail=f"workspace '{workspace_id}' not found")
     return ctx
 

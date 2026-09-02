@@ -16,6 +16,24 @@ def _utcnow() -> _dt.datetime:
     return _dt.datetime.now(_dt.timezone.utc)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(255), primary_key=True)        # uuid
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[_dt.datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class WorkspaceAcl(Base):
+    __tablename__ = "workspace_acl"
+
+    workspace_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    role: Mapped[str] = mapped_column(String(16), default="editor")       # 'editor'
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
 
