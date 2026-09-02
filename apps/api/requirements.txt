@@ -3,3 +3,8 @@
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9   # multipart uploads for the /replica endpoint (next)
+# Metadata database (workspace catalog + phase-2 users/ACL). Optional at runtime:
+# with no DATABASE_URL the API falls back to the filesystem registry.
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+alembic>=1.13

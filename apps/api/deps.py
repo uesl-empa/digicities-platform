@@ -28,12 +28,14 @@ def ws_root(ctx: WorkspaceContext) -> pathlib.Path:
 
 
 def get_ctx(workspace_id: str = Path(..., description="workspace id")) -> WorkspaceContext:
-    """Resolve a workspace's context from the registry, or 404.
+    """Resolve a workspace's context, or 404.
 
-    Mirrors what the Streamlit app holds in session state for the *open*
-    workspace — but for any id, on demand.
+    Reads the in-memory registry cache (refreshed in the background) instead of
+    re-scanning the filesystem on every request; the cache falls back to a direct
+    registry lookup on a miss, so a just-created workspace is never missed.
     """
-    ctx = load_registry().by_id(workspace_id)
+    from .registry_cache import by_id as _cached_by_id
+    ctx = _cached_by_id(workspace_id)
     if ctx is None:
         raise HTTPException(status_code=404, detail=f"workspace '{workspace_id}' not found")
     return ctx

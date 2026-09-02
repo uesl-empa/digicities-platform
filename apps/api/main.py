@@ -147,6 +147,15 @@ app.include_router(data_products_router)
 app.include_router(files_router)
 
 
+@app.on_event("startup")
+def _start_workspace_cache() -> None:
+    # Load the workspace registry into the in-memory cache and keep it fresh in the
+    # background (also mirrors the catalog into the metadata DB). Requests then read
+    # the cache instead of re-scanning the filesystem every time.
+    from .registry_cache import start_background
+    start_background()
+
+
 # ── models ────────────────────────────────────────────────────────────────────
 class WorkspaceSummary(BaseModel):
     id: str
@@ -185,8 +194,9 @@ def list_workspaces() -> list[WorkspaceSummary]:
     from backend.workspace import read_workspace_metadata, workspace_last_updated
     from backend.workspace.registry import BUNDLED_DEMO_IDS
     from .deps import ws_root
+    from .registry_cache import all_contexts
     out = []
-    for c in load_registry():
+    for c in all_contexts():
         root = ws_root(c)
         meta = read_workspace_metadata(c)
         out.append(WorkspaceSummary(
@@ -226,6 +236,11 @@ def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Create failed: {exc}") from exc
+    try:                                    # so the new workspace is visible immediately
+        from .registry_cache import refresh
+        refresh()
+    except Exception:
+        pass
     return WorkspaceSummary(
         id=ctx.id, name=ctx.name,
         graphdb_repository=ctx.graphdb_repository or "",

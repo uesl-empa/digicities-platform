@@ -121,8 +121,14 @@ services:
       # CORS allow-list ("*" = dev-open; comma-separated origins to tighten).
       API_AUTH_ENABLED: "${API_AUTH_ENABLED:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-*}"
+      # Metadata database (workspace catalog). Optional: unset DATABASE_URL to fall
+      # back to the filesystem registry with no Postgres.
+      DATABASE_URL: "${DATABASE_URL:-postgresql://digicities:digicities@postgres:5432/digicities}"
+      WORKSPACE_REFRESH_SECONDS: "${WORKSPACE_REFRESH_SECONDS:-30}"
     depends_on:
       fuseki:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
@@ -156,6 +162,27 @@ services:
       - demo_energy_results:/data/results
     restart: unless-stopped
 
+  postgres:
+    # Metadata database for the workspace catalog (+ phase-2 users/ACL). Artifacts
+    # and the knowledge graph do NOT live here.
+    image: postgres:16-alpine
+    container_name: digicities-postgres
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-digicities}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-digicities}"
+      POSTGRES_DB: "${POSTGRES_DB:-digicities}"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-digicities}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
 volumes:
   fuseki_data:
   demo_energy_results:
+  pg_data:
