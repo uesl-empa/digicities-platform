@@ -407,6 +407,43 @@ def test_replica_generate_requires_components(client, ws):
                        json={"components": []}).status_code == 400
 
 
+def test_service_template_parse_round_trip_with_flavors(client, ws):
+    """Generate a template with time-series flavors, parse it back: types,
+    parents, flavors, and the connection block all survive."""
+    conn = {"transport": "http", "url": "${WT_URL:-http://wt:8/run}", "method": "POST"}
+    r = client.post(f"{B}/service/template", json={
+        "service_name": "WindSvc",
+        "description": "wind forecast",
+        "connection": conn,
+        "entries": [
+            {"component_type": "GlobalWindAtlasSite", "attributes": ["Roughness"]},
+            {"component_type": "WindTurbine", "parent": "GlobalWindAtlasSite",
+             "attributes": {"HubHeight": ["Static"], "Power": ["Historic", "Future"]}},
+        ],
+    })
+    assert r.status_code == 200
+    text = r.json()["yaml"]
+    # Flavored attributes emit time-series reference fields.
+    assert "WindTurbine.Power.hasHistoricTimeSeriesReference" in text
+    assert "WindTurbine.Power.hasFutureTimeSeriesReference" in text
+
+    r = client.post(f"{B}/service/parse", json={"file": r.json()["saved"]})
+    assert r.status_code == 200
+    got = r.json()
+    assert got["service_name"] == "WindSvc"
+    assert got["connection"] == conn
+    by_type = {e["component_type"]: e for e in got["entries"]}
+    assert by_type["WindTurbine"]["parent"] == "GlobalWindAtlasSite"
+    assert by_type["WindTurbine"]["link"] == "CL.GlobalWindAtlasSite.WindTurbine"
+    assert sorted(by_type["WindTurbine"]["attributes"]["Power"]) == ["Future", "Historic"]
+    assert by_type["GlobalWindAtlasSite"]["attributes"]["Roughness"] == ["Static"]
+
+
+def test_service_parse_rejects_bad_input(client, ws):
+    assert client.post(f"{B}/service/parse", json={}).status_code == 400
+    assert client.post(f"{B}/service/parse", json={"file": "nope.yaml"}).status_code == 404
+
+
 # ── submission ────────────────────────────────────────────────────────────────
 def _seed_template(ws, name="Svc.yaml", connection=None):
     d = ws / "services"
@@ -418,14 +455,65 @@ def _seed_template(ws, name="Svc.yaml", connection=None):
 
 
 def test_submission_lists_templates_and_scenarios(client, ws):
-    _seed_template(ws, connection={"url": "http://svc:9/run", "method": "PUT"})
+    _seed_template(ws, connection={"url": "${SVC_URL:-http://svc:9/run}", "method": "PUT"})
     (ws / "scenarios").mkdir()
     (ws / "scenarios" / "s1.ttl").write_text("# ttl", encoding="utf-8")
 
     t = client.get(f"{B}/submission/templates").json()
-    assert t == [{"file": "Svc.yaml", "service_name": "Svc",
-                  "url": "http://svc:9/run", "method": "PUT"}]
+    assert len(t) == 1 and t[0]["file"] == "Svc.yaml" and t[0]["service_name"] == "Svc"
+    # ${VAR:-default} is expanded for display/back-compat fields...
+    assert t[0]["url"] == "http://svc:9/run" and t[0]["method"] == "PUT"
+    assert t[0]["transport"] == "http" and t[0]["endpoint"] == "http://svc:9/run"
+    # ...but the raw block is returned unexpanded for the connection editor.
+    assert t[0]["connection"]["url"] == "${SVC_URL:-http://svc:9/run}"
     assert client.get(f"{B}/submission/scenarios").json() == ["s1.ttl"]
+
+
+def test_submission_connection_writeback(client, ws):
+    """PUT /connection swaps the block, preserves everything else."""
+    _seed_template(ws, connection={"url": "http://old:1/run"})
+    redis_conn = {"transport": "redis", "host": "h", "port": 6379,
+                  "request_stream": "req.stream", "result_stream": "res.stream"}
+    r = client.put(f"{B}/submission/connection",
+                   json={"template_file": "Svc.yaml", "connection": redis_conn})
+    assert r.status_code == 200
+    doc = yaml.safe_load((ws / "services" / "Svc.yaml").read_text(encoding="utf-8"))
+    assert doc["service_name"] == "Svc"
+    assert doc["connection"] == redis_conn
+    t = client.get(f"{B}/submission/templates").json()[0]
+    assert t["transport"] == "redis"
+    assert t["endpoint"] == "redis://h:6379/req.stream"
+
+
+def test_submission_test_probe_degrades_cleanly(client, ws):
+    """A connection without a URL reports unreachable, never 500s."""
+    _seed_template(ws, connection={"transport": "http", "url": ""})
+    r = client.post(f"{B}/submission/test", json={"template_file": "Svc.yaml"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is False
+    r = client.post(f"{B}/submission/test", json={"connection": {"url": ""}})
+    assert r.json()["ok"] is False
+    assert client.post(f"{B}/submission/test", json={}).status_code == 400
+
+
+def test_submission_convert_returns_validation(client, ws):
+    """Convert now reports the P0 validation result alongside the payload."""
+    d = ws / "services"
+    d.mkdir(exist_ok=True)
+    (d / "Svc.yaml").write_text(yaml.safe_dump({
+        "service_name": "Svc",
+        "scenario_data": {"uri": "Scenario.URI", "ghost": "Phantom.Missing"},
+    }), encoding="utf-8")
+    client.post(f"{B}/scenario/build", json={
+        "scenario_name": "V", "components": [{"uri": "https://x/WT/W1", "type": "WT"}]})
+    r = client.post(f"{B}/submission/convert",
+                    json={"template_file": "Svc.yaml", "scenario_file": "V.ttl"})
+    assert r.status_code == 200
+    got = r.json()
+    assert got["payload"]["scenario_data"]["uri"].endswith("/V")
+    v = got["validation"]
+    # The unresolvable Phantom.Missing reference is reported by field path.
+    assert "scenario_data.ghost" in v["unresolved_fields"] + v["missing_fields"]
 
 
 def test_submission_convert_404s(client, ws):

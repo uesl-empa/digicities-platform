@@ -175,21 +175,29 @@ def list_template_fields(
 
 
 def entries_from_type_tree(
-    specs: Iterable[Tuple[str, Optional[str], Sequence[str]]],
+    specs: Iterable[Tuple[str, Optional[str], Any]],
 ) -> List[ComponentEntry]:
     """Component entries from flat (component_type, parent_type, attributes) rows.
 
     The REST API's template endpoint speaks in types, not paths: each row names
-    a component type, optionally its parent's type, and the attributes it needs
-    (all Static). This normalizes that shape into :class:`ComponentEntry`
-    objects for :func:`build_service_template` — PascalCase types, camelCase
-    YAML paths, ``CL.<Parent>.<Child>`` links, levels from the parent chain.
+    a component type, optionally its parent's type, and the attributes it needs.
+    ``attributes`` is either a list of names (all Static) or a dict
+    ``{name: [flavors]}`` for time-series requirements (Historic/Live/Future,
+    possibly several per attribute). This normalizes that shape into
+    :class:`ComponentEntry` objects for :func:`build_service_template` —
+    PascalCase types, camelCase YAML paths, ``CL.<Parent>.<Child>`` links,
+    levels from the parent chain.
 
     A row whose parent type matches no other row is kept but unreachable, so
     the generator drops it (same as the API's old recursive builder did); a
     parent cycle terminates instead of recursing forever.
     """
-    rows = [(pascal_case(t), pascal_case(p) if p else "", list(attrs))
+    def flavored(attrs: Any) -> Dict[str, List[str]]:
+        if isinstance(attrs, dict):
+            return {a: (list(f) or ["Static"]) for a, f in attrs.items()}
+        return {a: ["Static"] for a in attrs}
+
+    rows = [(pascal_case(t), pascal_case(p) if p else "", flavored(attrs))
             for t, p, attrs in specs]
     parent_of = {t: p for t, p, _ in rows}
 
@@ -209,7 +217,7 @@ def entries_from_type_tree(
             link_pattern=f"CL.{p}.{t}" if p else "",
             parent_path=camel_case(p) if p else "",
             level=level_of(t, frozenset()),
-            configured_attributes={a: ["Static"] for a in attrs},
+            configured_attributes=attrs,
         ))
     return entries
 

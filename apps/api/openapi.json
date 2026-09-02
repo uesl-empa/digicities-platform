@@ -274,6 +274,25 @@
         "title": "Component",
         "type": "object"
       },
+      "ConnectionReq": {
+        "properties": {
+          "connection": {
+            "additionalProperties": true,
+            "title": "Connection",
+            "type": "object"
+          },
+          "template_file": {
+            "title": "Template File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "template_file",
+          "connection"
+        ],
+        "title": "ConnectionReq",
+        "type": "object"
+      },
       "ConvertReq": {
         "properties": {
           "scenario_file": {
@@ -559,6 +578,34 @@
           "model"
         ],
         "title": "ModelBody",
+        "type": "object"
+      },
+      "ParseReq": {
+        "properties": {
+          "file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "yaml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Yaml"
+          }
+        },
+        "title": "ParseReq",
         "type": "object"
       },
       "QueryRequest": {
@@ -992,12 +1039,25 @@
       "SvcEntry": {
         "properties": {
           "attributes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              }
+            ],
             "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Attributes",
-            "type": "array"
+            "title": "Attributes"
           },
           "component_type": {
             "title": "Component Type",
@@ -1062,6 +1122,35 @@
           "entries"
         ],
         "title": "TemplateSpec",
+        "type": "object"
+      },
+      "TestReq": {
+        "properties": {
+          "connection": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection"
+          },
+          "template_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template File"
+          }
+        },
+        "title": "TestReq",
         "type": "object"
       },
       "ValidateSpec": {
@@ -5221,6 +5310,63 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/service/parse": {
+      "post": {
+        "description": "Parse an existing service template back into the builder's shape —\nthe load→edit→save round trip. Both nesting conventions are accepted\n(children inside ``template:`` and children as siblings), and the\n``connection:`` block + description are preserved for re-save.",
+        "operationId": "parse_api_workspaces__workspace_id__service_parse_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Parse Api Workspaces  Workspace Id  Service Parse Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parse",
+        "tags": [
+          "service"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/service/requirements": {
       "post": {
         "description": "Requirements TTL, built with rdflib so hostile labels can't break it.",
@@ -5335,8 +5481,66 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/submission/connection": {
+      "put": {
+        "description": "Write a connection block back into a service template — the REST\nequivalent of editing a registration in the Streamlit config tab. The rest\nof the template is preserved; the block is stored verbatim (unexpanded),\nso ${VAR:-default} forms keep working across deployments.",
+        "operationId": "put_connection_api_workspaces__workspace_id__submission_connection_put",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Put Connection Api Workspaces  Workspace Id  Submission Connection Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Connection",
+        "tags": [
+          "submission"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/submission/convert": {
       "post": {
+        "description": "Convert a scenario to the service payload, and validate it the way the\nStreamlit tab does — against the raw (pre-clean) payload, so unresolved\nreferences are reported instead of silently stripped.",
         "operationId": "convert_api_workspaces__workspace_id__submission_convert_post",
         "parameters": [
           {
@@ -5441,6 +5645,7 @@
     },
     "/api/workspaces/{workspace_id}/submission/submit": {
       "post": {
+        "description": "Deliver the payload over the template's connection — the same transport\nlayer (HTTP with auth/headers, or Redis streams) the Streamlit tab uses,\nwith ${VAR:-default} expansion.",
         "operationId": "submit_api_workspaces__workspace_id__submission_submit_post",
         "parameters": [
           {
@@ -5539,6 +5744,63 @@
           }
         },
         "summary": "Templates",
+        "tags": [
+          "submission"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/submission/test": {
+      "post": {
+        "description": "Reachability probe: Redis PING, or an empty-body request where any\nstatus below 500 counts as reachable.",
+        "operationId": "test_api_workspaces__workspace_id__submission_test_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Test Api Workspaces  Workspace Id  Submission Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Test",
         "tags": [
           "submission"
         ]
