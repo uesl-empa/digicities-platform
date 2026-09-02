@@ -456,6 +456,90 @@ def test_service_template_parse_round_trip_with_flavors(client, ws):
     assert by_type["GlobalWindAtlasSite"]["attributes"]["Roughness"] == ["Static"]
 
 
+def test_service_template_path_keyed_multi_instance(client, ws):
+    """Two entries of the same type under different paths — the Streamlit
+    builder's path-keyed model — both land in the YAML and round-trip."""
+    r = client.post(f"{B}/service/template", json={
+        "service_name": "TwoBuildings",
+        "entries": [
+            {"component_type": "Location", "path": "location", "attributes": ["WeatherEPW"]},
+            {"component_type": "Building", "path": "offices", "parent_path": "location",
+             "attributes": ["GroundFloorArea"]},
+            {"component_type": "Building", "path": "homes", "parent_path": "location",
+             "attributes": ["NumberOfFloors"]},
+        ],
+    })
+    assert r.status_code == 200
+    text = r.json()["yaml"]
+    assert "offices:" in text and "homes:" in text
+
+    r = client.post(f"{B}/service/parse", json={"file": r.json()["saved"]})
+    got = r.json()
+    by_path = {e["path"]: e for e in got["entries"]}
+    assert set(by_path) == {"location", "offices", "homes"}
+    assert by_path["offices"]["component_type"] == "Building"
+    assert by_path["homes"]["parent_path"] == "location"
+    assert by_path["homes"]["link"] == "CL.Location.Building"
+
+
+def test_service_template_path_mode_validation(client, ws):
+    base = {"service_name": "Bad", "entries": [
+        {"component_type": "A", "path": "a", "attributes": ["x"]},
+        {"component_type": "B", "attributes": ["y"]},
+    ]}
+    assert client.post(f"{B}/service/template", json=base).status_code == 400
+    dup = {"service_name": "Bad", "entries": [
+        {"component_type": "A", "path": "a", "attributes": ["x"]},
+        {"component_type": "B", "path": "a", "attributes": ["y"]},
+    ]}
+    assert client.post(f"{B}/service/template", json=dup).status_code == 400
+
+
+def test_service_fields_and_custom_names(client, ws):
+    """/fields lists the customizable fields; custom_field_names renames the
+    YAML key while the reference string stays canonical."""
+    entries = [{"component_type": "WindTurbine", "path": "turbine",
+                "attributes": {"Power": ["Historic"], "HubHeight": ["Static"]}}]
+    r = client.post(f"{B}/service/fields", json={"entries": entries})
+    assert r.status_code == 200
+    by_key = {f["key"]: f for f in r.json()}
+    assert by_key["turbine|Power|Historic"]["default_field"] == "Power_historic"
+    assert by_key["turbine|HubHeight|Static"]["reference"] == "WindTurbine.HubHeight"
+
+    r = client.post(f"{B}/service/template", json={
+        "service_name": "Renamed", "entries": entries,
+        "custom_field_names": {"turbine|Power|Historic": "generation_history"},
+        "save": False,
+    })
+    text = r.json()["yaml"]
+    assert "generation_history: WindTurbine.Power.hasHistoricTimeSeriesReference" in text
+    assert "Power_historic" not in text
+
+
+_ONTO_TTL = """\
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+dici_onto:HeatPump rdfs:subClassOf dici_onto:Component ; rdfs:label "HeatPump" .
+dici_onto:HeatPumpAttribute rdfs:subClassOf dici_onto:StaticAttribute .
+dici_onto:COP rdfs:subClassOf dici_onto:HeatPumpAttribute .
+dici_onto:ThermalPower rdfs:subClassOf dici_onto:HeatPumpAttribute .
+"""
+
+
+def test_service_ontology_upload_parses_components(client, ws):
+    r = client.post(f"{B}/service/ontology/upload",
+                    files={"file": ("mini.ttl", _ONTO_TTL.encode(), "text/turtle")})
+    assert r.status_code == 200
+    got = r.json()
+    comps = {c["component"]: c for c in got["components"]}
+    assert "HeatPump" in comps
+    assert comps["HeatPump"]["attributes"] == ["COP", "ThermalPower"]
+
+    bad = client.post(f"{B}/service/ontology/upload",
+                      files={"file": ("junk.ttl", b"not rdf at all {{{", "text/turtle")})
+    assert bad.status_code == 400
+
+
 def test_service_parse_rejects_bad_input(client, ws):
     assert client.post(f"{B}/service/parse", json={}).status_code == 400
     assert client.post(f"{B}/service/parse", json={"file": "nope.yaml"}).status_code == 404

@@ -10,12 +10,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.service_requirements import (
     build_service_template,
+    entries_from_path_tree,
     entries_from_type_tree,
+    list_template_fields,
     requirements_ttl,
     service_file_id,
 )
@@ -94,6 +96,26 @@ class SvcEntry(BaseModel):
     # A list means all-Static; a dict maps attribute -> flavors
     # (["Static", "Historic", "Live", "Future"], several allowed at once).
     attributes: list[str] | dict[str, list[str]] = []
+    # Path-keyed mode (Streamlit parity): when paths are given, the YAML path
+    # is the identity, so several entries of one type can coexist. All entries
+    # of a request must then carry a path; parent is matched by parent_path.
+    path: str | None = None
+    parent_path: str | None = None
+
+
+def _entries(spec_entries: list[SvcEntry]):
+    if any(e.path for e in spec_entries):
+        if not all(e.path for e in spec_entries):
+            raise HTTPException(status_code=400,
+                                detail="Either every entry carries a path, or none does.")
+        paths = [e.path for e in spec_entries]
+        if len(set(paths)) != len(paths):
+            raise HTTPException(status_code=400, detail="Entry paths must be unique.")
+        return entries_from_path_tree(
+            (e.component_type, e.path or "", e.parent_path, e.attributes)
+            for e in spec_entries)
+    return entries_from_type_tree(
+        (e.component_type, e.parent, e.attributes) for e in spec_entries)
 
 
 class TemplateSpec(BaseModel):
@@ -101,6 +123,8 @@ class TemplateSpec(BaseModel):
     description: str = ""
     connection: dict[str, Any] | None = None
     entries: list[SvcEntry]
+    # "<path>|<attr>|<flavor>" -> user-chosen YAML field name.
+    custom_field_names: dict[str, str] | None = None
     save: bool = True
 
 
@@ -109,18 +133,19 @@ def template(spec: TemplateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
     """Generate the service-template YAML (connection + nested scenario_data).
 
     Delegates to ``backend.service_requirements`` — the same generator the
-    Streamlit builder uses, fed via ``entries_from_type_tree`` (this endpoint
-    speaks in component types, not YAML paths).
+    Streamlit builder uses. Entries speak in component types by default;
+    path-keyed entries (multi-instance structures) and custom field names
+    are the Streamlit builder's full model.
     """
     import yaml
     if not spec.service_name.strip():
         raise HTTPException(status_code=400, detail="Give the service a name.")
-    entries = entries_from_type_tree(
-        (e.component_type, e.parent, e.attributes) for e in spec.entries)
+    entries = _entries(spec.entries)
     doc = build_service_template(
         spec.service_name, entries,
         description=spec.description or None,
         connection=spec.connection,
+        custom_field_names=spec.custom_field_names,
     )
     text = yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
     saved = None
@@ -131,6 +156,85 @@ def template(spec: TemplateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         (sdir / f"{sid}.yaml").write_text(text, encoding="utf-8")
         saved = f"{sid}.yaml"
     return {"yaml": text, "saved": saved}
+
+
+class FieldsSpec(BaseModel):
+    entries: list[SvcEntry]
+
+
+@router.post("/fields")
+def fields(spec: FieldsSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+    """Every customizable YAML field the current model would generate —
+    the rename UI's working set. The key format matches
+    ``custom_field_names``: ``<path>|<attr>|<flavor>``."""
+    return [{
+        "key": f"{path}|{attr}|{flavor}",
+        "path": path,
+        "attribute": attr,
+        "flavor": flavor,
+        "default_field": default_field,
+        "reference": reference,
+    } for path, attr, flavor, default_field, reference in list_template_fields(_entries(spec.entries))]
+
+
+@router.post("/ontology/upload")
+async def ontology_upload(file: UploadFile = File(...),
+                          ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Parse an uploaded ontology file (.ttl/.rdf/.owl/.n3) into component
+    classes + their attributes, to supplement the builder's palette — for
+    partner components that exist in an ontology but not in this workspace."""
+    from backend.service_requirements.ontology import parse_ontology_content
+
+    content = await file.read()
+    components, attributes = parse_ontology_content(content)
+    if not components and not attributes:
+        raise HTTPException(status_code=400,
+                            detail="Could not parse the file as Turtle, RDF/XML, or N3 — "
+                                   "or it contains no Component subclasses.")
+
+    # Associate attributes per component via the naming convention: <Name>'s
+    # attributes are the subclasses of <Name>Attribute (parse_ontology_content
+    # only discovers the flat sets).
+    per_component: dict[str, list[str]] = {name: [] for name in components}
+    try:
+        import rdflib
+        from rdflib.namespace import RDFS
+
+        g = rdflib.Graph()
+        for fmt in ("turtle", "xml", "n3"):
+            try:
+                g.parse(data=content, format=fmt)
+                break
+            except Exception:
+                continue
+        local = lambda u: str(u).rsplit("#", 1)[-1].rsplit("/", 1)[-1]  # noqa: E731
+        for name in components:
+            group = [s for s in g.subjects(RDFS.subClassOf, None)
+                     if local(s) == f"{name}Attribute"]
+            parents = {str(s) for s in group}
+            if not parents:
+                continue
+            todo = list(parents)
+            found: list[str] = []
+            while todo:
+                parent = todo.pop()
+                for sub in g.subjects(RDFS.subClassOf, rdflib.URIRef(parent)):
+                    n = local(sub)
+                    if n not in found and n != f"{name}Attribute":
+                        found.append(n)
+                        todo.append(str(sub))
+            per_component[name] = sorted(found)
+    except Exception:
+        pass
+
+    return {
+        "components": [{
+            "component": c.label,
+            "uri": c.uri,
+            "attributes": per_component.get(name, []),
+        } for name, c in sorted(components.items())],
+        "attribute_count": len(attributes),
+    }
 
 
 class ParseReq(BaseModel):
