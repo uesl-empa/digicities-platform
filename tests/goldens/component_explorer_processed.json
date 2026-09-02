@@ -22,6 +22,7 @@
       "x_unit": "m/s",
       "y_unit": "kW"
     },
+    "_series__generation": null,
     "generation": null,
     "instance_id": "PV1",
     "investmentCost": "1200 CHF/kW",
@@ -33,6 +34,11 @@
     "MountingType": "Rooftop",
     "URI": "https://digicities.info/proj/ws_golden/PV/PV2",
     "_curve__powerCurve": null,
+    "_series__generation": {
+      "kind": "Historic",
+      "reference": "resources/pv_generation.csv",
+      "unit": "kW"
+    },
     "generation": "Historic Time Series: pv_generation.csv (kW)",
     "instance_id": "PV2",
     "investmentCost": null,

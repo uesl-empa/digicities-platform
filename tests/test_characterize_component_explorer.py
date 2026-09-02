@@ -164,14 +164,16 @@ def test_curve_meta_rides_in_hidden_column():
     ("unit:KiloW", "kW"),
     # Custom ratio without a scheme passes through untouched.
     ("KiloGM/KiloW", "KiloGM/KiloW"),
-    # -PER- is rewritten to / BEFORE the mapping table is consulted, so a full
-    # -PER- URI comes back as a slashed URI, never as a symbol (this is why
-    # M-PER-SEC's 'm/s' table entry is unreachable). Current behavior, pinned.
-    (f"{UNIT}KiloGM-PER-KiloW", "http://qudt.org/vocab/unit/KiloGM/KiloW"),
-    (f"{UNIT}M-PER-SEC", "http://qudt.org/vocab/unit/M/SEC"),
+    # Full -PER- URIs go through the mapping table; the old shortcut fired on
+    # the whole URI and leaked the scheme into the display
+    # ("http://qudt.org/vocab/unit/KM/HR"). Bare codes keep the slash rewrite.
+    (f"{UNIT}KiloGM-PER-KiloW", "kg/kW"),
+    (f"{UNIT}M-PER-SEC", "m/s"),
     ("KiloW-PER-M2", "KiloW/M2"),
-    # Unknown URI falls back to the fragment; empty stays empty.
-    (f"{UNIT}PERCENT", "PERCENT"),
+    # Unknown URI falls back to the local name (with -PER- slashed), never
+    # the raw URI; empty stays empty.
+    (f"{UNIT}PERCENT", "%"),
+    (f"{UNIT}FT-PER-SEC", "FT/SEC"),
     ("", ""),
 ])
 def test_map_unit_uri_to_string(uri, expected):
