@@ -66,6 +66,14 @@ def draft_from_ttl(ttl_text: str) -> dict[str, Any]:
             if local not in _SKIP_TYPES:
                 ctype = local
                 break
+        if ctype is None:
+            # Thin scenarios may reference instances without redeclaring the
+            # class; the path-style URI convention carries the type as the
+            # second-to-last segment (…/WindTurbine/Alkmaar_1) — same fallback
+            # the Streamlit builder used.
+            parts = uri.rstrip("/").split("/")
+            if len(parts) >= 2 and parts[-2] not in ("", "proj"):
+                ctype = parts[-2]
         label = None
         for lbl in g.objects(s, RDFS.label):
             label = str(lbl)
