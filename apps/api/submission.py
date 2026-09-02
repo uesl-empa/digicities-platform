@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext
 
-from .deps import get_ctx, ws_root
+from .deps import get_ctx, graph_client, ws_root
 
 router = APIRouter(prefix="/api/workspaces/{workspace_id}/submission", tags=["submission"])
 
@@ -92,6 +92,7 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
     references are reported instead of silently stripped."""
     from dataclasses import asdict
 
+    from backend.api_submission.materialize import materialize_against_workspace
     from backend.api_submission.ttl_converter import clean_placeholder_values, convert_scenario
     from backend.api_submission.validation import validate_payload
 
@@ -99,8 +100,16 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
     scen = ws_root(ctx) / "scenarios" / req.scenario_file
     if not scen.exists():
         raise HTTPException(status_code=404, detail="scenario not found")
+    # Thin scenarios reference the replica without carrying values — merge
+    # them first, like the Streamlit Convert tab and the agent do.
     try:
-        raw = convert_scenario(template, scen.read_text(encoding="utf-8"), clean=False)
+        client = graph_client(ctx)
+    except Exception:
+        client = None
+    ttl_text = materialize_against_workspace(getattr(ctx, "storage", None),
+                                             scen.read_text(encoding="utf-8"), client)
+    try:
+        raw = convert_scenario(template, ttl_text, clean=False)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
     validation = validate_payload(raw, template, template.get("required_attributes"))

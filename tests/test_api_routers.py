@@ -620,6 +620,38 @@ def test_submission_test_probe_degrades_cleanly(client, ws):
     assert client.post(f"{B}/submission/test", json={}).status_code == 400
 
 
+def test_submission_convert_materializes_thin_scenarios(client, ws):
+    """A thin scenario carries no values — convert must merge the workspace
+    replica first (like Streamlit and the agent do), so references resolve."""
+    wt = "https://x/proj/testws/WindTurbine/W1"
+    d = ws / "ingestion" / "output"
+    d.mkdir(parents=True)
+    (d / "replica.ttl").write_text(f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+<{wt}> a dici_onto:WindTurbine ;
+    dici_onto:hasWindTurbineHubHeightAttribute <{wt}/HubHeight> .
+<{wt}/HubHeight> a dici_onto:PhysicalAttribute ; qudt:value 99.5 .
+""", encoding="utf-8")
+    (ws / "services").mkdir(exist_ok=True)
+    (ws / "services" / "Wind.yaml").write_text(yaml.safe_dump({
+        "service_name": "Wind",
+        "scenario_data": {"turbines": {"link": "CL.Scenario.WindTurbine",
+                                       "template": {"hub": "WindTurbine.HubHeight"}}},
+    }), encoding="utf-8")
+    r = client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Thin", "service_name": "Wind",
+        "components": [{"uri": wt, "type": "WindTurbine", "label": "W1"}],
+        "links": [{"source": "scenario", "target": wt, "link_type": "scenario_automatic"}]})
+    assert r.status_code == 200
+    r = client.post(f"{B}/submission/convert",
+                    json={"template_file": "Wind.yaml", "scenario_file": "Thin.ttl"})
+    assert r.status_code == 200
+    got = r.json()
+    assert got["validation"]["is_valid"] is True
+    assert got["payload"]["scenario_data"]["turbines"][0]["hub"] == 99.5
+
+
 def test_submission_convert_returns_validation(client, ws):
     """Convert now reports the P0 validation result alongside the payload."""
     d = ws / "services"

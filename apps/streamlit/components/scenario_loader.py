@@ -48,51 +48,13 @@ def _materialize_against_workspace(storage, scenario_text: str, client=None) -> 
     is merged in too — projected aggregate attributes (e.g. a District's
     FloorAreaMean) then ride along with the replica attributes, so a service
     template can request them as ordinary Component.attribute references."""
+    from backend.api_submission.materialize import materialize_against_workspace
+
     try:
-        from rdflib import Graph
-        from rdflib.namespace import RDF
-        from backend.graphdb.queries.scenarios import materialize_scenario_graphs, _DICI
-
-        scn = Graph()
-        scn.parse(data=scenario_text, format="turtle")
-        scenarios = list(scn.subjects(RDF.type, _DICI.Scenario))
-        if not scenarios:
-            return scenario_text
-
-        rep = Graph()
-        try:
-            if storage is not None and storage.exists("ingestion/output"):
-                for rel in storage.glob("ingestion/output/*.ttl"):
-                    try:
-                        rep.parse(data=storage.read_text(rel), format="turtle")
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # Derived collections (projected aggregates) live only in the graph —
-        # fetch the named graph via the graph-store endpoint (typed Turtle,
-        # same channel provisioning writes through).
-        try:
-            client = client or st.session_state.get("workspace_client")
-            if client is not None and getattr(client, "repository", None):
-                import requests
-                from backend.graphdb.graphs import COLLECTIONS_GRAPH
-                from backend.triplestore import get_backend
-                backend = get_backend()
-                r = requests.get(
-                    backend.graph_store_url(client.repository, COLLECTIONS_GRAPH),
-                    headers={"Accept": "text/turtle"},
-                    auth=getattr(backend, "auth", None), timeout=30)
-                if r.status_code == 200 and r.text.strip():
-                    rep.parse(data=r.text, format="turtle")
-        except Exception:
-            pass                      # collections are optional enrichment
-
-        materialized = materialize_scenario_graphs(scn, rep, str(scenarios[0]))
-        return materialized or scenario_text
+        client = client or st.session_state.get("workspace_client")
     except Exception:
-        return scenario_text
+        pass
+    return materialize_against_workspace(storage, scenario_text, client)
 
 
 def _service_allows(declared: Optional[str], wanted: Optional[str],
