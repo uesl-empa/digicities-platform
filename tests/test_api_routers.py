@@ -300,11 +300,11 @@ def test_submission_submit_requires_connection_url(client, ws):
 
 # ── workspaces ────────────────────────────────────────────────────────────────
 def test_list_workspaces_sorted_by_activity(client, ws, monkeypatch):
-    import apps.api.main as m
+    import apps.api.registry_cache as RC
 
     other = types.SimpleNamespace(id="older", name="Older",
                                   graphdb_repository="", description="")
-    monkeypatch.setattr(m, "load_registry", lambda: [other, _Ctx()])
+    monkeypatch.setattr(RC, "all_contexts", lambda: [other, _Ctx()])
     (ws / "afile.txt").write_text("x", encoding="utf-8")  # activity in testws only
 
     body = client.get("/api/workspaces").json()
@@ -617,7 +617,7 @@ def test_delete_workspace_stuck_files_is_409(client, ws, monkeypatch):
 
 
 def test_workspace_summaries_carry_created_date_and_protection(client, ws, api_app, monkeypatch):
-    import apps.api.main as m
+    import apps.api.registry_cache as RC
     from apps.api.deps import get_ctx
 
     meta = ws / "workspace_meta"
@@ -629,7 +629,7 @@ def test_workspace_summaries_carry_created_date_and_protection(client, ws, api_a
                                  graphdb_repository="", description="")
     # the fixture's ctx carries the storage read_workspace_metadata reads through
     ctx = api_app.dependency_overrides[get_ctx]()
-    monkeypatch.setattr(m, "load_registry", lambda: [demo, ctx])
+    monkeypatch.setattr(RC, "all_contexts", lambda: [demo, ctx])
 
     by_id = {w["id"]: w for w in client.get("/api/workspaces").json()}
     assert by_id["testws"]["created_date"] == "2026-08-21"
