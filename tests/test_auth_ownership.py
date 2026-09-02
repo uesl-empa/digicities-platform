@@ -47,12 +47,16 @@ def test_ownership_visibility_and_acl(tmp_path, monkeypatch):
 
     va = workspaces_repo.visible_to(alice["id"])
     vb = workspaces_repo.visible_to(bob["id"])
+    anon = workspaces_repo.visible_to(None)
     assert {"legacy", "alicepriv", "aliceshared"} <= va
     assert "alicepriv" not in vb and {"legacy", "aliceshared"} <= vb    # private hidden from bob
+    assert "alicepriv" not in anon and {"legacy", "aliceshared"} <= anon  # and from anonymous
 
     assert workspaces_repo.can_edit("alicepriv", alice["id"])          # owner
     assert not workspaces_repo.can_edit("alicepriv", bob["id"])        # not owner/editor
+    assert not workspaces_repo.can_edit("alicepriv", None)             # owned + anonymous → no
     assert workspaces_repo.can_edit("legacy", bob["id"])               # unowned legacy = editable
+    assert workspaces_repo.can_edit("legacy", None)                    # unowned + anon = editable
 
     workspaces_repo.grant_editor("alicepriv", bob["id"])               # share as editor
     assert workspaces_repo.can_edit("alicepriv", bob["id"])

@@ -77,39 +77,43 @@ def grant_editor(ws_id: str, user_id: str) -> None:
 
 
 def visible_to(user_id: Optional[str]) -> Optional[set]:
-    """The set of workspace ids a user may SEE (owned + shared + acl). Returns None when
-    the DB is disabled OR no user is given — meaning 'no filter, show everything' (this is
-    how the API stays non-breaking with auth off)."""
-    if user_id is None:
-        return None
+    """The set of workspace ids the caller may SEE. A **private** workspace is only in the
+    set for its owner (or an ACL editor); **shared** (and legacy unowned=shared) are visible
+    to everyone, INCLUDING anonymous callers — so a private workspace is never listed for a
+    signed-out user. Returns None only when the DB is disabled (no visibility data → show all)."""
     s = session()
     if s is None:
         return None
     try:
         from sqlalchemy import or_, select
         from .models import WorkspaceAcl
-        ids = set(s.scalars(select(Workspace.id).where(
-            or_(Workspace.visibility == "shared", Workspace.owner_id == user_id))).all())
-        ids |= set(s.scalars(select(WorkspaceAcl.workspace_id).where(
-            WorkspaceAcl.user_id == user_id)).all())
+        conds = [Workspace.visibility == "shared"]
+        if user_id is not None:
+            conds.append(Workspace.owner_id == user_id)
+        ids = set(s.scalars(select(Workspace.id).where(or_(*conds))).all())
+        if user_id is not None:
+            ids |= set(s.scalars(select(WorkspaceAcl.workspace_id).where(
+                WorkspaceAcl.user_id == user_id)).all())
         return ids
     finally:
         s.close()
 
 
 def can_edit(ws_id: str, user_id: Optional[str]) -> bool:
-    """Owner or an ACL editor may edit/delete. With the DB disabled or no user, allow
-    (auth off = today's behaviour)."""
-    if user_id is None:
-        return True
+    """Owner or an ACL editor may edit/delete. Unowned (legacy) workspaces stay editable by
+    anyone (today's behaviour); an OWNED workspace is not editable anonymously. DB off = allow."""
     s = session()
     if s is None:
         return True
     try:
         from .models import WorkspaceAcl
         w = s.get(Workspace, ws_id)
-        if w is None or w.owner_id in (None, user_id):
-            return True                              # unowned (legacy) or owned by caller
+        if w is None or w.owner_id is None:
+            return True                              # unowned / legacy
+        if user_id is None:
+            return False                             # owned workspace, anonymous caller
+        if w.owner_id == user_id:
+            return True
         return s.get(WorkspaceAcl, {"workspace_id": ws_id, "user_id": user_id}) is not None
     finally:
         s.close()
