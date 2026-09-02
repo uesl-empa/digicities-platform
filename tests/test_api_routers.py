@@ -180,6 +180,38 @@ def test_scenario_ttl_404_for_unknown(client, ws):
     assert client.get(f"{B}/scenario/ttl", params={"name": "nope.ttl"}).status_code == 404
 
 
+def test_scenario_draft_round_trip(client, ws):
+    """Build a scenario, then load it back as an editable draft."""
+    wt = "https://example.org/x/WindTurbine/WT1"
+    r = client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Reload Me",
+        "components": [{"uri": wt, "type": "WindTurbine", "label": "WT1"}],
+        "links": [{"source": "scenario", "target": wt, "link_type": "scenario_automatic"}],
+        "service_name": "golden_service",
+    })
+    assert r.status_code == 200
+    r = client.get(f"{B}/scenario/draft", params={"name": "Reload_Me.ttl"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["scenario_name"] == "Reload Me"
+    assert d["service_name"] == "golden_service"
+    assert d["components"] == [{"uri": wt, "type": "WindTurbine", "label": "WT1"}]
+    assert d["links"] == [{"source": "scenario", "target": wt,
+                           "link_type": "scenario_automatic",
+                           "pattern": "CL.Scenario.WindTurbine"}]
+
+
+def test_scenario_draft_404_for_unknown(client, ws):
+    assert client.get(f"{B}/scenario/draft", params={"name": "nope.ttl"}).status_code == 404
+
+
+def test_scenario_link_suggestions_degrade_without_graph(client, ws):
+    """No reachable graph → empty suggestions, not a 500."""
+    r = client.get(f"{B}/scenario/link-suggestions")
+    assert r.status_code == 200
+    assert r.json() == {"discovered": [], "matched": {}}
+
+
 def test_scenario_build_thin_substitutes_scenario_pseudo_source(client, ws):
     """Auto scenario→component links use the pseudo-source 'scenario'; the
     thin build must swap in the scenario IRI, never emit <scenario>."""

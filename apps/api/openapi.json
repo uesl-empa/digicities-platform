@@ -4784,6 +4784,62 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/scenario/draft": {
+      "get": {
+        "description": "A saved scenario parsed back into the builder's editable draft shape\n(components as uri/type/label, links with the 'scenario' pseudo-source),\nso an existing scenario can be reloaded, edited, and rebuilt.",
+        "operationId": "scenario_draft_api_workspaces__workspace_id__scenario_draft_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Scenario Draft Api Workspaces  Workspace Id  Scenario Draft Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scenario Draft",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/scenario/instances": {
       "get": {
         "description": "Component types with their instance URIs, to pick into a scenario.",
@@ -4829,6 +4885,69 @@
           }
         },
         "summary": "Instances",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/scenario/link-suggestions": {
+      "get": {
+        "description": "Physical component links discovered in the workspace graph\n(locatedIn / linksComponent subproperties), optionally matched to a\nservice's CL.Source.Target requirements — each match oriented so\nsuggested_source/suggested_target fulfil the requirement directly.",
+        "operationId": "link_suggestions_api_workspaces__workspace_id__scenario_link_suggestions_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Service"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Link Suggestions Api Workspaces  Workspace Id  Scenario Link Suggestions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Link Suggestions",
         "tags": [
           "scenario"
         ]

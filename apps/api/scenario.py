@@ -106,6 +106,51 @@ def service_requirements(service: str, ctx: WorkspaceContext = Depends(get_ctx))
     return out
 
 
+@router.get("/draft")
+def scenario_draft(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """A saved scenario parsed back into the builder's editable draft shape
+    (components as uri/type/label, links with the 'scenario' pseudo-source),
+    so an existing scenario can be reloaded, edited, and rebuilt."""
+    from backend.scenario_builder.reload import draft_from_ttl
+
+    p = ws_root(ctx) / "scenarios" / name
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="scenario not found")
+    try:
+        out = draft_from_ttl(p.read_text(encoding="utf-8"))
+    except Exception as bad_ttl:
+        raise HTTPException(status_code=400, detail=f"could not parse the scenario TTL: {bad_ttl}")
+    out["file"] = name
+    return out
+
+
+@router.get("/link-suggestions")
+def link_suggestions(service: str | None = None,
+                     ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Physical component links discovered in the workspace graph
+    (locatedIn / linksComponent subproperties), optionally matched to a
+    service's CL.Source.Target requirements — each match oriented so
+    suggested_source/suggested_target fulfil the requirement directly."""
+    from backend.scenario_builder.link_discovery import (
+        discover_component_links,
+        match_links_to_requirements,
+    )
+
+    try:
+        discovered = discover_component_links(graph_client(ctx))
+    except Exception:
+        discovered = []
+
+    matched: dict[str, Any] = {}
+    if service and discovered:
+        from backend.scenario_builder.requirements import extract_component_links
+
+        _, template = _resolve_service_template(ctx, service)
+        matched = match_links_to_requirements(discovered, extract_component_links(template))
+
+    return {"discovered": discovered, "matched": matched}
+
+
 class ScenComponent(BaseModel):
     uri: str
     type: str | None = None
