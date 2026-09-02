@@ -8,3 +8,6 @@ python-multipart>=0.0.9   # multipart uploads for the /replica endpoint (next)
 sqlalchemy>=2.0
 psycopg2-binary>=2.9
 alembic>=1.13
+# Phase 2: local accounts (JWT + password hashing).
+pyjwt>=2.8
+bcrypt>=4.1

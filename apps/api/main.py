@@ -146,6 +146,9 @@ app.include_router(agent_router)
 app.include_router(data_products_router)
 app.include_router(files_router)
 
+from .auth_local import router as auth_router, current_user_optional  # noqa: E402
+app.include_router(auth_router)
+
 
 @app.on_event("startup")
 def _start_workspace_cache() -> None:
@@ -185,18 +188,22 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/workspaces", response_model=list[WorkspaceSummary], tags=["workspaces"])
-def list_workspaces() -> list[WorkspaceSummary]:
-    """Every workspace the platform can see (local + discovered), newest first.
+def list_workspaces(user: dict | None = Depends(current_user_optional)) -> list[WorkspaceSummary]:
+    """The workspaces the caller may see (their own + shared + granted), newest first.
 
-    ``updated_at`` is the same activity-aware stamp the Streamlit landing page
-    sorts by (``backend.workspace.workspace_last_updated``).
+    With no signed-in user (auth off) this is every workspace — unchanged behaviour.
+    ``updated_at`` is the same activity-aware stamp the Streamlit landing page sorts by.
     """
     from backend.workspace import read_workspace_metadata, workspace_last_updated
     from backend.workspace.registry import BUNDLED_DEMO_IDS
+    from backend.db import workspaces_repo
     from .deps import ws_root
     from .registry_cache import all_contexts
+    allowed = workspaces_repo.visible_to(user["id"] if user else None)   # None = show all
     out = []
     for c in all_contexts():
+        if allowed is not None and c.id not in allowed:
+            continue
         root = ws_root(c)
         meta = read_workspace_metadata(c)
         out.append(WorkspaceSummary(
@@ -217,11 +224,14 @@ class CreateWorkspace(BaseModel):
     description: str = ""
     workspace_type: str = ""
     location: str = ""
+    visibility: str = "private"        # 'private' (owner-only) | 'shared'
 
 
 @app.post("/api/workspaces", response_model=WorkspaceSummary, tags=["workspaces"])
-def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
-    """Create a new local workspace (folder + graph dataset)."""
+def create_workspace(body: CreateWorkspace,
+                     user: dict | None = Depends(current_user_optional)) -> WorkspaceSummary:
+    """Create a new local workspace (folder + graph dataset). A signed-in user becomes the
+    owner and picks private/shared; with auth off it stays unowned + shared (as today)."""
     if not body.name.strip():
         raise HTTPException(status_code=400, detail="Workspace name is required.")
     from backend.workspace import create_workspace as _create
@@ -239,6 +249,9 @@ def create_workspace(body: CreateWorkspace) -> WorkspaceSummary:
     try:                                    # so the new workspace is visible immediately
         from .registry_cache import refresh
         refresh()
+        if user:                            # record ownership + chosen visibility
+            from backend.db import workspaces_repo
+            workspaces_repo.set_owner(ctx.id, user["id"], body.visibility)
     except Exception:
         pass
     return WorkspaceSummary(

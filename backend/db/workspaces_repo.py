@@ -42,6 +42,79 @@ def upsert(row: dict) -> None:
         s.close()
 
 
+def set_owner(ws_id: str, owner_id: str, visibility: str = "private") -> None:
+    """Assign a workspace's owner + visibility (on create). Creates the row if missing."""
+    s = session()
+    if s is None:
+        return
+    try:
+        obj = s.get(Workspace, ws_id)
+        if obj is None:
+            obj = Workspace(id=ws_id, graphdb_repo=ws_id)
+            s.add(obj)
+        obj.owner_id = owner_id
+        obj.visibility = "private" if str(visibility).lower().startswith("priv") else "shared"
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+
+
+def grant_editor(ws_id: str, user_id: str) -> None:
+    s = session()
+    if s is None:
+        return
+    try:
+        from .models import WorkspaceAcl
+        if s.get(WorkspaceAcl, {"workspace_id": ws_id, "user_id": user_id}) is None:
+            s.add(WorkspaceAcl(workspace_id=ws_id, user_id=user_id, role="editor"))
+            s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+
+
+def visible_to(user_id: Optional[str]) -> Optional[set]:
+    """The set of workspace ids a user may SEE (owned + shared + acl). Returns None when
+    the DB is disabled OR no user is given — meaning 'no filter, show everything' (this is
+    how the API stays non-breaking with auth off)."""
+    if user_id is None:
+        return None
+    s = session()
+    if s is None:
+        return None
+    try:
+        from sqlalchemy import or_, select
+        from .models import WorkspaceAcl
+        ids = set(s.scalars(select(Workspace.id).where(
+            or_(Workspace.visibility == "shared", Workspace.owner_id == user_id))).all())
+        ids |= set(s.scalars(select(WorkspaceAcl.workspace_id).where(
+            WorkspaceAcl.user_id == user_id)).all())
+        return ids
+    finally:
+        s.close()
+
+
+def can_edit(ws_id: str, user_id: Optional[str]) -> bool:
+    """Owner or an ACL editor may edit/delete. With the DB disabled or no user, allow
+    (auth off = today's behaviour)."""
+    if user_id is None:
+        return True
+    s = session()
+    if s is None:
+        return True
+    try:
+        from .models import WorkspaceAcl
+        w = s.get(Workspace, ws_id)
+        if w is None or w.owner_id in (None, user_id):
+            return True                              # unowned (legacy) or owned by caller
+        return s.get(WorkspaceAcl, {"workspace_id": ws_id, "user_id": user_id}) is not None
+    finally:
+        s.close()
+
+
 def get(ws_id: str) -> Optional[dict]:
     s = session()
     if s is None:
