@@ -122,6 +122,9 @@ services:
       API_AUTH_ENABLED: "${API_AUTH_ENABLED:-}"
       # JWT-account login requirement (workspace routes only; distinct from API_AUTH_ENABLED).
       REQUIRE_LOGIN: "${REQUIRE_LOGIN:-}"
+      JWT_SECRET: "${JWT_SECRET:-}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
       CORS_ORIGINS: "${CORS_ORIGINS:-*}"
       # Metadata database (workspace catalog). Optional: unset DATABASE_URL to fall
       # back to the filesystem registry with no Postgres.

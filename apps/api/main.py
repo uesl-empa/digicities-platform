@@ -152,9 +152,19 @@ app.include_router(auth_router)
 
 @app.on_event("startup")
 def _start_workspace_cache() -> None:
-    # Load the workspace registry into the in-memory cache and keep it fresh in the
-    # background (also mirrors the catalog into the metadata DB). Requests then read
-    # the cache instead of re-scanning the filesystem every time.
+    # Bring the metadata DB up (migrations, else create_all), seed the admin + check the
+    # JWT secret, then load the workspace registry into the in-memory cache and keep it fresh
+    # in the background (requests read the cache instead of re-scanning the filesystem).
+    try:
+        from backend.db.migrate import ensure_schema
+        ensure_schema()
+    except Exception:
+        pass
+    try:
+        from .auth_local import bootstrap
+        bootstrap()
+    except Exception:
+        pass
     from .registry_cache import start_background
     start_background()
 
