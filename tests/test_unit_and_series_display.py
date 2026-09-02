@@ -34,9 +34,8 @@ def test_dynamic_attribute_stashes_series_meta():
         'kind': 'Historic', 'reference': 'resources/counts.csv', 'unit': 'km/h'}
 
 
-def test_dynamic_attribute_without_reference_says_so():
+def test_dynamic_attribute_without_reference_stays_blank():
     p = AttributeProcessor()
     p.series_meta = {}
-    assert p._process_dynamic_attribute({'properties': {}}, 'Empty') == \
-        'Time Series (no data linked)'
+    assert p._process_dynamic_attribute({'properties': {}}, 'Empty') is None
     assert p.series_meta == {}

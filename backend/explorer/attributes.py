@@ -383,12 +383,9 @@ class AttributeProcessor:
                     return f"{ref_type} Time Series: {ref_display} ({unit_str})"
                 return f"{ref_type} Time Series: {ref_display}"
 
-        unit_str = map_unit_uri_to_string(unit) if unit else ''
-        # An unreferenced series is an empty stub — say so instead of the
-        # cryptic "Time Series ()".
-        if not unit_str:
-            return "Time Series (no data linked)"
-        return f"Time Series ({unit_str}) — no data linked"
+        # No reference means no data for this instance — the cell stays blank,
+        # like any other attribute the instance doesn't carry.
+        return None
 
     def _process_geospatial_attribute(self, attr_data: Dict, attr_name: str) -> Optional[str]:
         """Process GeospatialAttribute (same as physical but with location context)"""
