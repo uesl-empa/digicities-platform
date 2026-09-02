@@ -59,9 +59,25 @@ def templates(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
 
 
 @router.get("/scenarios")
-def scenarios(ctx: WorkspaceContext = Depends(get_ctx)) -> list[str]:
+def scenarios(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+    """Saved scenarios with the service each was built for (builtForService),
+    so the submit UI can scope scenarios to the selected service the way the
+    Streamlit tab does — a scenario built for another service can't be
+    submitted to the wrong one."""
     d = ws_root(ctx) / "scenarios"
-    return sorted(p.name for p in d.glob("*.ttl")) if d.exists() else []
+    out: list[dict[str, Any]] = []
+    if d.exists():
+        for p in sorted(d.glob("*.ttl")):
+            service = None
+            try:
+                m = re.search(r'builtForService\s+"((?:[^"\\]|\\.)*)"',
+                              p.read_text(encoding="utf-8"))
+                if m:
+                    service = m.group(1)
+            except Exception:
+                pass
+            out.append({"file": p.name, "service": service})
+    return out
 
 
 class ConvertReq(BaseModel):
@@ -121,7 +137,26 @@ def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     resolved = resolve_connection(conn)
     if resolved["transport"] == "http" and not resolved["url"]:
         raise HTTPException(status_code=400, detail="Template has no connection.url.")
-    tr = submit_via_connection(req.payload, conn)
+    # The payload's service_name must match the service actually submitted to
+    # (Streamlit stamps it the same way before submitting).
+    payload = dict(req.payload)
+    if "service_name" in payload and template.get("service_name"):
+        payload["service_name"] = template["service_name"]
+    tr = submit_via_connection(payload, conn)
+
+    # Best-effort follow-up: pull the full result from the service's results
+    # endpoint so the persisted record is complete, not just the summary.
+    scenario_id = (tr.response_data or {}).get("scenario_id") if isinstance(tr.response_data, dict) else None
+    if tr.success and scenario_id and resolved["transport"] == "http" and resolved["url"]:
+        try:
+            import requests
+
+            dr = requests.get(f"{resolved['url'].rstrip('/')}/results/{scenario_id}", timeout=15)
+            if dr.status_code == 200:
+                tr.response_data = {**(tr.response_data or {}), "result_detail": dr.json()}
+        except Exception:
+            pass
+
     out: dict[str, Any] = {
         "ok": tr.success,
         "status_code": tr.status_code,
@@ -144,7 +179,7 @@ def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
                          "timestamp": stamp, "success": tr.success,
                          "status_code": tr.status_code},
             "submission": {"endpoint": out["url"], "request_id": tr.request_id or None},
-            "submitted_data": req.payload,
+            "submitted_data": payload,
             "response": tr.response_data,
             "error": tr.error_message or None,
         }
