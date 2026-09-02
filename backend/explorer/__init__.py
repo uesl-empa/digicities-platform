@@ -30,6 +30,7 @@ from backend.explorer.attributes import (
     get_visible_columns,
     parse_curve_data,
     process_enhanced_component_data,
+    structured_instance_attributes,
 )
 from backend.explorer.instances import (
     get_catalogue_instance_uris,
@@ -77,6 +78,7 @@ __all__ = [
     "open_source",
     "parse_curve_data",
     "process_enhanced_component_data",
+    "structured_instance_attributes",
     "resolve_workspace_file",
     "summarize_sources",
 ]
