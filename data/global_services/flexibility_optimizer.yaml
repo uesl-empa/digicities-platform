@@ -25,26 +25,27 @@ connection:
 scenario_data:
   uri: Scenario.URI
   name: Scenario.label
+  # Root component block (implicit): resolved by component type against the
+  # scenario — no CL.Scenario link needed; CL links are reserved for
+  # component-to-component nesting. Expands to a JSON array.
   location:
-    link: CL.Scenario.Location
-    template:
-      uri: Location.URI
-      weather_location: Location.WeatherEPW
-      # Optional address of a live weather feed (a Redis stream the RDP
-      # data-crawler publishes, e.g. forecasts.met-no.VIENNA). When present the
-      # optimizer reads live temperature from it; weather_location still selects
-      # the static file used for solar irradiance.
-      weather_stream: Location.WeatherEPW.LiveTimeSeriesReference
-      buildings:
-        link: CL.Location.Building
-        template:
-          uri: Building.URI
-          GrossFloorArea: Building.GroundFloorArea
-          FootprintArea: Building.FootprintArea
-          PeakSpaceHeatingPower: Building.PeakSpaceHeatingPower
-          LumpedHeatCapacity: Building.LumpedHeatCapacity
-          LumpedHeatResistance: Building.LumpedHeatResistance
-          PVRoofCoverageRatio: Building.PVRoofCoverageRatio
-          EVCount: Building.EVCount
-          ElectricityTariff: Building.ElectricityTariff
-          Months: Building.OptimizationMonths
+    uri: Location.URI
+    weather_location: Location.WeatherEPW
+    # Optional address of a live weather feed (a Redis stream the RDP
+    # data-crawler publishes, e.g. forecasts.met-no.VIENNA). When present the
+    # optimizer reads live temperature from it; weather_location still selects
+    # the static file used for solar irradiance.
+    weather_stream: Location.WeatherEPW.LiveTimeSeriesReference
+    buildings:
+      link: CL.Location.Building
+      template:
+        uri: Building.URI
+        GrossFloorArea: Building.GroundFloorArea
+        FootprintArea: Building.FootprintArea
+        PeakSpaceHeatingPower: Building.PeakSpaceHeatingPower
+        LumpedHeatCapacity: Building.LumpedHeatCapacity
+        LumpedHeatResistance: Building.LumpedHeatResistance
+        PVRoofCoverageRatio: Building.PVRoofCoverageRatio
+        EVCount: Building.EVCount
+        ElectricityTariff: Building.ElectricityTariff
+        Months: Building.OptimizationMonths
