@@ -25,8 +25,26 @@ _JWT_ALG = "HS256"
 _TOKEN_TTL = int(os.getenv("JWT_TTL_SECONDS", str(30 * 24 * 3600)))
 
 
+_DEV_SECRET = "dev-insecure-secret-change-me-in-production"
+
+
 def _secret() -> str:
-    return os.getenv("JWT_SECRET", "dev-insecure-secret-change-me-in-production")
+    return os.getenv("JWT_SECRET", _DEV_SECRET)
+
+
+def bootstrap() -> None:
+    """Startup: warn loudly if login is enforced on the insecure default secret, and seed the
+    first admin from ``ADMIN_EMAIL`` / ``ADMIN_PASSWORD`` (idempotent). Safe to call always."""
+    import logging
+    log = logging.getLogger("digicities.auth")
+    if auth_required() and _secret() == _DEV_SECRET:
+        log.warning("REQUIRE_LOGIN is on but JWT_SECRET is unset — using the INSECURE dev default. "
+                    "Set JWT_SECRET to a long random value in production.")
+    email = os.getenv("ADMIN_EMAIL", "").strip()
+    pw = os.getenv("ADMIN_PASSWORD", "")
+    if email and pw and db_enabled() and not users_repo.get_by_email(email):
+        if users_repo.create_user(email, hash_password(pw), os.getenv("ADMIN_NAME", "Admin")):
+            log.info("Seeded admin account %s", email)
 
 
 def auth_required() -> bool:

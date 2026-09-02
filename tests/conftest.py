@@ -57,7 +57,8 @@ def _isolate_db(monkeypatch):
     filesystem-registry app unless a test opts in), and clear the lru_cached engine so a
     per-test DATABASE_URL (e.g. a temp SQLite) can't leak into later tests. Tests that want a
     DB set DATABASE_URL themselves (this runs first; their setenv wins)."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    for _e in ("DATABASE_URL", "REQUIRE_LOGIN", "ADMIN_EMAIL", "ADMIN_PASSWORD"):
+        monkeypatch.delenv(_e, raising=False)   # default: no DB, auth off, no seed
 
     def _clear():
         try:
