@@ -327,6 +327,27 @@ def test_scenario_validate_flags_missing_and_previews_exclusion(client, ws):
     assert got["links"] == {"total": 3, "kept": 2, "dropped": 1}
 
 
+def test_scenario_validate_diagnoses_template_mismatch(client, ws):
+    """An attribute missing on EVERY component of a type is reported as a
+    template/replica mismatch, not left as per-instance noise."""
+    r = client.post(f"{B}/scenario/validate", json={
+        "required_attributes": {"RoadSegment": ["Capacity", "HourlyVehicleCount"]},
+        "components": [
+            {"uri": "https://x/RS/R1", "type": "RoadSegment", "label": "R1",
+             "attributes": {"Capacity": {"value": 100}}},
+            {"uri": "https://x/RS/R2", "type": "RoadSegment", "label": "R2",
+             "attributes": {"Capacity": {"value": 200}}},
+        ],
+    })
+    assert r.status_code == 200
+    got = r.json()
+    # Capacity present on both -> no diagnostic; HourlyVehicleCount on none -> flagged.
+    assert len(got["diagnostics"]) == 1
+    d = got["diagnostics"][0]
+    assert d["type"] == "RoadSegment" and d["attribute"] == "HourlyVehicleCount"
+    assert "mismatch" in d["note"]
+
+
 def test_scenario_validate_accepts_inline_requirements(client, ws):
     """No service file needed — the caller may pass required_attributes
     directly (a type with no requirements is compliant by definition)."""
