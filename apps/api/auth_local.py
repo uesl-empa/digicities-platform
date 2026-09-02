@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from backend.db.session import db_enabled
 from backend.db import users_repo
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _JWT_ALG = "HS256"
 _TOKEN_TTL = int(os.getenv("JWT_TTL_SECONDS", str(30 * 24 * 3600)))

@@ -261,6 +261,24 @@ def create_workspace(body: CreateWorkspace,
     )
 
 
+class ShareBody(BaseModel):
+    email: str
+
+
+@app.post("/api/workspaces/{workspace_id}/share", tags=["workspaces"])
+def share_workspace(body: ShareBody, ctx: WorkspaceContext = Depends(get_ctx),
+                    user: dict | None = Depends(current_user_optional)) -> dict[str, Any]:
+    """Grant another user **editor** access to this workspace (owner-only)."""
+    from backend.db import users_repo, workspaces_repo
+    if not workspaces_repo.can_edit(ctx.id, user["id"] if user else None):
+        raise HTTPException(status_code=403, detail="Only the owner can share this workspace.")
+    target = users_repo.get_by_email(body.email)
+    if not target:
+        raise HTTPException(status_code=404, detail="No account with that email.")
+    workspaces_repo.grant_editor(ctx.id, target["id"])
+    return {"workspace_id": ctx.id, "granted_to": target["email"], "role": "editor"}
+
+
 @app.get("/api/workspaces/{workspace_id}/info", tags=["workspaces"])
 def workspace_info(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Fuller workspace info for the sidebar panel (type/location/path/status)."""
