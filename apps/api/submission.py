@@ -6,6 +6,7 @@ and submit it to the service's connection endpoint.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -94,13 +95,21 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
 class SubmitReq(BaseModel):
     template_file: str
     payload: dict[str, Any]
+    # When the scenario is named, the result is persisted under results/
+    # (like the Streamlit results viewer); pass persist=False to skip.
+    scenario_file: str | None = None
+    persist: bool = True
 
 
 @router.post("/submit")
 def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Deliver the payload over the template's connection — the same transport
     layer (HTTP with auth/headers, or Redis streams) the Streamlit tab uses,
-    with ${VAR:-default} expansion."""
+    with ${VAR:-default} expansion. Successful or not, the outcome can be
+    persisted under results/<service>/ for the Past Results view."""
+    import json
+    from datetime import datetime
+
     from backend.api_submission.connection import (
         describe_endpoint,
         resolve_connection,
@@ -123,7 +132,66 @@ def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
         out["error"] = tr.error_message
     if tr.request_id:
         out["request_id"] = tr.request_id
+
+    if req.persist:
+        service_name = str(template.get("service_name") or req.template_file.rsplit(".", 1)[0])
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        scen = (req.scenario_file or "payload").rsplit(".", 1)[0]
+        d = ws_root(ctx) / "results" / re.sub(r"[^A-Za-z0-9_.\-]", "_", service_name)
+        d.mkdir(parents=True, exist_ok=True)
+        record = {
+            "metadata": {"service_name": service_name, "scenario_name": scen,
+                         "timestamp": stamp, "success": tr.success,
+                         "status_code": tr.status_code},
+            "submission": {"endpoint": out["url"], "request_id": tr.request_id or None},
+            "submitted_data": req.payload,
+            "response": tr.response_data,
+            "error": tr.error_message or None,
+        }
+        f = d / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', scen)}_{stamp}.json"
+        f.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        out["saved"] = str(f.relative_to(ws_root(ctx))).replace("\\", "/")
     return out
+
+
+@router.get("/results")
+def results(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+    """Persisted submission results (newest first), from results/<service>/."""
+    import json
+
+    root = ws_root(ctx) / "results"
+    out: list[dict[str, Any]] = []
+    if root.exists():
+        for p in root.glob("*/*.json"):
+            entry: dict[str, Any] = {
+                "file": str(p.relative_to(ws_root(ctx))).replace("\\", "/"),
+                "service": p.parent.name,
+            }
+            try:
+                meta = (json.loads(p.read_text(encoding="utf-8")) or {}).get("metadata", {})
+                entry.update({k: meta.get(k) for k in
+                              ("service_name", "scenario_name", "timestamp", "success", "status_code")})
+            except Exception:
+                pass
+            out.append(entry)
+    out.sort(key=lambda e: str(e.get("timestamp") or e["file"]), reverse=True)
+    return out
+
+
+@router.get("/results/content")
+def result_content(file: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """One persisted result, as saved."""
+    import json
+
+    root = (ws_root(ctx) / "results").resolve()
+    p = (ws_root(ctx) / file).resolve()
+    # The file param must stay inside results/ — no path traversal.
+    if root not in p.parents or not p.name.endswith(".json") or not p.exists():
+        raise HTTPException(status_code=404, detail="result not found")
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="result file is not valid JSON")
 
 
 class TestReq(BaseModel):
