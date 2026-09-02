@@ -47,6 +47,7 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
     carry units (``85.0 m``, ``Curve (25 points): KiloW vs M/SEC``). Curve points
     are returned separately, keyed by instance id, so the UI can chart them."""
     from backend.explorer import (
+        SERIES_META_PREFIX,
         get_component_data_unified,
         process_enhanced_component_data,
         get_component_sources,
@@ -59,8 +60,8 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
     client = graph_client(ctx)
     instances, attributes = get_component_data_unified(client, name)
     if not instances:
-        return {"columns": [], "rows": [], "curves": {}, "sources": {}, "has_sources": False,
-                "catalogue": [], "has_catalogue": False}
+        return {"columns": [], "rows": [], "curves": {}, "series": {}, "sources": {},
+                "has_sources": False, "catalogue": [], "has_catalogue": False}
 
     df = process_enhanced_component_data(instances, attributes)
     df = attach_sources(df, get_component_sources(client, name))
@@ -91,6 +92,20 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
         if per:
             curves[iid] = per
 
+    # Time-series references, keyed by instance id — lets the UI open/plot
+    # the referenced data instead of showing only a summary string.
+    series: dict[str, dict[str, Any]] = {}
+    scols = [c[len(SERIES_META_PREFIX):] for c in df.columns if c.startswith(SERIES_META_PREFIX)]
+    for _, row in df.iterrows():
+        iid = str(row.get("instance_id"))
+        per_s: dict[str, Any] = {}
+        for sc in scols:
+            meta = row.get(f"{SERIES_META_PREFIX}{sc}")
+            if isinstance(meta, dict) and meta.get("reference"):
+                per_s[sc] = meta
+        if per_s:
+            series[iid] = per_s
+
     # Catalogue / reference entries (isCatalogueEntry marker or a
     # derivedFromCatalogue link), as instance ids — the UI's show/hide filter.
     cat_uris = get_catalogue_instance_uris(client, name)
@@ -104,6 +119,7 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
         "columns": columns,
         "rows": rows,
         "curves": curves,
+        "series": series,
         "sources": sources,
         "has_sources": has_sources,
         "catalogue": catalogue,

@@ -34,6 +34,7 @@ from backend.explorer.uris import (
 # human-readable summary. Underscore-prefixed columns are filtered out of the
 # table by get_visible_columns.
 CURVE_META_PREFIX = '_curve__'
+SERIES_META_PREFIX = '_series__'
 
 # A number as any writer or hand-authored file can spell it: sign, decimals,
 # leading dot, exponent. The old pattern was `[0-9.-]+`, which silently dropped
@@ -131,6 +132,7 @@ class AttributeProcessor:
         """Process all attributes for a single component instance"""
         processed = {}
         self.curve_meta = {}          # filled by _process_curve_attribute, per instance
+        self.series_meta = {}         # filled by _process_dynamic_attribute, per instance
 
         attrs_by_uri = {}
         for attr in attributes:
@@ -158,6 +160,8 @@ class AttributeProcessor:
         # keeps these out of the table (get_visible_columns) and out of the CSV.
         for name, meta in self.curve_meta.items():
             processed[f"{CURVE_META_PREFIX}{name}"] = meta
+        for name, meta in self.series_meta.items():
+            processed[f"{SERIES_META_PREFIX}{name}"] = meta
 
         return processed
 
@@ -366,12 +370,23 @@ class AttributeProcessor:
             if ref_prop in props:
                 unit_str = map_unit_uri_to_string(unit) if unit else ''
                 ref_value = props[ref_prop]
+                # Stash the reference so the UI can open/plot the data, the
+                # same way curve points ride alongside their summary.
+                self.series_meta[attr_name] = {
+                    'kind': ref_type,
+                    'reference': str(ref_value),
+                    'unit': unit_str or None,
+                }
                 # FIXED: Better display of time series reference
                 ref_display = extract_uri_fragment(str(ref_value)) if ref_value else ref_type
                 return f"{ref_type} Time Series: {ref_display} ({unit_str})"
 
         unit_str = map_unit_uri_to_string(unit) if unit else ''
-        return f"Time Series ({unit_str})"
+        # An unreferenced series is an empty stub — say so instead of the
+        # cryptic "Time Series ()".
+        if not unit_str:
+            return "Time Series (no data linked)"
+        return f"Time Series ({unit_str}) — no data linked"
 
     def _process_geospatial_attribute(self, attr_data: Dict, attr_name: str) -> Optional[str]:
         """Process GeospatialAttribute (same as physical but with location context)"""

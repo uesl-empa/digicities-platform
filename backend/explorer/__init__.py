@@ -24,6 +24,7 @@ from backend.explorer.units import (
 )
 from backend.explorer.attributes import (
     CURVE_META_PREFIX,
+    SERIES_META_PREFIX,
     AttributeProcessor,
     curve_columns,
     curve_data_is_reference,
@@ -54,6 +55,7 @@ from backend.explorer.provenance import (
 __all__ = [
     "AttributeProcessor",
     "CURVE_META_PREFIX",
+    "SERIES_META_PREFIX",
     "SOURCE_COLUMN",
     "SOURCE_META_COLUMN",
     "SOURCE_OPENERS",
