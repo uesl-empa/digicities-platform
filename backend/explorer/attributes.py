@@ -379,7 +379,9 @@ class AttributeProcessor:
                 }
                 # FIXED: Better display of time series reference
                 ref_display = extract_uri_fragment(str(ref_value)) if ref_value else ref_type
-                return f"{ref_type} Time Series: {ref_display} ({unit_str})"
+                if unit_str:
+                    return f"{ref_type} Time Series: {ref_display} ({unit_str})"
+                return f"{ref_type} Time Series: {ref_display}"
 
         unit_str = map_unit_uri_to_string(unit) if unit else ''
         # An unreferenced series is an empty stub — say so instead of the
