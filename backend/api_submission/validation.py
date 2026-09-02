@@ -93,6 +93,18 @@ def validate_payload(payload: Any, template: Any,
                     for i, item in enumerate(p):
                         walk(t['template'], item, f"{path}[{i + 1}]")
                 return
+            # An implicit root block (component type keyed, no link:) that the
+            # converter expanded into a component list — validate each element
+            # against the same block.
+            if isinstance(p, list):
+                if len(p) == 0:
+                    result.errors.append(
+                        f"{path or 'scenario'}: no components found for '{path or 'root'}'"
+                    )
+                else:
+                    for i, item in enumerate(p):
+                        walk(t, item, f"{path}[{i + 1}]")
+                return
             # A regular mapping: recurse into each field.
             for k, sub in t.items():
                 if k in ('link', 'template', 'required_attributes'):

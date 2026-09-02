@@ -488,7 +488,7 @@ _TIME_SERIES_REFS = (
     'hasTimeSeriesReference',
 )
 
-_VALUE_PROPS = ('value', 'hasAttributeValue', 'hasDataPath', 'hasValue', 'hasCurveData')
+_VALUE_PROPS = ('value', 'hasAttributeValue', 'hasDataPath', 'hasValue', 'hasDataPoints', 'hasCurveData')
 
 
 def structured_instance_attributes(component_attributes: List[Dict]) -> Dict[str, Dict[str, Dict]]:

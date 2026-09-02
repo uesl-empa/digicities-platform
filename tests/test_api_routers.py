@@ -630,14 +630,19 @@ def test_submission_convert_materializes_thin_scenarios(client, ws):
 @prefix dici_onto: <https://digicities.info/ontology#> .
 @prefix qudt: <http://qudt.org/schema/qudt/> .
 <{wt}> a dici_onto:WindTurbine ;
-    dici_onto:hasWindTurbineHubHeightAttribute <{wt}/HubHeight> .
+    dici_onto:hasWindTurbineHubHeightAttribute <{wt}/HubHeight> ;
+    dici_onto:hasWindTurbinePowerCurveAttribute <{wt}/PowerCurve> .
 <{wt}/HubHeight> a dici_onto:PhysicalAttribute ; qudt:value 99.5 .
+<{wt}/PowerCurve> a dici_onto:CurveAttribute ;
+    dici_onto:hasDataPoints "[[3.0, 0.0], [12.0, 2300.0]]" ;
+    dici_onto:xUnitLabel "M-PER-SEC" ; dici_onto:yUnitLabel "KiloW" .
 """, encoding="utf-8")
     (ws / "services").mkdir(exist_ok=True)
     (ws / "services" / "Wind.yaml").write_text(yaml.safe_dump({
         "service_name": "Wind",
         "scenario_data": {"turbines": {"link": "CL.Scenario.WindTurbine",
-                                       "template": {"hub": "WindTurbine.HubHeight"}}},
+                                       "template": {"hub": "WindTurbine.HubHeight",
+                                                    "curve": "WindTurbine.PowerCurve"}}},
     }), encoding="utf-8")
     r = client.post(f"{B}/scenario/build", json={
         "scenario_name": "Thin", "service_name": "Wind",
@@ -649,7 +654,30 @@ def test_submission_convert_materializes_thin_scenarios(client, ws):
     assert r.status_code == 200
     got = r.json()
     assert got["validation"]["is_valid"] is True
-    assert got["payload"]["scenario_data"]["turbines"][0]["hub"] == 99.5
+    turbine = got["payload"]["scenario_data"]["turbines"][0]
+    assert turbine["hub"] == 99.5
+    # Curves convert as structured values (points + axis units), not null.
+    assert turbine["curve"] == {"points": [[3.0, 0.0], [12.0, 2300.0]],
+                                "x_unit": "M-PER-SEC", "y_unit": "KiloW"}
+
+
+def test_payload_validation_walks_implicit_root_lists():
+    """The authoritative generator emits roots as plain blocks (no link:);
+    the converter expands them into lists — the validator must walk the
+    elements instead of flagging every root field as missing."""
+    from backend.api_submission.validation import validate_payload
+
+    template = {"service_name": "T",
+                "scenario_data": {"roadNetwork": {
+                    "name": "RoadNetwork.label", "Crs": "RoadNetwork.Crs"}}}
+    payload = {"service_name": "T",
+               "scenario_data": {"roadNetwork": [
+                   {"name": "Zurich", "Crs": "Epsg2056"}]}}
+    v = validate_payload(payload, template)
+    assert v.is_valid and not v.missing_fields
+
+    v = validate_payload({"service_name": "T", "scenario_data": {"roadNetwork": []}}, template)
+    assert not v.is_valid
 
 
 def test_submission_convert_returns_validation(client, ws):
