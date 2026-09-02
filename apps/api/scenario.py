@@ -290,12 +290,16 @@ def build(spec: ScenarioSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
             raise HTTPException(status_code=400, detail=str(bad_draft))
         ttl = generate_full_ttl(draft)
     else:
-        from backend.scenario_builder import build_scenario_ttl
+        from backend.scenario_builder import build_scenario_ttl, scenario_uri_for
 
         comps = [{"uri": c.uri, "type": c.type, "label": c.label} for c in spec.components]
+        # The builder UIs use the pseudo-source 'scenario' for automatic
+        # scenario→component links; the full emitter substitutes the scenario
+        # IRI itself, the thin builder emits sources verbatim — so do it here.
+        sc = scenario_uri_for(ctx.id, spec.scenario_name)
         links = []
         for l in spec.links:
-            link = {"source": l.source, "target": l.target}
+            link = {"source": sc if l.source == "scenario" else l.source, "target": l.target}
             if l.link_type is not None:
                 link["link_type"] = l.link_type
             links.append(link)

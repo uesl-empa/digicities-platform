@@ -180,6 +180,24 @@ def test_scenario_ttl_404_for_unknown(client, ws):
     assert client.get(f"{B}/scenario/ttl", params={"name": "nope.ttl"}).status_code == 404
 
 
+def test_scenario_build_thin_substitutes_scenario_pseudo_source(client, ws):
+    """Auto scenario→component links use the pseudo-source 'scenario'; the
+    thin build must swap in the scenario IRI, never emit <scenario>."""
+    wt = "https://example.org/x/WindTurbine/WT1"
+    r = client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Thin Auto",
+        "components": [{"uri": wt, "type": "WindTurbine", "label": "WT1"}],
+        "links": [{"source": "scenario", "target": wt, "link_type": "scenario_automatic"}],
+    })
+    assert r.status_code == 200
+    ttl = r.json()["ttl"]
+    assert "<scenario>" not in ttl
+    g = rdflib.Graph().parse(data=ttl, format="turtle")
+    dici = rdflib.Namespace("https://digicities.info/ontology#")
+    sources = list(g.objects(predicate=dici.hasInputEntity))
+    assert sources and str(sources[0]).endswith("/Thin_Auto")
+
+
 _SERVICE_YAML = """\
 service_name: demo_sim
 connection: {transport: http, url: http://x, method: POST}
