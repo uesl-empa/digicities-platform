@@ -147,7 +147,11 @@ def _attach_graph_attributes(ctx: WorkspaceContext, comps: list[dict[str, Any]])
     """Fill in attributes/nested_properties from the workspace graph for
     components that didn't bring their own — the builder UI only holds
     uri/type/label. Grouped per type so each type is one graph round-trip."""
-    from backend.explorer import get_component_data_unified, structured_instance_attributes
+    from backend.explorer import (
+        get_component_data_unified,
+        get_component_types_with_instances,
+        structured_instance_attributes,
+    )
 
     todo: dict[str, list[dict[str, Any]]] = {}
     for c in comps:
@@ -157,11 +161,19 @@ def _attach_graph_attributes(ctx: WorkspaceContext, comps: list[dict[str, Any]])
         return
     try:
         client = graph_client(ctx)
+        # The explorer queries key on the display label ("Wind Turbine"); the
+        # builder holds class local names ("WindTurbine") — map between them.
+        types_df = get_component_types_with_instances(client)
+        label_by_local = {}
+        if types_df is not None and not types_df.empty:
+            for r in types_df.itertuples():
+                local = str(r.componentType).rstrip("/#").rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+                label_by_local[local] = str(r.componentName)
     except Exception:
         return
     for type_name, members in todo.items():
         try:
-            _, attrs = get_component_data_unified(client, type_name)
+            _, attrs = get_component_data_unified(client, label_by_local.get(type_name, type_name))
         except Exception:
             continue
         structured = structured_instance_attributes(attrs)
