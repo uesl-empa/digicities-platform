@@ -483,7 +483,9 @@ def test_submission_lists_templates_and_scenarios(client, ws):
     assert t[0]["transport"] == "http" and t[0]["endpoint"] == "http://svc:9/run"
     # ...but the raw block is returned unexpanded for the connection editor.
     assert t[0]["connection"]["url"] == "${SVC_URL:-http://svc:9/run}"
-    assert client.get(f"{B}/submission/scenarios").json() == ["s1.ttl"]
+    # Scenarios carry their builtForService tag (none here).
+    assert client.get(f"{B}/submission/scenarios").json() == [
+        {"file": "s1.ttl", "service": None}]
 
 
 def test_submission_connection_writeback(client, ws):
@@ -558,6 +560,32 @@ def test_submission_submit_persists_result(client, ws):
                       params={"file": "../services/Svc.yaml"}).status_code == 404
     assert client.get(f"{B}/submission/results/content",
                       params={"file": "results/Svc/../../services/Svc.yaml"}).status_code == 404
+
+
+def test_submission_scenarios_carry_service_tag(client, ws):
+    """A scenario built for a service reports it, so the UI can scope the
+    submit list per service like the Streamlit tab."""
+    client.post(f"{B}/scenario/build", json={
+        "scenario_name": "ForWind", "service_name": "WindSvc",
+        "components": [{"uri": "https://x/WT/W1", "type": "WT"}]})
+    client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Untagged",
+        "components": [{"uri": "https://x/WT/W1", "type": "WT"}]})
+    got = client.get(f"{B}/submission/scenarios").json()
+    assert {"file": "ForWind.ttl", "service": "WindSvc"} in got
+    assert {"file": "Untagged.ttl", "service": None} in got
+
+
+def test_submission_submit_stamps_service_name(client, ws):
+    """A payload's service_name is overwritten with the template's, so a
+    scenario converted under one name can't claim another service."""
+    _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
+    r = client.post(f"{B}/submission/submit", json={
+        "template_file": "Svc.yaml", "scenario_file": "s.ttl",
+        "payload": {"service_name": "SomethingElse", "scenario_data": {}}})
+    saved = r.json()["saved"]
+    content = client.get(f"{B}/submission/results/content", params={"file": saved}).json()
+    assert content["submitted_data"]["service_name"] == "Svc"
 
 
 def test_submission_submit_persist_opt_out(client, ws):

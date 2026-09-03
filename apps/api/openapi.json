@@ -5895,6 +5895,7 @@
     },
     "/api/workspaces/{workspace_id}/submission/scenarios": {
       "get": {
+        "description": "Saved scenarios with the service each was built for (builtForService),\nso the submit UI can scope scenarios to the selected service the way the\nStreamlit tab does — a scenario built for another service can't be\nsubmitted to the wrong one.",
         "operationId": "scenarios_api_workspaces__workspace_id__submission_scenarios_get",
         "parameters": [
           {
@@ -5915,7 +5916,8 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "type": "string"
+                    "additionalProperties": true,
+                    "type": "object"
                   },
                   "title": "Response Scenarios Api Workspaces  Workspace Id  Submission Scenarios Get",
                   "type": "array"
