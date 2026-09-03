@@ -124,6 +124,28 @@ def scenario_draft(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
     return out
 
 
+@router.get("/materialized")
+def materialized(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """The scenario as a SELF-CONTAINED full TTL: the thin source merged with
+    the workspace replica, with any supersedesAttribute overrides applied —
+    the exact document the converter works on. Thin scenarios stay the
+    editable single-source-of-truth; this derives the frozen, portable
+    snapshot on demand (best of both worlds)."""
+    from backend.api_submission.materialize import materialize_against_workspace
+
+    p = ws_root(ctx) / "scenarios" / name
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="scenario not found")
+    source = p.read_text(encoding="utf-8")
+    try:
+        client = graph_client(ctx)
+    except Exception:
+        client = None
+    ttl = materialize_against_workspace(getattr(ctx, "storage", None), source, client)
+    return {"name": name, "ttl": ttl, "chars": len(ttl),
+            "materialized": ttl != source}
+
+
 class PushReq(BaseModel):
     name: str
 

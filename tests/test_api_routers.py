@@ -212,6 +212,35 @@ def test_scenario_link_suggestions_degrade_without_graph(client, ws):
     assert r.json() == {"discovered": [], "matched": {}}
 
 
+def test_scenario_materialized_merges_replica_values(client, ws):
+    """The materialized export is the thin scenario + replica values applied —
+    a self-contained full TTL derived on demand."""
+    wt = "https://x/proj/testws/WindTurbine/W1"
+    d = ws / "ingestion" / "output"
+    d.mkdir(parents=True)
+    (d / "replica.ttl").write_text(f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+<{wt}> a dici_onto:WindTurbine ;
+    dici_onto:hasWindTurbineHubHeightAttribute <{wt}/HubHeight> .
+<{wt}/HubHeight> a dici_onto:PhysicalAttribute ; qudt:value 85.0 .
+""", encoding="utf-8")
+    client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Mat", "components": [{"uri": wt, "type": "WindTurbine", "label": "W1"}],
+        "links": [{"source": "scenario", "target": wt, "link_type": "scenario_automatic"}]})
+    r = client.get(f"{B}/scenario/materialized", params={"name": "Mat.ttl"})
+    assert r.status_code == 200
+    got = r.json()
+    assert got["materialized"] is True
+    g = rdflib.Graph()
+    g.parse(data=got["ttl"], format="turtle")
+    qudt = rdflib.Namespace("http://qudt.org/schema/qudt/")
+    values = [str(o) for o in g.objects(rdflib.URIRef(f"{wt}/HubHeight"), qudt.value)]
+    assert values == ["85.0"]
+    assert client.get(f"{B}/scenario/materialized",
+                      params={"name": "nope.ttl"}).status_code == 404
+
+
 def test_scenario_delete_removes_file_even_without_graph(client, ws):
     wt = "https://example.org/x/WindTurbine/WT9"
     client.post(f"{B}/scenario/build", json={

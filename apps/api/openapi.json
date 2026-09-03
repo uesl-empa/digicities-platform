@@ -5409,6 +5409,62 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/scenario/materialized": {
+      "get": {
+        "description": "The scenario as a SELF-CONTAINED full TTL: the thin source merged with\nthe workspace replica, with any supersedesAttribute overrides applied —\nthe exact document the converter works on. Thin scenarios stay the\neditable single-source-of-truth; this derives the frozen, portable\nsnapshot on demand (best of both worlds).",
+        "operationId": "materialized_api_workspaces__workspace_id__scenario_materialized_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Materialized Api Workspaces  Workspace Id  Scenario Materialized Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Materialized",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/scenario/push": {
       "post": {
         "description": "Append a saved scenario to the <scenarios> named graph, so other\nmodules (Convert tab, explorers) see it without reprovisioning — the\nStreamlit builder's 'upload to graph' button.",
