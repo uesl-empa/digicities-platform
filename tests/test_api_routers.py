@@ -327,6 +327,27 @@ def test_scenario_validate_flags_missing_and_previews_exclusion(client, ws):
     assert got["links"] == {"total": 3, "kept": 2, "dropped": 1}
 
 
+def test_scenario_validate_diagnoses_template_mismatch(client, ws):
+    """An attribute missing on EVERY component of a type is reported as a
+    template/replica mismatch, not left as per-instance noise."""
+    r = client.post(f"{B}/scenario/validate", json={
+        "required_attributes": {"RoadSegment": ["Capacity", "HourlyVehicleCount"]},
+        "components": [
+            {"uri": "https://x/RS/R1", "type": "RoadSegment", "label": "R1",
+             "attributes": {"Capacity": {"value": 100}}},
+            {"uri": "https://x/RS/R2", "type": "RoadSegment", "label": "R2",
+             "attributes": {"Capacity": {"value": 200}}},
+        ],
+    })
+    assert r.status_code == 200
+    got = r.json()
+    # Capacity present on both -> no diagnostic; HourlyVehicleCount on none -> flagged.
+    assert len(got["diagnostics"]) == 1
+    d = got["diagnostics"][0]
+    assert d["type"] == "RoadSegment" and d["attribute"] == "HourlyVehicleCount"
+    assert "mismatch" in d["note"]
+
+
 def test_scenario_validate_accepts_inline_requirements(client, ws):
     """No service file needed — the caller may pass required_attributes
     directly (a type with no requirements is compliant by definition)."""
@@ -456,6 +477,90 @@ def test_service_template_parse_round_trip_with_flavors(client, ws):
     assert by_type["GlobalWindAtlasSite"]["attributes"]["Roughness"] == ["Static"]
 
 
+def test_service_template_path_keyed_multi_instance(client, ws):
+    """Two entries of the same type under different paths — the Streamlit
+    builder's path-keyed model — both land in the YAML and round-trip."""
+    r = client.post(f"{B}/service/template", json={
+        "service_name": "TwoBuildings",
+        "entries": [
+            {"component_type": "Location", "path": "location", "attributes": ["WeatherEPW"]},
+            {"component_type": "Building", "path": "offices", "parent_path": "location",
+             "attributes": ["GroundFloorArea"]},
+            {"component_type": "Building", "path": "homes", "parent_path": "location",
+             "attributes": ["NumberOfFloors"]},
+        ],
+    })
+    assert r.status_code == 200
+    text = r.json()["yaml"]
+    assert "offices:" in text and "homes:" in text
+
+    r = client.post(f"{B}/service/parse", json={"file": r.json()["saved"]})
+    got = r.json()
+    by_path = {e["path"]: e for e in got["entries"]}
+    assert set(by_path) == {"location", "offices", "homes"}
+    assert by_path["offices"]["component_type"] == "Building"
+    assert by_path["homes"]["parent_path"] == "location"
+    assert by_path["homes"]["link"] == "CL.Location.Building"
+
+
+def test_service_template_path_mode_validation(client, ws):
+    base = {"service_name": "Bad", "entries": [
+        {"component_type": "A", "path": "a", "attributes": ["x"]},
+        {"component_type": "B", "attributes": ["y"]},
+    ]}
+    assert client.post(f"{B}/service/template", json=base).status_code == 400
+    dup = {"service_name": "Bad", "entries": [
+        {"component_type": "A", "path": "a", "attributes": ["x"]},
+        {"component_type": "B", "path": "a", "attributes": ["y"]},
+    ]}
+    assert client.post(f"{B}/service/template", json=dup).status_code == 400
+
+
+def test_service_fields_and_custom_names(client, ws):
+    """/fields lists the customizable fields; custom_field_names renames the
+    YAML key while the reference string stays canonical."""
+    entries = [{"component_type": "WindTurbine", "path": "turbine",
+                "attributes": {"Power": ["Historic"], "HubHeight": ["Static"]}}]
+    r = client.post(f"{B}/service/fields", json={"entries": entries})
+    assert r.status_code == 200
+    by_key = {f["key"]: f for f in r.json()}
+    assert by_key["turbine|Power|Historic"]["default_field"] == "Power_historic"
+    assert by_key["turbine|HubHeight|Static"]["reference"] == "WindTurbine.HubHeight"
+
+    r = client.post(f"{B}/service/template", json={
+        "service_name": "Renamed", "entries": entries,
+        "custom_field_names": {"turbine|Power|Historic": "generation_history"},
+        "save": False,
+    })
+    text = r.json()["yaml"]
+    assert "generation_history: WindTurbine.Power.hasHistoricTimeSeriesReference" in text
+    assert "Power_historic" not in text
+
+
+_ONTO_TTL = """\
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dici_onto: <https://digicities.info/ontology#> .
+dici_onto:HeatPump rdfs:subClassOf dici_onto:Component ; rdfs:label "HeatPump" .
+dici_onto:HeatPumpAttribute rdfs:subClassOf dici_onto:StaticAttribute .
+dici_onto:COP rdfs:subClassOf dici_onto:HeatPumpAttribute .
+dici_onto:ThermalPower rdfs:subClassOf dici_onto:HeatPumpAttribute .
+"""
+
+
+def test_service_ontology_upload_parses_components(client, ws):
+    r = client.post(f"{B}/service/ontology/upload",
+                    files={"file": ("mini.ttl", _ONTO_TTL.encode(), "text/turtle")})
+    assert r.status_code == 200
+    got = r.json()
+    comps = {c["component"]: c for c in got["components"]}
+    assert "HeatPump" in comps
+    assert comps["HeatPump"]["attributes"] == ["COP", "ThermalPower"]
+
+    bad = client.post(f"{B}/service/ontology/upload",
+                      files={"file": ("junk.ttl", b"not rdf at all {{{", "text/turtle")})
+    assert bad.status_code == 400
+
+
 def test_service_parse_rejects_bad_input(client, ws):
     assert client.post(f"{B}/service/parse", json={}).status_code == 400
     assert client.post(f"{B}/service/parse", json={"file": "nope.yaml"}).status_code == 404
@@ -513,6 +618,66 @@ def test_submission_test_probe_degrades_cleanly(client, ws):
     r = client.post(f"{B}/submission/test", json={"connection": {"url": ""}})
     assert r.json()["ok"] is False
     assert client.post(f"{B}/submission/test", json={}).status_code == 400
+
+
+def test_submission_convert_materializes_thin_scenarios(client, ws):
+    """A thin scenario carries no values — convert must merge the workspace
+    replica first (like Streamlit and the agent do), so references resolve."""
+    wt = "https://x/proj/testws/WindTurbine/W1"
+    d = ws / "ingestion" / "output"
+    d.mkdir(parents=True)
+    (d / "replica.ttl").write_text(f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+<{wt}> a dici_onto:WindTurbine ;
+    dici_onto:hasWindTurbineHubHeightAttribute <{wt}/HubHeight> ;
+    dici_onto:hasWindTurbinePowerCurveAttribute <{wt}/PowerCurve> .
+<{wt}/HubHeight> a dici_onto:PhysicalAttribute ; qudt:value 99.5 .
+<{wt}/PowerCurve> a dici_onto:CurveAttribute ;
+    dici_onto:hasDataPoints "[[3.0, 0.0], [12.0, 2300.0]]" ;
+    dici_onto:xUnitLabel "M-PER-SEC" ; dici_onto:yUnitLabel "KiloW" .
+""", encoding="utf-8")
+    (ws / "services").mkdir(exist_ok=True)
+    (ws / "services" / "Wind.yaml").write_text(yaml.safe_dump({
+        "service_name": "Wind",
+        "scenario_data": {"turbines": {"link": "CL.Scenario.WindTurbine",
+                                       "template": {"hub": "WindTurbine.HubHeight",
+                                                    "curve": "WindTurbine.PowerCurve"}}},
+    }), encoding="utf-8")
+    r = client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Thin", "service_name": "Wind",
+        "components": [{"uri": wt, "type": "WindTurbine", "label": "W1"}],
+        "links": [{"source": "scenario", "target": wt, "link_type": "scenario_automatic"}]})
+    assert r.status_code == 200
+    r = client.post(f"{B}/submission/convert",
+                    json={"template_file": "Wind.yaml", "scenario_file": "Thin.ttl"})
+    assert r.status_code == 200
+    got = r.json()
+    assert got["validation"]["is_valid"] is True
+    turbine = got["payload"]["scenario_data"]["turbines"][0]
+    assert turbine["hub"] == 99.5
+    # Curves convert as structured values (points + axis units), not null.
+    assert turbine["curve"] == {"points": [[3.0, 0.0], [12.0, 2300.0]],
+                                "x_unit": "M-PER-SEC", "y_unit": "KiloW"}
+
+
+def test_payload_validation_walks_implicit_root_lists():
+    """The authoritative generator emits roots as plain blocks (no link:);
+    the converter expands them into lists — the validator must walk the
+    elements instead of flagging every root field as missing."""
+    from backend.api_submission.validation import validate_payload
+
+    template = {"service_name": "T",
+                "scenario_data": {"roadNetwork": {
+                    "name": "RoadNetwork.label", "Crs": "RoadNetwork.Crs"}}}
+    payload = {"service_name": "T",
+               "scenario_data": {"roadNetwork": [
+                   {"name": "Zurich", "Crs": "Epsg2056"}]}}
+    v = validate_payload(payload, template)
+    assert v.is_valid and not v.missing_fields
+
+    v = validate_payload({"service_name": "T", "scenario_data": {"roadNetwork": []}}, template)
+    assert not v.is_valid
 
 
 def test_submission_convert_returns_validation(client, ws):

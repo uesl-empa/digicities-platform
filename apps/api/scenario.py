@@ -336,7 +336,29 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
               **({"link_type": l.link_type} if l.link_type else {})} for l in spec.links]
     kept_links = get_filtered_links_for_ttl(links, included)
 
+    # Diagnostics: an attribute missing on EVERY component of a type points at
+    # a template <-> replica mismatch (the requirement doesn't match how the
+    # workspace stores that data), not at fixable individual instances.
+    diagnostics = []
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for r in results:
+        by_type.setdefault(r["type"] or "", []).append(r)
+    for type_name, rs in by_type.items():
+        for req_attr in required.get(type_name, []):
+            if rs and all(req_attr in r["missing"] for r in rs):
+                diagnostics.append({
+                    "type": type_name,
+                    "attribute": req_attr,
+                    "note": (f"All {len(rs)} {type_name} component(s) are missing "
+                             f"'{req_attr}' — no instance carries it, so this looks like "
+                             "a mismatch between the service template and the replica, "
+                             "not a per-instance data gap. Edit the service template "
+                             "(Service Requirements → load existing) or restructure how "
+                             "the replica stores this value."),
+                })
+
     return {
+        "diagnostics": diagnostics,
         "components": results,
         "summary": {
             "total": len(results),

@@ -146,6 +146,20 @@
         "title": "Body_import_workbook_api_workspaces__workspace_id__replica_import_post",
         "type": "object"
       },
+      "Body_ontology_upload_api_workspaces__workspace_id__service_ontology_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_ontology_upload_api_workspaces__workspace_id__service_ontology_upload_post",
+        "type": "object"
+      },
       "Body_upload_api_workspaces__workspace_id__agent_upload_post": {
         "properties": {
           "file": {
@@ -340,6 +354,11 @@
             "title": "Name",
             "type": "string"
           },
+          "visibility": {
+            "default": "private",
+            "title": "Visibility",
+            "type": "string"
+          },
           "workspace_id": {
             "default": "",
             "title": "Workspace Id",
@@ -368,6 +387,22 @@
           "extension"
         ],
         "title": "ExtRef",
+        "type": "object"
+      },
+      "FieldsSpec": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/SvcEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "FieldsSpec",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -1002,6 +1037,19 @@
         "title": "ServiceSpec",
         "type": "object"
       },
+      "ShareBody": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ShareBody",
+        "type": "object"
+      },
       "StartBody": {
         "properties": {
           "chat_id": {
@@ -1102,6 +1150,28 @@
               }
             ],
             "title": "Parent"
+          },
+          "parent_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Path"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
           }
         },
         "required": [
@@ -1123,6 +1193,20 @@
               }
             ],
             "title": "Connection"
+          },
+          "custom_field_names": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Field Names"
           },
           "description": {
             "default": "",
@@ -1320,6 +1404,47 @@
         ],
         "title": "WorkspaceSummary",
         "type": "object"
+      },
+      "_Login": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "_Login",
+        "type": "object"
+      },
+      "_Register": {
+        "properties": {
+          "display_name": {
+            "default": "",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "_Register",
+        "type": "object"
       }
     }
   },
@@ -1330,9 +1455,118 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/auth/login": {
+      "post": {
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_Login"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Login Api Auth Login Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Me Api Auth Me Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "operationId": "register_api_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/_Register"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Register Api Auth Register Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/workspaces": {
       "get": {
-        "description": "Every workspace the platform can see (local + discovered), newest first.\n\n``updated_at`` is the same activity-aware stamp the Streamlit landing page\nsorts by (``backend.workspace.workspace_last_updated``).",
+        "description": "The workspaces the caller may see (their own + shared + granted), newest first.\n\nWith no signed-in user (auth off) this is every workspace — unchanged behaviour.\n``updated_at`` is the same activity-aware stamp the Streamlit landing page sorts by.",
         "operationId": "list_workspaces_api_workspaces_get",
         "responses": {
           "200": {
@@ -1356,7 +1590,7 @@
         ]
       },
       "post": {
-        "description": "Create a new local workspace (folder + graph dataset).",
+        "description": "Create a new local workspace (folder + graph dataset). A signed-in user becomes the\nowner and picks private/shared; with auth off it stays unowned + shared (as today).",
         "operationId": "create_workspace_api_workspaces_post",
         "requestBody": {
           "content": {
@@ -2082,7 +2316,7 @@
     },
     "/api/workspaces/{workspace_id}/agent/upload": {
       "post": {
-        "description": "Upload a working folder as a .zip, OR a single file. A single file is ADDED to the\ncurrent working folder when one already exists (e.g. drop in an onboarding guide, or a\nfile a previous read missed) and the folder is re-read; otherwise it becomes a one-file\nworking folder. The agent reads the result and proposes a mapping.",
+        "description": "Upload a working folder as a .zip, OR a single file. When a working folder already exists\nin the session, more data ACCUMULATES into it: a second .zip is nested under a subfolder, a\nsingle file is dropped in (e.g. an onboarding guide, or a file a previous read missed) — then\nthe folder is re-read. With no prior folder, the upload becomes the working folder (a .zip's\ncontents, or a one-file folder). Start fresh = New chat. The agent proposes a mapping.",
         "operationId": "upload_api_workspaces__workspace_id__agent_upload_post",
         "parameters": [
           {
@@ -5402,6 +5636,66 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/service/fields": {
+      "post": {
+        "description": "Every customizable YAML field the current model would generate —\nthe rename UI's working set. The key format matches\n``custom_field_names``: ``<path>|<attr>|<flavor>``.",
+        "operationId": "fields_api_workspaces__workspace_id__service_fields_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldsSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Fields Api Workspaces  Workspace Id  Service Fields Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fields",
+        "tags": [
+          "service"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/service/mappings": {
       "get": {
         "description": "Component -> legal attributes from the ONTOLOGY (naming convention,\nwith domain/range fallback) — unlike the palette, this also covers types\nwith no instances yet, the common case for a brand-new partner service.",
@@ -5447,6 +5741,63 @@
           }
         },
         "summary": "Mappings",
+        "tags": [
+          "service"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/service/ontology/upload": {
+      "post": {
+        "description": "Parse an uploaded ontology file (.ttl/.rdf/.owl/.n3) into component\nclasses + their attributes, to supplement the builder's palette — for\npartner components that exist in an ontology but not in this workspace.",
+        "operationId": "ontology_upload_api_workspaces__workspace_id__service_ontology_upload_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_ontology_upload_api_workspaces__workspace_id__service_ontology_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Ontology Upload Api Workspaces  Workspace Id  Service Ontology Upload Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ontology Upload",
         "tags": [
           "service"
         ]
@@ -5618,7 +5969,7 @@
     },
     "/api/workspaces/{workspace_id}/service/template": {
       "post": {
-        "description": "Generate the service-template YAML (connection + nested scenario_data).\n\nDelegates to ``backend.service_requirements`` — the same generator the\nStreamlit builder uses, fed via ``entries_from_type_tree`` (this endpoint\nspeaks in component types, not YAML paths).",
+        "description": "Generate the service-template YAML (connection + nested scenario_data).\n\nDelegates to ``backend.service_requirements`` — the same generator the\nStreamlit builder uses. Entries speak in component types by default;\npath-keyed entries (multi-instance structures) and custom field names\nare the Streamlit builder's full model.",
         "operationId": "template_api_workspaces__workspace_id__service_template_post",
         "parameters": [
           {
@@ -5670,6 +6021,63 @@
         "summary": "Template",
         "tags": [
           "service"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/share": {
+      "post": {
+        "description": "Grant another user **editor** access to this workspace (owner-only).",
+        "operationId": "share_workspace_api_workspaces__workspace_id__share_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShareBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Share Workspace Api Workspaces  Workspace Id  Share Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Share Workspace",
+        "tags": [
+          "workspaces"
         ]
       }
     },

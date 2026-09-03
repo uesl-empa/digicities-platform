@@ -174,6 +174,51 @@ def list_template_fields(
     return fields
 
 
+def entries_from_path_tree(
+    specs: Iterable[Tuple[str, str, Optional[str], Any]],
+) -> List[ComponentEntry]:
+    """Component entries from (component_type, path, parent_path, attributes)
+    rows — the path-keyed shape of the Streamlit builder, where the YAML path
+    is the identity. Several entries of the same type may coexist under
+    different paths (two Building blocks, say). ``attributes`` is a list
+    (all Static) or a dict ``{name: [flavors]}``.
+
+    Levels come from the parent-path chain; a row whose parent path matches no
+    other row is kept but unreachable (the generator drops it), and a parent
+    cycle terminates instead of recursing forever — same contract as
+    :func:`entries_from_type_tree`.
+    """
+    def flavored(attrs: Any) -> Dict[str, List[str]]:
+        if isinstance(attrs, dict):
+            return {a: (list(f) or ["Static"]) for a, f in attrs.items()}
+        return {a: ["Static"] for a in attrs}
+
+    rows = [(pascal_case(t), p, pp or "", flavored(attrs)) for t, p, pp, attrs in specs]
+    parent_of = {p: pp for _, p, pp, _ in rows}
+    type_of = {p: t for t, p, _, _ in rows}
+
+    def level_of(path: str, seen: frozenset) -> int:
+        parent = parent_of.get(path, "")
+        if not parent:
+            return 1
+        if parent in seen or parent not in parent_of:
+            return 2  # orphan or cycle: not a root, and never rendered
+        return 1 + level_of(parent, seen | {path})
+
+    entries = []
+    for t, p, pp, attrs in rows:
+        parent_type = type_of.get(pp, "")
+        entries.append(ComponentEntry(
+            path=p,
+            component_type=t,
+            link_pattern=f"CL.{parent_type}.{t}" if pp and parent_type else "",
+            parent_path=pp,
+            level=level_of(p, frozenset()),
+            configured_attributes=attrs,
+        ))
+    return entries
+
+
 def entries_from_type_tree(
     specs: Iterable[Tuple[str, Optional[str], Any]],
 ) -> List[ComponentEntry]:

@@ -48,6 +48,19 @@ NOT_ATTRIBUTE_NODE = (
     "  }\n"
 )
 
+# List an instance only under its MOST SPECIFIC class. Provisioning
+# materializes the RDFS closure, so every RoadSegment is also typed Network
+# and Component — without this filter the explorer and the pickers show the
+# same instance under every ancestor class. Sibling dual-typing is untouched:
+# only types that are strict ancestors of another held type are suppressed.
+MOST_SPECIFIC_TYPE = (
+    "  FILTER NOT EXISTS {\n"
+    "    ?instance a ?subType .\n"
+    "    ?subType rdfs:subClassOf+ ?componentType .\n"
+    "    FILTER(?subType != ?componentType)\n"
+    "  }\n"
+)
+
 # Empty-DataFrame columns per query, so callers always get a stable schema.
 _EMPTY_COLS = {
     "types_with_instances": ["componentType", "componentName", "instanceCount"],
@@ -238,7 +251,7 @@ def get_component_types_with_instances(client) -> pd.DataFrame:
       ?componentType rdfs:subClassOf* dici_onto:Component .
       FILTER(?componentType != dici_onto:Component)
       ?instance a ?componentType .
-{NOT_ATTRIBUTE_NODE}      OPTIONAL {{ ?componentType rdfs:label ?label }}
+{NOT_ATTRIBUTE_NODE}{MOST_SPECIFIC_TYPE}      OPTIONAL {{ ?componentType rdfs:label ?label }}
       BIND(COALESCE(
         ?label,
         IF(CONTAINS(STR(?componentType), "#"),
@@ -261,7 +274,7 @@ def get_component_instances(client, component_type_label: str) -> pd.DataFrame:
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
-{NOT_ATTRIBUTE_NODE}      OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
+{NOT_ATTRIBUTE_NODE}{MOST_SPECIFIC_TYPE}      OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
     }}
     ORDER BY ?instance
     """

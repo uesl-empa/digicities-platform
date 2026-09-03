@@ -18,20 +18,22 @@ connection:
 scenario_data:
   uri: Scenario.URI
   name: Scenario.label
+  # Root component block (implicit): resolved by component type against the
+  # scenario — being in the scenario file IS the membership, no CL.Scenario
+  # link needed. CL links are reserved for component-to-component nesting.
+  # Expands to a JSON array (every component block does, even for one hit).
   location:
-    link: CL.Scenario.Location
-    template:
-      uri: Location.URI
-      # EPW weather file the simulator uses (resolved against its bundled weather
-      # files; falls back to synthetic weather if absent).
-      weather_data: Location.WeatherEPW
-      buildings:
-        link: CL.Location.Building
-        template:
-          uri: Building.URI
-          SIA2024BuildingType: Building.SIA2024BuildingType
-          BuildingAge: Building.BuildingAge
-          GroundFloorArea: Building.GroundFloorArea
-          NumberOfFloors: Building.NumberOfFloors
-          HeatingSupply: Building.HeatingSupply
-          DHWSupply: Building.DHWSupply
+    uri: Location.URI
+    # EPW weather file the simulator uses (resolved against its bundled weather
+    # files; falls back to synthetic weather if absent).
+    weather_data: Location.WeatherEPW
+    buildings:
+      link: CL.Location.Building
+      template:
+        uri: Building.URI
+        SIA2024BuildingType: Building.SIA2024BuildingType
+        BuildingAge: Building.BuildingAge
+        GroundFloorArea: Building.GroundFloorArea
+        NumberOfFloors: Building.NumberOfFloors
+        HeatingSupply: Building.HeatingSupply
+        DHWSupply: Building.DHWSupply

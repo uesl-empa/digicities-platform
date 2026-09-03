@@ -598,6 +598,23 @@ class RobustTTL2YAMLProcessor:
                     return f"01-01-{year_match.group(1)}"
                 return val_str
 
+        # CurveAttribute stores its points in dici_onto:hasDataPoints (a JSON
+        # [[x, y], ...] literal) with axis units alongside — return a
+        # structured value (previously curves converted to null).
+        if 'CurveAttribute' in types:
+            for val in self.g.objects(attr_uri, self.DICI.hasDataPoints):
+                raw = str(val)
+                try:
+                    points = json.loads(raw)
+                except Exception:
+                    return raw
+                curve: Dict[str, Any] = {'points': points}
+                for pred, key in ((self.DICI.xUnitLabel, 'x_unit'),
+                                  (self.DICI.yUnitLabel, 'y_unit')):
+                    for u in self.g.objects(attr_uri, pred):
+                        curve[key] = str(u)
+                return curve
+
         # Handle resource (file/path) references and simple no-unit values.
         # ResourceAttribute stores its value in dici_onto:hasDataPath (e.g. a
         # weather .epw file reference); SimpleValueAttribute in

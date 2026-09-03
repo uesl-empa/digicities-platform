@@ -13,7 +13,9 @@ from backend.scenario_builder.requirements import (
     parse_service_requirements,
 )
 
-# Mirrors the bundled demo_energy_simulator.yaml: template-nested children.
+# The legacy link-rooted convention (CL.Scenario root + template-nested
+# children) — still supported for templates in the wild; the bundled demo
+# now uses the implicit-root style.
 DEMO = {
     "service_name": "demo_energy_simulator",
     "connection": {"transport": "http", "url": "http://x", "method": "POST"},

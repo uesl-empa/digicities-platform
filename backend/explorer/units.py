@@ -53,12 +53,21 @@ def map_unit_uri_to_string(unit_uri: str) -> str:
     if '/' in unit_uri and not unit_uri.startswith('http'):
         return unit_uri
 
-    # Check for -PER- format (e.g., "KiloGM-PER-KiloW")
-    if '-PER-' in unit_uri:
+    # Check for -PER- format in bare codes (e.g., "KiloGM-PER-KiloW"). Full
+    # URIs must NOT take this shortcut — replacing inside the URI leaks the
+    # scheme into the display ("http://qudt.org/vocab/unit/KM/HR").
+    if '-PER-' in unit_uri and not unit_uri.startswith('http'):
         return unit_uri.replace('-PER-', '/')
 
     # Standard unit mappings
     unit_mapping = {
+        'http://qudt.org/vocab/unit/KM-PER-HR': 'km/h',
+        'http://qudt.org/vocab/unit/KM': 'km',
+        'http://qudt.org/vocab/unit/HR': 'h',
+        'http://qudt.org/vocab/unit/MIN': 'min',
+        'http://qudt.org/vocab/unit/SEC': 's',
+        'http://qudt.org/vocab/unit/PERCENT': '%',
+        'http://qudt.org/vocab/unit/DEG_C': '°C',
         'http://qudt.org/vocab/unit/MegaW': 'MW',
         'http://qudt.org/vocab/unit/KiloW': 'kW',
         'http://qudt.org/vocab/unit/W': 'W',
@@ -89,8 +98,9 @@ def map_unit_uri_to_string(unit_uri: str) -> str:
             if full_uri.endswith(local_unit):
                 return symbol
 
-    # Extract fragment as fallback
-    return extract_uri_fragment(unit_uri)
+    # Fallback: the URI's local name, with -PER- rendered as a slash
+    # ("FT-PER-SEC" -> "FT/SEC") — never the full URI.
+    return extract_uri_fragment(unit_uri).replace('-PER-', '/')
 
 
 def map_currency_uri_to_string(currency_uri: str) -> str:
