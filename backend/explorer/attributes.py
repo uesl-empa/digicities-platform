@@ -465,3 +465,82 @@ def curve_columns(df: pd.DataFrame) -> List[str]:
         return []
     return [c[len(CURVE_META_PREFIX):] for c in df.columns
             if c.startswith(CURVE_META_PREFIX)]
+
+
+_TIME_SERIES_REFS = (
+    'hasHistoricTimeSeriesReference',
+    'hasLiveTimeSeriesReference',
+    'hasFutureTimeSeriesReference',
+    'hasTimeSeriesReference',
+)
+
+_VALUE_PROPS = ('value', 'hasAttributeValue', 'hasDataPath', 'hasValue', 'hasCurveData')
+
+
+def structured_instance_attributes(component_attributes: List[Dict]) -> Dict[str, Dict[str, Dict]]:
+    """Per-instance attributes in the Scenario Builder / emitter shape.
+
+    The table view (``process_enhanced_component_data``) flattens each attribute
+    to a display string; the emitter's requirement resolver
+    (``resolve_nested_attribute_requirement``) instead needs
+    ``attributes[name] = {value, attribute_type, category_value, temporal_value}``
+    plus ``nested_properties[name] = {hasHistoricTimeSeriesReference: ..., ...}``.
+    This reuses the same grouping/typing pipeline to produce that shape, keyed
+    by instance URI.
+    """
+    by_instance: Dict[str, List[Dict]] = {}
+    for attr in component_attributes or []:
+        uri = attr.get('instance', {}).get('value', '')
+        if uri:
+            by_instance.setdefault(uri, []).append(attr)
+
+    processor = AttributeProcessor()
+    out: Dict[str, Dict[str, Dict]] = {}
+    for instance_uri, attrs in by_instance.items():
+        attributes: Dict[str, Dict] = {}
+        nested: Dict[str, Dict] = {}
+
+        attrs_by_uri: Dict[str, List[Dict]] = {}
+        for attr in attrs:
+            attr_uri = attr.get('attribute', {}).get('value', '')
+            if attr_uri:
+                attrs_by_uri.setdefault(attr_uri, []).append(attr)
+
+        for attr_uri, attr_properties in attrs_by_uri.items():
+            name = processor._extract_attribute_name(attr_uri)
+            data = processor._consolidate_attribute_properties(attr_properties)
+            props = data.get('properties', {})
+            types = data.get('types', set())
+            attr_type = processor._determine_attribute_type(data)
+
+            entry: Dict[str, object] = {}
+            for value_prop in _VALUE_PROPS:
+                if props.get(value_prop) not in (None, ''):
+                    entry['value'] = props[value_prop]
+                    break
+            if 'EventAttribute' in types:
+                entry['attribute_type'] = 'EventAttribute'
+                if props.get('hasTemporalValue') not in (None, ''):
+                    entry['temporal_value'] = props['hasTemporalValue']
+                    entry.setdefault('value', props['hasTemporalValue'])
+            elif attr_type == 'CategoricalAttribute':
+                entry['attribute_type'] = attr_type
+                category = processor._process_categorical_attribute(data, name)
+                if category and category != 'Unknown Category':
+                    entry['category_value'] = category
+                    entry.setdefault('value', category)
+            elif attr_type != 'unknown':
+                entry['attribute_type'] = attr_type
+
+            ts = {ref: props[ref] for ref in _TIME_SERIES_REFS
+                  if props.get(ref) not in (None, '')}
+            if ts:
+                nested[name] = ts
+                # A time-series attribute is "present" even without a scalar.
+                entry.setdefault('value', next(iter(ts.values())))
+
+            if entry:
+                attributes[name] = entry
+
+        out[instance_uri] = {'attributes': attributes, 'nested_properties': nested}
+    return out

@@ -70,6 +70,87 @@ def scenario_ttl(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[st
     return {"name": name, "ttl": p.read_text(encoding="utf-8")}
 
 
+def _resolve_service_template(ctx: WorkspaceContext, service: str) -> tuple[str, dict]:
+    """A service template by file name or service_name from services/."""
+    import yaml
+
+    d = ws_root(ctx) / "services"
+    candidates = (sorted(d.glob("*.yaml")) + sorted(d.glob("*.yml"))) if d.exists() else []
+    for p in candidates:
+        if p.name == service or p.stem == service:
+            return p.name, yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    for p in candidates:
+        try:
+            t = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        if t.get("service_name") == service:
+            return p.name, t
+    raise HTTPException(status_code=404, detail="service template not found")
+
+
+@router.get("/requirements")
+def service_requirements(service: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """The constraints a service template puts on a scenario: required
+    component types, ``CL.Source.Target`` links, and required attributes
+    (dotted ``Base.nestedProp`` form — the same form the emitter's
+    completeness gate resolves). ``service`` is a file name or service_name
+    under the workspace ``services/`` folder."""
+    from backend.scenario_builder.requirements import parse_service_requirements
+
+    file, template = _resolve_service_template(ctx, service)
+    out = parse_service_requirements(template)
+    out["file"] = file
+    if not out.get("service_name"):
+        out["service_name"] = file.rsplit(".", 1)[0]
+    return out
+
+
+@router.get("/draft")
+def scenario_draft(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """A saved scenario parsed back into the builder's editable draft shape
+    (components as uri/type/label, links with the 'scenario' pseudo-source),
+    so an existing scenario can be reloaded, edited, and rebuilt."""
+    from backend.scenario_builder.reload import draft_from_ttl
+
+    p = ws_root(ctx) / "scenarios" / name
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="scenario not found")
+    try:
+        out = draft_from_ttl(p.read_text(encoding="utf-8"))
+    except Exception as bad_ttl:
+        raise HTTPException(status_code=400, detail=f"could not parse the scenario TTL: {bad_ttl}")
+    out["file"] = name
+    return out
+
+
+@router.get("/link-suggestions")
+def link_suggestions(service: str | None = None,
+                     ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Physical component links discovered in the workspace graph
+    (locatedIn / linksComponent subproperties), optionally matched to a
+    service's CL.Source.Target requirements — each match oriented so
+    suggested_source/suggested_target fulfil the requirement directly."""
+    from backend.scenario_builder.link_discovery import (
+        discover_component_links,
+        match_links_to_requirements,
+    )
+
+    try:
+        discovered = discover_component_links(graph_client(ctx))
+    except Exception:
+        discovered = []
+
+    matched: dict[str, Any] = {}
+    if service and discovered:
+        from backend.scenario_builder.requirements import extract_component_links
+
+        _, template = _resolve_service_template(ctx, service)
+        matched = match_links_to_requirements(discovered, extract_component_links(template))
+
+    return {"discovered": discovered, "matched": matched}
+
+
 class ScenComponent(BaseModel):
     uri: str
     type: str | None = None
@@ -96,6 +177,133 @@ class ScenarioSpec(BaseModel):
     ttl_specificity: str = "High"
     required_attributes: dict[str, list[str]] | None = None
     save: bool = True
+
+
+class ValidateSpec(BaseModel):
+    components: list[ScenComponent] = []
+    links: list[ScenLink] = []
+    # Either name a service (its template supplies the requirements) or pass
+    # required_attributes directly; a direct pass wins.
+    service: str | None = None
+    required_attributes: dict[str, list[str]] | None = None
+
+
+def _attach_graph_attributes(ctx: WorkspaceContext, comps: list[dict[str, Any]]) -> None:
+    """Fill in attributes/nested_properties from the workspace graph for
+    components that didn't bring their own — the builder UI only holds
+    uri/type/label. Grouped per type so each type is one graph round-trip."""
+    from backend.explorer import (
+        get_component_data_unified,
+        get_component_types_with_instances,
+        structured_instance_attributes,
+    )
+
+    todo: dict[str, list[dict[str, Any]]] = {}
+    for c in comps:
+        if not c.get("attributes") and not c.get("nested_properties") and c.get("type"):
+            todo.setdefault(c["type"], []).append(c)
+    if not todo:
+        return
+    try:
+        client = graph_client(ctx)
+        # The explorer queries key on the display label ("Wind Turbine"); the
+        # builder holds class local names ("WindTurbine") — map between them.
+        types_df = get_component_types_with_instances(client)
+        label_by_local = {}
+        if types_df is not None and not types_df.empty:
+            for r in types_df.itertuples():
+                local = str(r.componentType).rstrip("/#").rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+                label_by_local[local] = str(r.componentName)
+    except Exception:
+        return
+    for type_name, members in todo.items():
+        try:
+            _, attrs = get_component_data_unified(client, label_by_local.get(type_name, type_name))
+        except Exception:
+            continue
+        structured = structured_instance_attributes(attrs)
+        for c in members:
+            found = structured.get(c["uri"])
+            if found:
+                c["attributes"] = found["attributes"]
+                c["nested_properties"] = found["nested_properties"]
+
+
+@router.post("/validate")
+def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Check the picked components against a service's required attributes,
+    and preview the emitter's completeness gate: components missing any
+    required attribute are excluded from the built TTL, along with their
+    links. Same resolver as the emitter, so this is exactly what a build
+    would do."""
+    from backend.scenario_builder.emitter import (
+        get_filtered_components_for_ttl,
+        get_filtered_links_for_ttl,
+        resolve_nested_attribute_requirement,
+    )
+
+    required = spec.required_attributes
+    if required is None and spec.service:
+        from backend.scenario_builder.requirements import extract_required_attributes_enhanced
+
+        _, template = _resolve_service_template(ctx, spec.service)
+        required, _nested = extract_required_attributes_enhanced(template)
+    required = required or {}
+
+    comps = [{"uri": c.uri, "type": c.type, "label": c.label or c.uri,
+              "attributes": c.attributes or {}, "nested_properties": c.nested_properties or {}}
+             for c in spec.components]
+    _attach_graph_attributes(ctx, [c for c in comps if required.get(c["type"] or "")])
+    # The Streamlit builder injects URI/label as synthetic attributes on add
+    # (templates reference them via e.g. Building.URI); mirror that here so
+    # they never show up as missing.
+    for comp in comps:
+        comp["attributes"].setdefault("URI", {"value": comp["uri"]})
+        comp["attributes"].setdefault("label", {"value": comp["label"]})
+
+    results = []
+    for comp in comps:
+        reqs = required.get(comp["type"] or "", [])
+        missing = []
+        for req_attr in reqs:
+            try:
+                present = resolve_nested_attribute_requirement(comp, req_attr)
+            except Exception:
+                present = None
+            if not present:
+                missing.append(req_attr)
+        if not reqs:
+            status = "compliant"
+        elif not missing:
+            status = "compliant"
+        elif len(missing) == len(reqs):
+            status = "missing_all"
+        else:
+            status = "partial"
+        results.append({"uri": comp["uri"], "type": comp["type"], "label": comp["label"],
+                        "status": status, "missing": missing, "required": list(reqs)})
+
+    included = get_filtered_components_for_ttl(comps, required)
+    included_uris = {c["uri"] for c in included}
+    for r in results:
+        r["included"] = r["uri"] in included_uris
+
+    links = [{"source": l.source, "target": l.target,
+              **({"link_type": l.link_type} if l.link_type else {})} for l in spec.links]
+    kept_links = get_filtered_links_for_ttl(links, included)
+
+    return {
+        "components": results,
+        "summary": {
+            "total": len(results),
+            "compliant": sum(1 for r in results if r["status"] == "compliant"),
+            "partial": sum(1 for r in results if r["status"] == "partial"),
+            "missing_all": sum(1 for r in results if r["status"] == "missing_all"),
+            "excluded": sum(1 for r in results if not r["included"]),
+        },
+        "links": {"total": len(links), "kept": len(kept_links),
+                  "dropped": len(links) - len(kept_links)},
+    }
 
 
 def _wants_full_emitter(spec: ScenarioSpec) -> bool:
@@ -139,12 +347,16 @@ def build(spec: ScenarioSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
             raise HTTPException(status_code=400, detail=str(bad_draft))
         ttl = generate_full_ttl(draft)
     else:
-        from backend.scenario_builder import build_scenario_ttl
+        from backend.scenario_builder import build_scenario_ttl, scenario_uri_for
 
         comps = [{"uri": c.uri, "type": c.type, "label": c.label} for c in spec.components]
+        # The builder UIs use the pseudo-source 'scenario' for automatic
+        # scenario→component links; the full emitter substitutes the scenario
+        # IRI itself, the thin builder emits sources verbatim — so do it here.
+        sc = scenario_uri_for(ctx.id, spec.scenario_name)
         links = []
         for l in spec.links:
-            link = {"source": l.source, "target": l.target}
+            link = {"source": sc if l.source == "scenario" else l.source, "target": l.target}
             if l.link_type is not None:
                 link["link_type"] = l.link_type
             links.append(link)

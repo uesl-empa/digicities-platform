@@ -1064,6 +1064,56 @@
         "title": "TemplateSpec",
         "type": "object"
       },
+      "ValidateSpec": {
+        "properties": {
+          "components": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ScenComponent"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "links": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ScenLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "required_attributes": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Attributes"
+          },
+          "service": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service"
+          }
+        },
+        "title": "ValidateSpec",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -4734,6 +4784,62 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/scenario/draft": {
+      "get": {
+        "description": "A saved scenario parsed back into the builder's editable draft shape\n(components as uri/type/label, links with the 'scenario' pseudo-source),\nso an existing scenario can be reloaded, edited, and rebuilt.",
+        "operationId": "scenario_draft_api_workspaces__workspace_id__scenario_draft_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Scenario Draft Api Workspaces  Workspace Id  Scenario Draft Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scenario Draft",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/scenario/instances": {
       "get": {
         "description": "Component types with their instance URIs, to pick into a scenario.",
@@ -4784,6 +4890,69 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/scenario/link-suggestions": {
+      "get": {
+        "description": "Physical component links discovered in the workspace graph\n(locatedIn / linksComponent subproperties), optionally matched to a\nservice's CL.Source.Target requirements — each match oriented so\nsuggested_source/suggested_target fulfil the requirement directly.",
+        "operationId": "link_suggestions_api_workspaces__workspace_id__scenario_link_suggestions_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Service"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Link Suggestions Api Workspaces  Workspace Id  Scenario Link Suggestions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Link Suggestions",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/scenario/list": {
       "get": {
         "operationId": "list_scenarios_api_workspaces__workspace_id__scenario_list_get",
@@ -4827,6 +4996,62 @@
           }
         },
         "summary": "List Scenarios",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/scenario/requirements": {
+      "get": {
+        "description": "The constraints a service template puts on a scenario: required\ncomponent types, ``CL.Source.Target`` links, and required attributes\n(dotted ``Base.nestedProp`` form — the same form the emitter's\ncompleteness gate resolves). ``service`` is a file name or service_name\nunder the workspace ``services/`` folder.",
+        "operationId": "service_requirements_api_workspaces__workspace_id__scenario_requirements_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "required": true,
+            "schema": {
+              "title": "Service",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Service Requirements Api Workspaces  Workspace Id  Scenario Requirements Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Service Requirements",
         "tags": [
           "scenario"
         ]
@@ -4884,6 +5109,63 @@
           }
         },
         "summary": "Scenario Ttl",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/scenario/validate": {
+      "post": {
+        "description": "Check the picked components against a service's required attributes,\nand preview the emitter's completeness gate: components missing any\nrequired attribute are excluded from the built TTL, along with their\nlinks. Same resolver as the emitter, so this is exactly what a build\nwould do.",
+        "operationId": "validate_api_workspaces__workspace_id__scenario_validate_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidateSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Validate Api Workspaces  Workspace Id  Scenario Validate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate",
         "tags": [
           "scenario"
         ]

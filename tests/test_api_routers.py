@@ -180,6 +180,153 @@ def test_scenario_ttl_404_for_unknown(client, ws):
     assert client.get(f"{B}/scenario/ttl", params={"name": "nope.ttl"}).status_code == 404
 
 
+def test_scenario_draft_round_trip(client, ws):
+    """Build a scenario, then load it back as an editable draft."""
+    wt = "https://example.org/x/WindTurbine/WT1"
+    r = client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Reload Me",
+        "components": [{"uri": wt, "type": "WindTurbine", "label": "WT1"}],
+        "links": [{"source": "scenario", "target": wt, "link_type": "scenario_automatic"}],
+        "service_name": "golden_service",
+    })
+    assert r.status_code == 200
+    r = client.get(f"{B}/scenario/draft", params={"name": "Reload_Me.ttl"})
+    assert r.status_code == 200
+    d = r.json()
+    assert d["scenario_name"] == "Reload Me"
+    assert d["service_name"] == "golden_service"
+    assert d["components"] == [{"uri": wt, "type": "WindTurbine", "label": "WT1"}]
+    assert d["links"] == [{"source": "scenario", "target": wt,
+                           "link_type": "scenario_automatic",
+                           "pattern": "CL.Scenario.WindTurbine"}]
+
+
+def test_scenario_draft_404_for_unknown(client, ws):
+    assert client.get(f"{B}/scenario/draft", params={"name": "nope.ttl"}).status_code == 404
+
+
+def test_scenario_link_suggestions_degrade_without_graph(client, ws):
+    """No reachable graph → empty suggestions, not a 500."""
+    r = client.get(f"{B}/scenario/link-suggestions")
+    assert r.status_code == 200
+    assert r.json() == {"discovered": [], "matched": {}}
+
+
+def test_scenario_build_thin_substitutes_scenario_pseudo_source(client, ws):
+    """Auto scenario→component links use the pseudo-source 'scenario'; the
+    thin build must swap in the scenario IRI, never emit <scenario>."""
+    wt = "https://example.org/x/WindTurbine/WT1"
+    r = client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Thin Auto",
+        "components": [{"uri": wt, "type": "WindTurbine", "label": "WT1"}],
+        "links": [{"source": "scenario", "target": wt, "link_type": "scenario_automatic"}],
+    })
+    assert r.status_code == 200
+    ttl = r.json()["ttl"]
+    assert "<scenario>" not in ttl
+    g = rdflib.Graph().parse(data=ttl, format="turtle")
+    dici = rdflib.Namespace("https://digicities.info/ontology#")
+    sources = list(g.objects(predicate=dici.hasInputEntity))
+    assert sources and str(sources[0]).endswith("/Thin_Auto")
+
+
+_SERVICE_YAML = """\
+service_name: demo_sim
+connection: {transport: http, url: http://x, method: POST}
+scenario_data:
+  uri: Scenario.URI
+  location:
+    link: CL.Scenario.Location
+    template:
+      uri: Location.URI
+      buildings:
+        link: CL.Location.Building
+        template:
+          uri: Building.URI
+          GroundFloorArea: Building.GroundFloorArea
+"""
+
+
+def _write_service(ws):
+    d = ws / "services"
+    d.mkdir(exist_ok=True)
+    (d / "demo_sim.yaml").write_text(_SERVICE_YAML, encoding="utf-8")
+
+
+def test_scenario_requirements_parses_service_template(client, ws):
+    _write_service(ws)
+    # Resolvable by file name, stem, or service_name.
+    for key in ("demo_sim.yaml", "demo_sim"):
+        r = client.get(f"{B}/scenario/requirements", params={"service": key})
+        assert r.status_code == 200
+    got = r.json()
+    assert got["service_name"] == "demo_sim"
+    assert got["file"] == "demo_sim.yaml"
+    assert got["component_links"] == ["CL.Location.Building", "CL.Scenario.Location"]
+    assert set(got["required_component_types"]) >= {"Location", "Building"}
+    assert set(got["required_attributes"]["Building"]) == {"URI", "GroundFloorArea"}
+
+
+def test_scenario_requirements_404_for_unknown_service(client, ws):
+    assert client.get(f"{B}/scenario/requirements",
+                      params={"service": "nope"}).status_code == 404
+
+
+def test_scenario_validate_flags_missing_and_previews_exclusion(client, ws):
+    """The validate endpoint mirrors the emitter's completeness gate: a
+    component missing a required attribute is excluded, and links touching
+    it are dropped with it."""
+    _write_service(ws)
+    b1 = "https://x/Building/B1"
+    b2 = "https://x/Building/B2"
+    loc = "https://x/Location/L1"
+    r = client.post(f"{B}/scenario/validate", json={
+        "service": "demo_sim",
+        "components": [
+            {"uri": b1, "type": "Building", "label": "B1",
+             "attributes": {"GroundFloorArea": {"value": 120.0}}},
+            {"uri": b2, "type": "Building", "label": "B2",
+             "attributes": {"SomethingElse": {"value": 1}}},
+            {"uri": loc, "type": "Location", "label": "L1",
+             "attributes": {"WeatherEPW": {"value": "demo.epw"}}},
+        ],
+        "links": [
+            {"source": "scenario", "target": loc, "link_type": "scenario_automatic"},
+            {"source": loc, "target": b1},
+            {"source": loc, "target": b2},
+        ],
+    })
+    assert r.status_code == 200
+    got = r.json()
+    by_uri = {c["uri"]: c for c in got["components"]}
+    # URI/label are synthesized like the Streamlit builder does on add.
+    assert by_uri[b1]["status"] == "compliant" and by_uri[b1]["included"]
+    assert by_uri[b2]["status"] == "partial" and not by_uri[b2]["included"]
+    assert by_uri[b2]["missing"] == ["GroundFloorArea"]
+    assert by_uri[loc]["status"] == "compliant"
+    assert got["summary"] == {"total": 3, "compliant": 2, "partial": 1,
+                              "missing_all": 0, "excluded": 1}
+    # The link into the excluded B2 is dropped; scenario pseudo-link survives.
+    assert got["links"] == {"total": 3, "kept": 2, "dropped": 1}
+
+
+def test_scenario_validate_accepts_inline_requirements(client, ws):
+    """No service file needed — the caller may pass required_attributes
+    directly (a type with no requirements is compliant by definition)."""
+    r = client.post(f"{B}/scenario/validate", json={
+        "required_attributes": {"WindTurbine": ["HubHeight"]},
+        "components": [
+            {"uri": "https://x/WT1", "type": "WindTurbine", "label": "WT1"},
+            {"uri": "https://x/EDP1", "type": "EnergyDataPoint", "label": "E1"},
+        ],
+    })
+    assert r.status_code == 200
+    got = r.json()
+    by_uri = {c["uri"]: c for c in got["components"]}
+    assert by_uri["https://x/WT1"]["status"] == "missing_all"
+    assert by_uri["https://x/EDP1"]["status"] == "compliant"
+
+
 # ── service requirements ──────────────────────────────────────────────────────
 def test_service_requirements_ttl_survives_hostile_label(client, ws):
     """A quote/newline in a user label must be escaped, not break the Turtle."""
