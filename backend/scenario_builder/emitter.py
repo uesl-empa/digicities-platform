@@ -435,6 +435,21 @@ def map_unit_to_uri(unit_str):
     return unit_mapping.get(unit_str, f'<http://qudt.org/vocab/unit/{unit_str.replace("/", "-PER-").replace("²", "2").replace(" ", "-")}>')
 
 
+def _string_literal(value) -> str:
+    """A safe Turtle string token for attribute values.
+
+    Simple one-line values keep the plain quoting the goldens pin; a value
+    carrying newlines or quotes (curve data points, free text) becomes an
+    escaped triple-quoted literal — it used to be emitted inside bare quotes,
+    which is invalid Turtle and broke re-parsing the emitted scenario.
+    """
+    s = str(value)
+    if '\n' in s or '"' in s or '\\' in s:
+        s = s.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"""{s}"""'
+    return f'"{s}"'
+
+
 def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean, attr_data, attr_value, attr_unit, scenario_uri, component_source):
     """Generate enhanced attribute declaration with NextCloud source tracking including EventAttribute support"""
     if not attr_data or not isinstance(attr_data, dict):
@@ -483,7 +498,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
         else:
-            ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:string ;')
+            ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
         # Add currency for cost attributes
         currency = attr_data.get('currency', 'CHF')
@@ -499,7 +514,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
         else:
-            ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:string ;')
+            ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
         if attr_unit and attr_unit != 'file':
             unit_uri = map_unit_to_uri(attr_unit)
@@ -533,7 +548,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
         else:
-            ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:string ;')
+            ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
         if attr_unit and attr_unit != 'file':
             unit_uri = map_unit_to_uri(attr_unit)
@@ -569,7 +584,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
         else:
-            ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:string ;')
+            ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
         if attr_unit and attr_unit != 'file':
             unit_uri = map_unit_to_uri(attr_unit)
@@ -629,7 +644,7 @@ def generate_basic_attribute_declaration(ttl_lines, attr_uri, attr_name_clean, a
     if isinstance(attr_value, (int, float)):
         ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
     else:
-        ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:string ;')
+        ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
     if attr_unit and attr_unit != 'file':
         unit_uri = map_unit_to_uri(attr_unit)
@@ -989,7 +1004,7 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
         else:
-            ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:string ;')
+            ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
         # Add unit for UnitBasedCostAttribute
         if attribute_type == 'UnitBasedCostAttribute' and attr_unit and attr_unit != 'file':
@@ -1016,7 +1031,7 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
         else:
-            ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:string ;')
+            ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
         # Add unit if available and not a file reference
         if attr_unit and attr_unit not in ['file', 'text', 'category', 'temporal']:

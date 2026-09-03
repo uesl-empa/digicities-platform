@@ -71,3 +71,25 @@ def test_match_keeps_forward_direction_when_it_fits():
     m = match_links_to_requirements(discovered, ["CL.Location.Building"])["CL.Location.Building"][0]
     assert m["suggested_source"] == "https://x/Location/L1"
     assert m["suggested_target"] == "https://x/Building/B1"
+
+
+def test_full_emitter_multiline_curve_value_stays_parseable():
+    """Curve data points are multi-line strings; the emitter used to wrap them
+    in bare quotes (invalid Turtle), so an emitted scenario could not be
+    re-parsed (draft reload, strict consumers). Triple-quoted now."""
+    from backend.scenario_builder.draft import ScenarioDraft
+    from backend.scenario_builder.emitter import generate_full_ttl
+
+    wt = "https://x/proj/ws1/WindTurbine/WT1"
+    draft = ScenarioDraft.from_request(
+        "Curvy", "ws1",
+        [{"uri": wt, "type": "WindTurbine", "label": "WT1",
+          "attributes": {"PowerCurve": {
+              "value": "[\n [1.0, 0.0]\n [2.0, 3.0]\n]",
+              "attribute_type": "CurveAttribute"}}}],
+        [],
+        required_attributes={"WindTurbine": ["PowerCurve"]},
+    )
+    ttl = generate_full_ttl(draft)
+    parsed = draft_from_ttl(ttl)  # must not raise on re-parse
+    assert parsed["components"][0]["uri"] == wt
