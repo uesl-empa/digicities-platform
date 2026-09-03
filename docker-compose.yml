@@ -128,7 +128,7 @@ services:
       CORS_ORIGINS: "${CORS_ORIGINS:-*}"
       # Metadata database (workspace catalog). Optional: unset DATABASE_URL to fall
       # back to the filesystem registry with no Postgres.
-      DATABASE_URL: "${DATABASE_URL:-postgresql://digicities:digicities@postgres:5432/digicities}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql://${POSTGRES_USER:-digicities}:${POSTGRES_PASSWORD:-digicities}@postgres:5432/${POSTGRES_DB:-digicities}}"
       WORKSPACE_REFRESH_SECONDS: "${WORKSPACE_REFRESH_SECONDS:-30}"
     depends_on:
       fuseki:
