@@ -51,13 +51,24 @@ def draft_from_ttl(ttl_text: str) -> dict[str, Any]:
         break
 
     # Components: everything marked usedInScenario that isn't the scenario
-    # itself or a ComponentLink node.
+    # itself, a ComponentLink node, or an ATTRIBUTE INDIVIDUAL — full-emitter
+    # TTLs mark attribute nodes with usedInScenario too, and the Streamlit
+    # reconstruction had to filter them the same way. An attribute individual
+    # is recognisable as the object of a has…Attribute edge (or a hasAttribute
+    # itself); TimeSeries resources are skipped by type.
     link_nodes = set(g.subjects(RDF.type, dici.ComponentLink))
+    attribute_nodes: set[str] = set()
+    for s, p, o in g:
+        local_p = str(p).rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+        if local_p.startswith("has") and (local_p.endswith("Attribute") or local_p == "hasAttribute"):
+            attribute_nodes.add(str(o))
+    for ts in g.subjects(RDF.type, dici.TimeSeries):
+        attribute_nodes.add(str(ts))
     components: list[dict[str, Any]] = []
     seen: set[str] = set()
     for s in g.subjects(dici.usedInScenario, None):
         uri = str(s)
-        if s in link_nodes or uri == scenario_uri or uri in seen:
+        if s in link_nodes or uri == scenario_uri or uri in seen or uri in attribute_nodes:
             continue
         seen.add(uri)
         ctype = None

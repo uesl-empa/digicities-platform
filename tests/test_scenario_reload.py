@@ -92,4 +92,6 @@ def test_full_emitter_multiline_curve_value_stays_parseable():
     )
     ttl = generate_full_ttl(draft)
     parsed = draft_from_ttl(ttl)  # must not raise on re-parse
-    assert parsed["components"][0]["uri"] == wt
+    # Attribute individuals carry usedInScenario in full TTLs but are
+    # NOT components — exactly one real component comes back.
+    assert [c["uri"] for c in parsed["components"]] == [wt]
