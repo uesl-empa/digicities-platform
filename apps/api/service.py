@@ -76,7 +76,9 @@ class ServiceSpec(BaseModel):
 class SvcEntry(BaseModel):
     component_type: str
     parent: str | None = None
-    attributes: list[str] = []
+    # A list means all-Static; a dict maps attribute -> flavors
+    # (["Static", "Historic", "Live", "Future"], several allowed at once).
+    attributes: list[str] | dict[str, list[str]] = []
 
 
 class TemplateSpec(BaseModel):
@@ -114,6 +116,50 @@ def template(spec: TemplateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         (sdir / f"{sid}.yaml").write_text(text, encoding="utf-8")
         saved = f"{sid}.yaml"
     return {"yaml": text, "saved": saved}
+
+
+class ParseReq(BaseModel):
+    # Parse either raw YAML text (an upload) or a saved services/ file.
+    yaml: str | None = None
+    file: str | None = None
+
+
+@router.post("/parse")
+def parse(req: ParseReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Parse an existing service template back into the builder's shape —
+    the load→edit→save round trip. Both nesting conventions are accepted
+    (children inside ``template:`` and children as siblings), and the
+    ``connection:`` block + description are preserved for re-save."""
+    from backend.service_requirements.template import parse_service_template
+
+    text = req.yaml
+    if text is None:
+        if not req.file:
+            raise HTTPException(status_code=400, detail="Pass yaml or file.")
+        p = ws_root(ctx) / "services" / req.file
+        if not p.exists() or not req.file.endswith((".yaml", ".yml")):
+            raise HTTPException(status_code=404, detail="service template not found")
+        text = p.read_text(encoding="utf-8")
+    try:
+        service_name, entries, description, connection = parse_service_template(text)
+    except Exception as bad_yaml:
+        raise HTTPException(status_code=400, detail=f"Could not parse the template: {bad_yaml}")
+
+    type_by_path = {e.path: e.component_type for e in entries}
+    return {
+        "service_name": service_name,
+        "description": description,
+        "connection": connection,
+        "entries": [{
+            "component_type": e.component_type,
+            "parent": type_by_path.get(e.parent_path) or None,
+            "path": e.path,
+            "parent_path": e.parent_path or None,
+            "level": e.level,
+            "link": e.link_pattern or None,
+            "attributes": e.configured_attributes,
+        } for e in entries],
+    }
 
 
 @router.post("/requirements")
