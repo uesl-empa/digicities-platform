@@ -29,7 +29,10 @@ _DEV_SECRET = "dev-insecure-secret-change-me-in-production"
 
 
 def _secret() -> str:
-    return os.getenv("JWT_SECRET", _DEV_SECRET)
+    # `or` (not getenv's default): compose passes JWT_SECRET="" when the host var is unset, and a
+    # set-but-empty value would sail past a default and make jwt.encode raise "HMAC key must not be
+    # empty" — a 500 on every login. Treat empty as absent → fall back to the dev secret.
+    return os.getenv("JWT_SECRET") or _DEV_SECRET
 
 
 def bootstrap() -> None:
@@ -91,9 +94,11 @@ def current_user_optional(request: Request) -> Optional[dict]:
     if not db_enabled():
         return None
     auth = request.headers.get("Authorization", "")
-    if not auth.lower().startswith("bearer "):
-        return None
-    uid = _decode(auth.split(" ", 1)[1].strip())
+    # Header first; fall back to a ?token= query param for EventSource/SSE, which can't set
+    # an Authorization header (the agent chat stream authenticates this way).
+    tok = (auth.split(" ", 1)[1].strip() if auth.lower().startswith("bearer ")
+           else request.query_params.get("token"))
+    uid = _decode(tok) if tok else None
     return users_repo.get_user(uid) if uid else None
 
 
