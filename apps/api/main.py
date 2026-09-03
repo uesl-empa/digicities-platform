@@ -30,7 +30,7 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -180,6 +180,16 @@ class WorkspaceSummary(BaseModel):
     protected: bool = False  # bundled demo — delete refuses these
 
 
+class WorkspaceListPage(BaseModel):
+    """Opt-in paginated shape (returned when ``page``/``page_size`` is passed) —
+    the plain list stays the default response so existing callers (the sidebar
+    workspace switcher, in particular) keep seeing every workspace unchanged."""
+    items: list[WorkspaceSummary]
+    total: int
+    page: int
+    page_size: int
+
+
 class QueryRequest(BaseModel):
     query: str
     infer: bool = True
@@ -197,37 +207,63 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/workspaces", response_model=list[WorkspaceSummary], tags=["workspaces"])
-def list_workspaces(user: dict | None = Depends(current_user_optional)) -> list[WorkspaceSummary]:
-    """The workspaces the caller may see (their own + shared + granted), newest first.
+def _sort_workspaces(out: list[WorkspaceSummary], sort: str) -> None:
+    """In place, matching the frontend's own (pre-pagination) client sort exactly:
+    the chosen key, then bundled demos pinned first (stable, so it layers on top)."""
+    if sort == "name":
+        out.sort(key=lambda w: (w.name or w.id).lower())
+    elif sort == "created":
+        out.sort(key=lambda w: w.created_date or "", reverse=True)
+    else:
+        out.sort(key=lambda w: w.updated_at or 0, reverse=True)
+    out.sort(key=lambda w: w.protected, reverse=True)
+
+
+@app.get("/api/workspaces", tags=["workspaces"])
+def list_workspaces(
+    user: dict | None = Depends(current_user_optional),
+    page: int | None = Query(None, ge=1),
+    page_size: int | None = Query(None, ge=1, le=200),
+    sort: str = Query("updated", pattern="^(updated|name|created)$"),
+) -> "list[WorkspaceSummary] | WorkspaceListPage":
+    """The workspaces the caller may see (their own + shared + granted).
 
     With no signed-in user (auth off) this is every workspace — unchanged behaviour.
-    ``updated_at`` is the same activity-aware stamp the Streamlit landing page sorts by.
+    ``updated_at`` is the same activity-aware stamp the Streamlit landing page sorts by,
+    read from the background-refreshed cache (not recomputed per request — see
+    ``registry_cache``, whose per-workspace disk/network cost made this endpoint slow
+    once there were dozens of workspaces).
+
+    Pass NO ``page``/``page_size`` (the default) to get the plain, full, sorted list —
+    the shape every existing caller (incl. the sidebar workspace switcher) expects.
+    Pass both to get a ``{items, total, page, page_size}`` page instead — what the
+    Workspaces landing page uses so it doesn't have to hold everyone's workspaces
+    in the DOM/state at once.
     """
-    from backend.workspace import read_workspace_metadata, workspace_last_updated
     from backend.workspace.registry import BUNDLED_DEMO_IDS
     if user is None and auth_required():
         raise HTTPException(status_code=401, detail="Sign in to see your workspaces.")
     from backend.db import workspaces_repo
-    from .deps import ws_root
-    from .registry_cache import all_contexts
+    from .registry_cache import all_contexts, summary_for
     allowed = workspaces_repo.visible_to(user["id"] if user else None)   # None = show all
     out = []
     for c in all_contexts():
         if allowed is not None and c.id not in allowed:
             continue
-        root = ws_root(c)
-        meta = read_workspace_metadata(c)
+        s = summary_for(c)
         out.append(WorkspaceSummary(
             id=c.id, name=c.name,
             graphdb_repository=c.graphdb_repository or "",
             description=c.description or "",
-            updated_at=workspace_last_updated(root) if root.exists() else None,
-            created_date=str(meta.get("created") or meta.get("created_date") or ""),
+            updated_at=s["updated_at"], created_date=s["created_date"],
             protected=c.id in BUNDLED_DEMO_IDS,
         ))
-    out.sort(key=lambda w: w.updated_at or 0, reverse=True)
-    return out
+    _sort_workspaces(out, sort)
+    if page is None and page_size is None:
+        return out
+    p, ps = page or 1, page_size or 10
+    start = (p - 1) * ps
+    return WorkspaceListPage(items=out[start:start + ps], total=len(out), page=p, page_size=ps)
 
 
 class CreateWorkspace(BaseModel):
