@@ -608,6 +608,19 @@
         "title": "ParseReq",
         "type": "object"
       },
+      "PushReq": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "PushReq",
+        "type": "object"
+      },
       "QueryRequest": {
         "properties": {
           "infer": {
@@ -1023,6 +1036,22 @@
             "additionalProperties": true,
             "title": "Payload",
             "type": "object"
+          },
+          "persist": {
+            "default": true,
+            "title": "Persist",
+            "type": "boolean"
+          },
+          "scenario_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario File"
           },
           "template_file": {
             "title": "Template File",
@@ -4817,6 +4846,62 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/scenario": {
+      "delete": {
+        "description": "Delete a saved scenario: the scenarios/ file, plus a best-effort\nremoval of its triples from the <scenarios> graph (scoped to this\nscenario's usedInScenario marks; other scenarios are untouched).",
+        "operationId": "delete_scenario_api_workspaces__workspace_id__scenario_delete",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Scenario Api Workspaces  Workspace Id  Scenario Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Scenario",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/scenario/build": {
       "post": {
         "operationId": "build_api_workspaces__workspace_id__scenario_build_post",
@@ -5090,6 +5175,63 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/scenario/push": {
+      "post": {
+        "description": "Append a saved scenario to the <scenarios> named graph, so other\nmodules (Convert tab, explorers) see it without reprovisioning — the\nStreamlit builder's 'upload to graph' button.",
+        "operationId": "push_api_workspaces__workspace_id__scenario_push_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushReq"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Push Api Workspaces  Workspace Id  Scenario Push Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Push",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/scenario/requirements": {
       "get": {
         "description": "The constraints a service template puts on a scenario: required\ncomponent types, ``CL.Source.Target`` links, and required attributes\n(dotted ``Base.nestedProp`` form — the same form the emitter's\ncompleteness gate resolves). ``service`` is a file name or service_name\nunder the workspace ``services/`` folder.",
@@ -5257,6 +5399,56 @@
         "summary": "Validate",
         "tags": [
           "scenario"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/service/mappings": {
+      "get": {
+        "description": "Component -> legal attributes from the ONTOLOGY (naming convention,\nwith domain/range fallback) — unlike the palette, this also covers types\nwith no instances yet, the common case for a brand-new partner service.",
+        "operationId": "mappings_api_workspaces__workspace_id__service_mappings_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Mappings Api Workspaces  Workspace Id  Service Mappings Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Mappings",
+        "tags": [
+          "service"
         ]
       }
     },
@@ -5595,6 +5787,112 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/submission/results": {
+      "get": {
+        "description": "Persisted submission results (newest first), from results/<service>/.",
+        "operationId": "results_api_workspaces__workspace_id__submission_results_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Results Api Workspaces  Workspace Id  Submission Results Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Results",
+        "tags": [
+          "submission"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/submission/results/content": {
+      "get": {
+        "description": "One persisted result, as saved.",
+        "operationId": "result_content_api_workspaces__workspace_id__submission_results_content_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "title": "File",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Result Content Api Workspaces  Workspace Id  Submission Results Content Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Result Content",
+        "tags": [
+          "submission"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/submission/scenarios": {
       "get": {
         "operationId": "scenarios_api_workspaces__workspace_id__submission_scenarios_get",
@@ -5645,7 +5943,7 @@
     },
     "/api/workspaces/{workspace_id}/submission/submit": {
       "post": {
-        "description": "Deliver the payload over the template's connection — the same transport\nlayer (HTTP with auth/headers, or Redis streams) the Streamlit tab uses,\nwith ${VAR:-default} expansion.",
+        "description": "Deliver the payload over the template's connection — the same transport\nlayer (HTTP with auth/headers, or Redis streams) the Streamlit tab uses,\nwith ${VAR:-default} expansion. Successful or not, the outcome can be\npersisted under results/<service>/ for the Past Results view.",
         "operationId": "submit_api_workspaces__workspace_id__submission_submit_post",
         "parameters": [
           {

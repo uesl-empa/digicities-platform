@@ -44,4 +44,32 @@ def push_scenario_to_graph(client, ttl_content: str,
     return ok, status, response
 
 
-__all__ = ["save_scenario_to_workspace", "push_scenario_to_graph"]
+def remove_scenario_from_graph(client, scenario_uri: str,
+                               graph_name: Optional[str] = None) -> None:
+    """Remove one scenario's triples from the ``<scenarios>`` named graph.
+
+    The graph accumulates every pushed scenario, so removal must be scoped to
+    exactly what this scenario's TTL added: everything marked
+    ``usedInScenario <scenario>`` (component re-declarations + ComponentLink
+    nodes) and the scenario node itself. Other scenarios' triples — including
+    a shared component's marks for them — are untouched. Raises on transport
+    failure (callers treat cleanup as best-effort)."""
+    import re
+
+    from backend.graphdb.graphs import SCENARIOS_GRAPH
+
+    # The URI is interpolated into a SPARQL update — refuse anything that
+    # couldn't be a legal IRI in angle brackets.
+    if not re.fullmatch(r"[^<>\"{}|\\^`\s]+", scenario_uri or ""):
+        raise ValueError(f"not a usable scenario IRI: {scenario_uri!r}")
+    graph = graph_name or SCENARIOS_GRAPH
+    statement = f"""
+PREFIX dici_onto: <https://digicities.info/ontology#>
+DELETE {{ GRAPH <{graph}> {{ ?s ?p ?o }} }}
+WHERE  {{ GRAPH <{graph}> {{ ?s dici_onto:usedInScenario <{scenario_uri}> . ?s ?p ?o }} }};
+DELETE WHERE {{ GRAPH <{graph}> {{ <{scenario_uri}> ?p ?o }} }}
+"""
+    client.sparql_update(statement)
+
+
+__all__ = ["save_scenario_to_workspace", "push_scenario_to_graph", "remove_scenario_from_graph"]

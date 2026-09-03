@@ -55,6 +55,21 @@ def palette(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
     return out
 
 
+@router.get("/mappings")
+def mappings(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+    """Component -> legal attributes from the ONTOLOGY (naming convention,
+    with domain/range fallback) — unlike the palette, this also covers types
+    with no instances yet, the common case for a brand-new partner service."""
+    from backend.service_requirements.ontology import load_attribute_mappings
+
+    try:
+        mapped = load_attribute_mappings(graph_client(ctx))
+    except Exception:
+        mapped = {}
+    return [{"component": comp, "attributes": attrs}
+            for comp, attrs in sorted(mapped.items())]
+
+
 class Requirement(BaseModel):
     component: str          # PascalCase class name
     attributes: list[str] = []

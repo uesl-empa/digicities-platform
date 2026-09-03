@@ -212,6 +212,23 @@ def test_scenario_link_suggestions_degrade_without_graph(client, ws):
     assert r.json() == {"discovered": [], "matched": {}}
 
 
+def test_scenario_delete_removes_file_even_without_graph(client, ws):
+    wt = "https://example.org/x/WindTurbine/WT9"
+    client.post(f"{B}/scenario/build", json={
+        "scenario_name": "Doomed", "components": [{"uri": wt, "type": "WindTurbine"}]})
+    assert client.get(f"{B}/scenario/list").json() == ["Doomed.ttl"]
+    r = client.delete(f"{B}/scenario", params={"name": "Doomed.ttl"})
+    assert r.status_code == 200
+    got = r.json()
+    assert got["deleted"] == "Doomed.ttl" and got["graph_cleaned"] is False
+    assert client.get(f"{B}/scenario/list").json() == []
+    assert client.delete(f"{B}/scenario", params={"name": "Doomed.ttl"}).status_code == 404
+
+
+def test_scenario_push_404_for_unknown(client, ws):
+    assert client.post(f"{B}/scenario/push", json={"name": "nope.ttl"}).status_code == 404
+
+
 def test_scenario_build_thin_substitutes_scenario_pseudo_source(client, ws):
     """Auto scenario→component links use the pseudo-source 'scenario'; the
     thin build must swap in the scenario IRI, never emit <scenario>."""
@@ -514,6 +531,47 @@ def test_submission_convert_returns_validation(client, ws):
     v = got["validation"]
     # The unresolvable Phantom.Missing reference is reported by field path.
     assert "scenario_data.ghost" in v["unresolved_fields"] + v["missing_fields"]
+
+
+def test_submission_submit_persists_result(client, ws):
+    """Even a failed submission is recorded under results/<service>/ and
+    readable through the results endpoints; traversal is rejected."""
+    _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
+    r = client.post(f"{B}/submission/submit", json={
+        "template_file": "Svc.yaml", "payload": {"a": 1}, "scenario_file": "s1.ttl"})
+    assert r.status_code == 200
+    got = r.json()
+    assert got["ok"] is False
+    assert got["saved"].startswith("results/Svc/s1_")
+
+    lst = client.get(f"{B}/submission/results").json()
+    assert len(lst) == 1
+    assert lst[0]["service_name"] == "Svc" and lst[0]["scenario_name"] == "s1"
+    assert lst[0]["success"] is False
+
+    content = client.get(f"{B}/submission/results/content",
+                         params={"file": got["saved"]}).json()
+    assert content["submitted_data"] == {"a": 1}
+    assert content["error"]
+
+    assert client.get(f"{B}/submission/results/content",
+                      params={"file": "../services/Svc.yaml"}).status_code == 404
+    assert client.get(f"{B}/submission/results/content",
+                      params={"file": "results/Svc/../../services/Svc.yaml"}).status_code == 404
+
+
+def test_submission_submit_persist_opt_out(client, ws):
+    _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
+    r = client.post(f"{B}/submission/submit", json={
+        "template_file": "Svc.yaml", "payload": {}, "persist": False})
+    assert "saved" not in r.json()
+    assert client.get(f"{B}/submission/results").json() == []
+
+
+def test_service_mappings_degrade_without_graph(client, ws):
+    r = client.get(f"{B}/service/mappings")
+    assert r.status_code == 200
+    assert r.json() == []
 
 
 def test_submission_convert_404s(client, ws):

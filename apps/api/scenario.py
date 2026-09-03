@@ -124,6 +124,50 @@ def scenario_draft(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
     return out
 
 
+class PushReq(BaseModel):
+    name: str
+
+
+@router.post("/push")
+def push(req: PushReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Append a saved scenario to the <scenarios> named graph, so other
+    modules (Convert tab, explorers) see it without reprovisioning — the
+    Streamlit builder's 'upload to graph' button."""
+    from backend.scenario_builder.publish import push_scenario_to_graph
+
+    p = ws_root(ctx) / "scenarios" / req.name
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="scenario not found")
+    try:
+        ok, status, _resp = push_scenario_to_graph(graph_client(ctx), p.read_text(encoding="utf-8"))
+    except Exception as push_error:
+        raise HTTPException(status_code=502, detail=f"Push failed: {push_error}")
+    return {"ok": ok, "status_code": status, "name": req.name}
+
+
+@router.delete("")
+def delete_scenario(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Delete a saved scenario: the scenarios/ file, plus a best-effort
+    removal of its triples from the <scenarios> graph (scoped to this
+    scenario's usedInScenario marks; other scenarios are untouched)."""
+    from backend.scenario_builder.publish import remove_scenario_from_graph
+    from backend.scenario_builder.reload import draft_from_ttl
+
+    p = ws_root(ctx) / "scenarios" / name
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="scenario not found")
+    graph_cleaned = False
+    try:
+        scenario_uri = draft_from_ttl(p.read_text(encoding="utf-8")).get("scenario_uri")
+        if scenario_uri:
+            remove_scenario_from_graph(graph_client(ctx), scenario_uri)
+            graph_cleaned = True
+    except Exception:
+        pass  # the file is the source of truth; graph cleanup is best-effort
+    p.unlink()
+    return {"deleted": name, "graph_cleaned": graph_cleaned}
+
+
 @router.get("/link-suggestions")
 def link_suggestions(service: str | None = None,
                      ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
