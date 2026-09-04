@@ -185,3 +185,21 @@ def test_rest_sync_endpoint(tmp_path, monkeypatch, api_app, api_client):
 
     r = api_client.post("/api/workspaces/testws/scenario/sync", json={"service": "NoSuch"})
     assert r.status_code == 404
+
+
+def test_dry_run_reports_without_touching_anything(storage, monkeypatch):
+    svc = _write_service(storage, {"HubHeight": ["Static"]})
+    rel = _write_scenario(storage)
+    before = storage.read_text(rel)
+    attrs = _all_attrs()
+    del attrs[f"{PROJ}/WindTurbine/T2"]
+    monkeypatch.setattr(sync_mod, "attach_graph_attributes", _graph_attrs(attrs))
+    client = _FakeClient()
+    rep = sync_mod.sync_scenarios_for_service(storage, client, svc, dry_run=True)
+    (entry,) = rep["scenarios"]
+    assert entry["action"] == "rewritten" and "would keep 2/3" in entry["detail"]
+    assert any("T2" in d for d in entry["dropped"])
+    # NOTHING happened: file identical, no archive, no graph traffic.
+    assert storage.read_text(rel) == before
+    assert not storage.glob("scenarios/_archive/*.ttl")
+    assert not client.updates and not client.uploads

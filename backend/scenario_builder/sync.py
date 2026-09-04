@@ -81,7 +81,8 @@ def _workspace_id_from_ttl(ttl_text: str, scenario_uri: str) -> str:
 
 
 def sync_scenarios_for_service(storage, client, service_file: str,
-                               *, now: Optional[datetime] = None) -> dict[str, Any]:
+                               *, now: Optional[datetime] = None,
+                               dry_run: bool = False) -> dict[str, Any]:
     """Re-validate every scenario built for the service in ``service_file``
     (workspace-relative, e.g. ``services/WindSvc.yaml``) against its current
     requirements. Returns a report::
@@ -90,6 +91,11 @@ def sync_scenarios_for_service(storage, client, service_file: str,
          "scenarios": [{"scenario": rel, "action": "unchanged"|"rewritten"|
                         "removed"|"skipped", "detail": str,
                         "dropped": [component labels]}]}
+
+    ``dry_run=True`` runs the exact same gate but touches NOTHING — no
+    archive, no rewrite, no delete, no graph update; the report says what a
+    real sync WOULD do (``"would keep …"`` / ``"would be removed"``). Use it
+    to present scenario validity without side effects.
 
     Graph updates are best-effort (a failed push is reported in ``detail``,
     the file change stands); parse failures skip the scenario rather than
@@ -148,11 +154,6 @@ def sync_scenarios_for_service(storage, client, service_file: str,
             report["scenarios"].append(entry)
             continue
 
-        # Something must go: archive the current file first, always.
-        stem = rel.rsplit("/", 1)[-1].rsplit(".", 1)[0]
-        archive_rel = f"scenarios/_archive/{stem}.{stamp}.ttl"
-        storage.write_text(archive_rel, text)
-
         scenario_uri = draft.get("scenario_uri") or ""
         for c in comps:
             if c["uri"] not in {k["uri"] for k in kept}:
@@ -161,6 +162,21 @@ def sync_scenarios_for_service(storage, client, service_file: str,
                            if not _safe_resolve(resolve_nested_attribute_requirement, c, r)]
                 if missing:
                     entry["dropped"][-1] += f" (missing {', '.join(missing)})"
+
+        if dry_run:                            # report the verdict, change nothing
+            if not kept:
+                entry.update(action="removed",
+                             detail="would be removed — no component satisfies the service")
+            else:
+                entry.update(action="rewritten",
+                             detail=f"would keep {len(kept)}/{len(comps)} components")
+            report["scenarios"].append(entry)
+            continue
+
+        # Something must go: archive the current file first, always.
+        stem = rel.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        archive_rel = f"scenarios/_archive/{stem}.{stamp}.ttl"
+        storage.write_text(archive_rel, text)
 
         if not kept:
             storage.delete(rel)
