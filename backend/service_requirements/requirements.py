@@ -15,10 +15,10 @@ Replaces the hand-written f-string TTL that lived in ``apps/api/service.py``.
 """
 from __future__ import annotations
 
-from typing import Iterable, Sequence, Tuple
+from typing import Iterable, Optional, Sequence, Tuple
 
 from rdflib import Graph, Literal, Namespace, URIRef
-from rdflib.namespace import RDF, RDFS
+from rdflib.namespace import OWL, RDF, RDFS
 
 from backend.service_requirements.template import pascal_case
 
@@ -39,6 +39,7 @@ def requirements_ttl(
     requirements: Iterable[Tuple[str, Sequence[str]]],
     links: Iterable[Tuple[str, str]],
     base: str,
+    outputs: Iterable[Tuple[str, Sequence[str], Optional[str]]] = (),
 ) -> str:
     """Serialize a service's requirements as Turtle.
 
@@ -49,6 +50,16 @@ def requirements_ttl(
     ``/``, e.g. ``https://digicities.info/proj/<ws>/services/``). Requirement
     nodes are numbered ``req_1..req_n`` across both kinds, attribute
     requirements first.
+
+    ``outputs`` yields (component, attribute names, stream address) triples —
+    what the service PRODUCES (e.g. the forecast it writes to its result
+    stream), one ``ComponentAttributeOutput`` per attribute. Before this the
+    TTL marked everything ``hasInputEntity``: a reader could not tell the
+    model's products from its inputs. The output vocabulary
+    (``ComponentAttributeOutput``, ``isProvidedBy``, ``providesOutputEntity``,
+    ``providesOutputAttribute``, ``atStreamAddress``) is not yet in the core
+    ontology, so it is declared inline per the workspace-extension model —
+    promotion to core follows the usual 2+ workpackage rule.
     """
     g = Graph()
     g.bind("dici_onto", DICI)
@@ -79,5 +90,33 @@ def requirements_ttl(
         g.add((req, DICI.hasInputEntity, DICI[dom]))
         g.add((req, DICI.hasInputEntity, DICI[rng]))
         g.add((req, RDFS.label, Literal(f"{dom} linked to {rng}", lang="en")))
+
+    outputs = list(outputs or ())
+    if outputs:
+        g.bind("owl", OWL)
+        g.add((DICI.ComponentAttributeOutput, RDF.type, OWL.Class))
+        g.add((DICI.ComponentAttributeOutput, RDFS.comment, Literal(
+            "This service PRODUCES this attribute of this component type "
+            "(workspace-extension vocabulary, pending core promotion)", lang="en")))
+        for prop, kind in ((DICI.isProvidedBy, OWL.ObjectProperty),
+                           (DICI.providesOutputEntity, OWL.ObjectProperty),
+                           (DICI.providesOutputAttribute, OWL.ObjectProperty),
+                           (DICI.atStreamAddress, OWL.DatatypeProperty)):
+            g.add((prop, RDF.type, kind))
+    m = 0
+    for component, attributes, address in outputs:
+        comp = pascal_case(component)
+        for attr in attributes or [""]:
+            m += 1
+            out = URIRef(f"{base}out_{m}")
+            g.add((out, RDF.type, DICI.ComponentAttributeOutput))
+            g.add((out, DICI.isProvidedBy, service))
+            g.add((out, DICI.providesOutputEntity, DICI[comp]))
+            if attr:
+                g.add((out, DICI.providesOutputAttribute, DICI[pascal_case(attr)]))
+            if address:
+                g.add((out, DICI.atStreamAddress, Literal(address)))
+            g.add((out, RDFS.label,
+                   Literal(f"{comp}.{attr} provided" if attr else f"{comp} provided", lang="en")))
 
     return g.serialize(format="turtle")
