@@ -172,3 +172,22 @@ def test_requirements_ttl_no_outputs_keeps_document_unchanged():
     b = requirements_ttl("Svc", "", [("B", ["x"])], [], BASE, outputs=[])
     assert a == b
     assert "ComponentAttributeOutput" not in a
+
+
+def test_custom_path_names_rename_block_keys():
+    """A '<path>|__path__' custom name renames a component BLOCK's output key
+    (building -> buildings) — needed when the payload contract belongs to a
+    live service — while the internal structure stays untouched."""
+    entries = entries_from_type_tree([
+        ("Location", None, {"WeatherEPW": ["Static"]}),
+        ("Building", "Location", {"GroundFloorArea": ["Static"]}),
+    ])
+    doc = build_service_template(
+        "Svc", entries, custom_field_names={"building|__path__": "buildings"})
+    loc = doc["scenario_data"]["location"]
+    assert "buildings" in loc and "building" not in loc
+    assert loc["buildings"]["link"] == "CL.Location.Building"
+    assert loc["buildings"]["template"]["GroundFloorArea"] == "Building.GroundFloorArea"
+    # parses back cleanly with the renamed key as the path
+    name, parsed = parse_yaml_to_components(yaml.safe_dump(doc, sort_keys=False))
+    assert {e.path for e in parsed} == {"location", "buildings"}
