@@ -203,3 +203,15 @@ def test_dry_run_reports_without_touching_anything(storage, monkeypatch):
     assert storage.read_text(rel) == before
     assert not storage.glob("scenarios/_archive/*.ttl")
     assert not client.updates and not client.uploads
+
+
+def test_materialized_full_files_are_never_synced(storage, monkeypatch):
+    """A `<name>_full.ttl` is a fat export of its thin twin (same URI, same
+    service): syncing it would rewrite it thin. It must be skipped entirely."""
+    svc = _write_service(storage, {"HubHeight": ["Static"], "PowerCurve": ["Static"]})
+    _write_scenario(storage, name="Baseline_full")
+    monkeypatch.setattr(sync_mod, "attach_graph_attributes", _graph_attrs(_all_attrs()))
+    rep = sync_mod.sync_scenarios_for_service(storage, _FakeClient(), svc)
+    assert rep["scenarios"] == []
+    assert storage.exists("scenarios/Baseline_full.ttl")
+    assert not storage.glob("scenarios/_archive/*.ttl")

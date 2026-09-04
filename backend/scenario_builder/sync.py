@@ -126,6 +126,12 @@ def sync_scenarios_for_service(storage, client, service_file: str,
         return report
 
     for rel in sorted(storage.glob("scenarios/*.ttl")):
+        if rel.rsplit("/", 1)[-1].endswith("_full.ttl"):
+            # A materialized (fat) export of a thin scenario: same URI, same
+            # service — syncing it would rewrite it thin and clobber the graph
+            # push of its thin twin. It is regenerated from the thin file
+            # instead of being synced.
+            continue
         entry: dict[str, Any] = {"scenario": rel, "action": "unchanged", "detail": "",
                                  "dropped": []}
         try:
