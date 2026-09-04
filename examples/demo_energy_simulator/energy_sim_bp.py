@@ -450,8 +450,13 @@ def energy_simulation():
         for loc in locations:
             if not isinstance(loc, dict):
                 continue
-            buildings.extend(loc.get('buildings', []) or [])
-            weather_file_name = weather_file_name or loc.get('weather_data', '')
+            # Accept both the shipped template's field names (`buildings`,
+            # `weather_data`) and the names an agent-generated template emits
+            # (block key = camelCase of the class -> `building`; field name =
+            # the attribute name -> `WeatherEPW`).
+            buildings.extend(loc.get('buildings') or loc.get('building') or [])
+            weather_file_name = (weather_file_name or loc.get('weather_data', '')
+                                 or loc.get('WeatherEPW', ''))
 
         if not buildings:
             return jsonify({"error": "No buildings provided"}), 400
