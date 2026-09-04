@@ -828,6 +828,48 @@ def test_list_workspaces_sorted_by_activity(client, ws, monkeypatch):
     assert body[1]["updated_at"] is None
 
 
+def test_list_workspaces_no_params_is_a_plain_unpaginated_list(client, ws, monkeypatch):
+    """The sidebar workspace switcher (and anything else calling with no query params)
+    must keep getting every workspace as a plain array — pagination is opt-in."""
+    import apps.api.registry_cache as RC
+
+    fakes = [types.SimpleNamespace(id=f"w{i}", name=f"W{i}", graphdb_repository="", description="")
+             for i in range(5)]
+    monkeypatch.setattr(RC, "all_contexts", lambda: [_Ctx(), *fakes])
+    body = client.get("/api/workspaces").json()
+    assert isinstance(body, list) and len(body) == 6
+
+
+def test_list_workspaces_paginates_when_asked(client, ws, monkeypatch):
+    import apps.api.registry_cache as RC
+
+    fakes = [types.SimpleNamespace(id=f"w{i}", name=f"W{i}", graphdb_repository="", description="")
+             for i in range(5)]
+    monkeypatch.setattr(RC, "all_contexts", lambda: [_Ctx(), *fakes])   # 6 total
+
+    page1 = client.get("/api/workspaces?page=1&page_size=2").json()
+    assert page1["total"] == 6 and page1["page"] == 1 and page1["page_size"] == 2
+    assert len(page1["items"]) == 2
+
+    page3 = client.get("/api/workspaces?page=3&page_size=2").json()
+    assert len(page3["items"]) == 2
+    seen = {w["id"] for w in page1["items"]} | {w["id"] for w in page3["items"]}
+    assert len(seen) == 4                      # different workspaces on different pages
+
+    page_last = client.get("/api/workspaces?page=99&page_size=2").json()
+    assert page_last["items"] == []            # past the end → empty, not an error
+
+
+def test_list_workspaces_sort_by_name(client, ws, monkeypatch):
+    import apps.api.registry_cache as RC
+
+    fakes = [types.SimpleNamespace(id="b", name="Bravo", graphdb_repository="", description=""),
+             types.SimpleNamespace(id="a", name="Alpha", graphdb_repository="", description="")]
+    monkeypatch.setattr(RC, "all_contexts", lambda: fakes)
+    body = client.get("/api/workspaces?sort=name").json()
+    assert [w["id"] for w in body] == ["a", "b"]
+
+
 def test_workspace_info_exposes_metadata_and_stamp(client, ws):
     meta = ws / "workspace_meta"
     meta.mkdir()
