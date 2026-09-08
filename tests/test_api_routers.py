@@ -937,6 +937,7 @@ class _FakeAgentSession:
 
     def __init__(self, ws_id, ws_folder, ctx, repo_id, model=None):
         self.args = (ws_id, str(ws_folder), repo_id, model)
+        self.ws_id = ws_id
         self.model = model
         self.state = types.SimpleNamespace(oa_messages=[])
         self.proposed = None
@@ -1007,6 +1008,28 @@ def test_agent_session_lifecycle(client, agent_env):
 def test_agent_unknown_session_404(client, agent_env):
     r = client.post(f"{B}/agent/message", json={"session_id": "nope", "text": "x"})
     assert r.status_code == 404
+
+
+def test_agent_session_scoped_to_its_own_workspace(client, agent_env):
+    """A session created for one workspace must not be usable through another
+    workspace's URL — get_ctx only proves the caller may see the workspace NAMED IN
+    THE URL, so _get() must independently check the session belongs to it. Regression
+    for a real cross-workspace session hijack: a caller with legitimate access to
+    workspace B could drive a session bound to a DIFFERENT (e.g. private) workspace A
+    merely by knowing its session_id, bypassing A's visibility entirely."""
+    foreign = _FakeAgentSession("some-other-private-workspace", "/tmp/x", None, "other-repo")
+    agent_env._SESSIONS[foreign_id := "foreign-session-id"] = foreign
+
+    for method, path, kwargs in [
+        ("post", f"{B}/agent/message", dict(json={"session_id": foreign_id, "text": "x"})),
+        ("get", f"{B}/agent/message/stream", dict(params={"session_id": foreign_id, "text": "x"})),
+        ("post", f"{B}/agent/message/stream", dict(json={"session_id": foreign_id, "text": "x"})),
+        ("get", f"{B}/agent/state", dict(params={"session_id": foreign_id})),
+        ("post", f"{B}/agent/model", dict(json={"session_id": foreign_id, "model": "opus"})),
+        ("post", f"{B}/agent/mode", dict(json={"session_id": foreign_id, "mode": "auto"})),
+    ]:
+        r = getattr(client, method)(path, **kwargs)
+        assert r.status_code == 404, f"{method} {path} leaked a foreign session: {r.status_code} {r.text}"
 
 
 def test_agent_stream_emits_tokens_then_result_then_done(client, agent_env):

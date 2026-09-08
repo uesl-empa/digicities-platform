@@ -68,9 +68,18 @@ def _new_session(ctx: WorkspaceContext):
     )
 
 
-def _get(session_id: str):
+def _get(session_id: str, ctx: WorkspaceContext):
+    """The session for ``session_id`` — but ONLY if it belongs to ``ctx``.
+
+    ``get_ctx`` on the route only proves the caller may see the workspace NAMED IN THE
+    URL; ``_SESSIONS`` is a single process-wide dict keyed purely by session_id, so
+    without this check a caller who knows (or is handed) a session_id created for a
+    DIFFERENT workspace could drive that session — including one on a private workspace
+    they have no visibility into — merely by calling through a URL for a workspace they
+    DO have access to. 404 (not 403) either way, so a mismatch can't be used to probe
+    whether a given session_id exists."""
     sess = _SESSIONS.get(session_id)
-    if sess is None:
+    if sess is None or sess.ws_id != ctx.id:
         raise HTTPException(status_code=404, detail="agent session not found — start a new one")
     _SESSIONS.move_to_end(session_id)  # touched → most recently used
     return sess
@@ -113,7 +122,7 @@ class ModelBody(BaseModel):
 
 @router.post("/model")
 def set_model(body: ModelBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
-    _get(body.session_id).set_model(body.model)
+    _get(body.session_id, ctx).set_model(body.model)
     return {"model": body.model}
 
 
@@ -124,7 +133,7 @@ class ModeBody(BaseModel):
 
 @router.post("/mode")
 def set_mode(body: ModeBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
-    sess = _get(body.session_id)
+    sess = _get(body.session_id, ctx)
     sess.set_mode(body.mode)
     return {"mode": sess.state.oa_mode}
 
@@ -159,7 +168,7 @@ class Message(BaseModel):
 
 @router.post("/message")
 def message(body: Message, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
-    return _get(body.session_id).send(body.text)
+    return _get(body.session_id, ctx).send(body.text)
 
 
 def _stream_response(sess, text: str):
@@ -182,18 +191,18 @@ def message_stream(session_id: str, text: str, ctx: WorkspaceContext = Depends(g
     GET exists for EventSource clients; long messages should use the POST
     variant so the text rides in the body, not the query string / access logs.
     """
-    return _stream_response(_get(session_id), text)
+    return _stream_response(_get(session_id, ctx), text)
 
 
 @router.post("/message/stream")
 def message_stream_post(body: Message, ctx: WorkspaceContext = Depends(get_ctx)):
     """Same SSE stream, message in the request body (fetch + ReadableStream)."""
-    return _stream_response(_get(body.session_id), body.text)
+    return _stream_response(_get(body.session_id, ctx), body.text)
 
 
 @router.get("/state")
 def state(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
-    return _get(session_id).snapshot()
+    return _get(session_id, ctx).snapshot()
 
 
 @router.post("/upload")
@@ -207,7 +216,7 @@ async def upload(
     single file is dropped in (e.g. an onboarding guide, or a file a previous read missed) — then
     the folder is re-read. With no prior folder, the upload becomes the working folder (a .zip's
     contents, or a one-file folder). Start fresh = New chat. The agent proposes a mapping."""
-    sess = _get(session_id)
+    sess = _get(session_id, ctx)
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file was uploaded")
     name = Path(file.filename).name            # basename only — no path traversal
