@@ -137,3 +137,38 @@ def test_template_roundtrip_through_parser():
     assert any(e.component_type == "HeatPump" and e.level == 2
                and e.link_pattern == "CL.Building.HeatPump" for e in parsed)
     assert any(e.component_type == "Sensor" and e.level == 3 for e in parsed)
+
+
+def test_requirements_ttl_outputs_use_output_vocabulary():
+    """Outputs are no longer disguised as inputs: what the service PRODUCES is
+    a ComponentAttributeOutput with provides* predicates and its stream."""
+    ttl = requirements_ttl(
+        "Svc", "",
+        [("WindTurbine", ["HubHeight"])], [],
+        BASE,
+        outputs=[("WindPark", ["Power"], "windforecast.eolica.Alkmaar")],
+    )
+    g = rdflib.Graph()
+    g.parse(data=ttl, format="turtle")
+    out = rdflib.URIRef(f"{BASE}out_1")
+    assert (out, rdflib.RDF.type, rdflib.URIRef(DICI + "ComponentAttributeOutput")) in g
+    assert (out, rdflib.URIRef(DICI + "providesOutputEntity"),
+            rdflib.URIRef(DICI + "WindPark")) in g
+    assert (out, rdflib.URIRef(DICI + "providesOutputAttribute"),
+            rdflib.URIRef(DICI + "Power")) in g
+    addrs = [str(o) for o in g.objects(out, rdflib.URIRef(DICI + "atStreamAddress"))]
+    assert addrs == ["windforecast.eolica.Alkmaar"]
+    # the input requirement is untouched, and never claims the output
+    ents = {str(o) for o in g.objects(rdflib.URIRef(f"{BASE}req_1"),
+                                      rdflib.URIRef(DICI + "hasInputEntity"))}
+    assert ents == {DICI + "WindTurbine"}
+    # the inline vocabulary declarations make the TTL self-describing
+    assert (rdflib.URIRef(DICI + "providesOutputEntity"), rdflib.RDF.type,
+            rdflib.OWL.ObjectProperty) in g
+
+
+def test_requirements_ttl_no_outputs_keeps_document_unchanged():
+    a = requirements_ttl("Svc", "", [("B", ["x"])], [], BASE)
+    b = requirements_ttl("Svc", "", [("B", ["x"])], [], BASE, outputs=[])
+    assert a == b
+    assert "ComponentAttributeOutput" not in a
