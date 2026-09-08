@@ -1180,6 +1180,19 @@
         "title": "SvcEntry",
         "type": "object"
       },
+      "SyncSpec": {
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service"
+        ],
+        "title": "SyncSpec",
+        "type": "object"
+      },
       "TemplateSpec": {
         "properties": {
           "connection": {
@@ -5573,6 +5586,63 @@
           }
         },
         "summary": "Service Requirements",
+        "tags": [
+          "scenario"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/scenario/sync": {
+      "post": {
+        "description": "Cascade a service change onto the scenarios built for it: re-validate\nevery ``builtForService``-tagged scenario against the service's CURRENT\ntemplate, rewrite partially-valid ones thin (previous file archived to\n``scenarios/_archive/``), remove empty ones — file and named graph both.\nCall after saving a changed service template so its scenarios never go\nstale.",
+        "operationId": "sync_scenarios_api_workspaces__workspace_id__scenario_sync_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SyncSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sync Scenarios Api Workspaces  Workspace Id  Scenario Sync Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Scenarios",
         "tags": [
           "scenario"
         ]

@@ -257,42 +257,15 @@ class ValidateSpec(BaseModel):
 def _attach_graph_attributes(ctx: WorkspaceContext, comps: list[dict[str, Any]]) -> None:
     """Fill in attributes/nested_properties from the workspace graph for
     components that didn't bring their own — the builder UI only holds
-    uri/type/label. Grouped per type so each type is one graph round-trip."""
-    from backend.explorer import (
-        get_component_data_unified,
-        get_component_types_with_instances,
-        structured_instance_attributes,
-    )
+    uri/type/label. Delegates to the backend's client-first helper (shared
+    with the scenario sync)."""
+    from backend.scenario_builder.sync import attach_graph_attributes
 
-    todo: dict[str, list[dict[str, Any]]] = {}
-    for c in comps:
-        if not c.get("attributes") and not c.get("nested_properties") and c.get("type"):
-            todo.setdefault(c["type"], []).append(c)
-    if not todo:
-        return
     try:
         client = graph_client(ctx)
-        # The explorer queries key on the display label ("Wind Turbine"); the
-        # builder holds class local names ("WindTurbine") — map between them.
-        types_df = get_component_types_with_instances(client)
-        label_by_local = {}
-        if types_df is not None and not types_df.empty:
-            for r in types_df.itertuples():
-                local = str(r.componentType).rstrip("/#").rsplit("#", 1)[-1].rsplit("/", 1)[-1]
-                label_by_local[local] = str(r.componentName)
     except Exception:
         return
-    for type_name, members in todo.items():
-        try:
-            _, attrs = get_component_data_unified(client, label_by_local.get(type_name, type_name))
-        except Exception:
-            continue
-        structured = structured_instance_attributes(attrs)
-        for c in members:
-            found = structured.get(c["uri"])
-            if found:
-                c["attributes"] = found["attributes"]
-                c["nested_properties"] = found["nested_properties"]
+    attach_graph_attributes(client, comps)
 
 
 @router.post("/validate")
@@ -392,6 +365,33 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         "links": {"total": len(links), "kept": len(kept_links),
                   "dropped": len(links) - len(kept_links)},
     }
+
+
+class SyncSpec(BaseModel):
+    # File name or service_name under services/ — same resolution as
+    # /scenario/requirements.
+    service: str
+
+
+@router.post("/sync")
+def sync_scenarios(spec: SyncSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Cascade a service change onto the scenarios built for it: re-validate
+    every ``builtForService``-tagged scenario against the service's CURRENT
+    template, rewrite partially-valid ones thin (previous file archived to
+    ``scenarios/_archive/``), remove empty ones — file and named graph both.
+    Call after saving a changed service template so its scenarios never go
+    stale."""
+    from backend.scenario_builder.sync import sync_scenarios_for_service
+    from backend.workspace.storage import WorkspaceStorage
+
+    file, _template = _resolve_service_template(ctx, spec.service)
+    storage = getattr(ctx, "storage", None)
+    if storage is None:
+        root = ws_root(ctx)
+        if not root.is_dir():
+            raise HTTPException(status_code=404, detail="workspace storage not found")
+        storage = WorkspaceStorage.local(str(root))
+    return sync_scenarios_for_service(storage, graph_client(ctx), f"services/{file}")
 
 
 def _wants_full_emitter(spec: ScenarioSpec) -> bool:
