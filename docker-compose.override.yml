@@ -48,7 +48,12 @@ services:
       - ${USECASES_HOST_PATH:-./demo_workspaces}:/app/data/usecases
       - ${MODULES_HOST_PATH:-./modules}:/app/data/modules
     # Install any mounted module's extra dependencies before launching, exactly
-    # as the streamlit service does above, then start uvicorn with hot reload.
+    # as the streamlit service does above, then start uvicorn.
+    # NO --reload: agent chats and builds live in this process's memory, and
+    # the watcher covered the mounted working copies — every `git pull` or
+    # editor save mid-conversation reloaded uvicorn and silently killed the
+    # session (and any build in flight). Pick up code changes with
+    # `docker restart digicities-api` instead.
     # entrypoint is already [] in the base file; repeated here so this override
     # stands on its own if the base command changes.
     entrypoint: ["/bin/sh", "-c"]
@@ -57,7 +62,7 @@ services:
         for r in /app/data/modules/requirements.txt /app/data/modules/*/requirements.txt; do
           if [ -f "$$r" ]; then echo "[modules] installing $$r"; pip install -q -r "$$r"; fi
         done
-        exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000 --reload
+        exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000
 
   fuseki:
     # Local-dev only: make the triplestore anonymous so the Fuseki web UI on
