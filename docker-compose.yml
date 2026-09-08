@@ -64,6 +64,7 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
+      INTAKE_MAX_INSTANCES: "${INTAKE_MAX_INSTANCES:-25}"
       ONTOLOGY_DIR: /app/data/ontology
       # Triplestore selection. Default 'fuseki' here; override to 'graphdb'
       # in .env when running with docker-compose.graphdb.yml overlay.
@@ -117,6 +118,10 @@ services:
       # Onboarding agent: default LLM + bounded in-memory session store.
       LLM_MODEL: "${LLM_MODEL:-sonnet}"
       AGENT_SESSION_CAP: "${AGENT_SESSION_CAP:-32}"
+      # Intake preview cap: rows per class the agent loads into the graph
+      # (OWL-RL materialization protection). Raise for full reference
+      # databases (e.g. the technology-database usecase: 600).
+      INTAKE_MAX_INSTANCES: "${INTAKE_MAX_INSTANCES:-25}"
       # Optional bearer-token auth (off by default; see apps/api/auth.py) and
       # CORS allow-list ("*" = dev-open; comma-separated origins to tighten).
       API_AUTH_ENABLED: "${API_AUTH_ENABLED:-}"
