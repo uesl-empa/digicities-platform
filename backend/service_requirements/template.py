@@ -78,8 +78,12 @@ def build_service_template(
     Returns ``{}`` when ``service_name`` is empty (nothing to name the service
     by). ``custom_field_names`` maps ``"<path>|<attr>|<flavor>"`` keys to
     user-chosen YAML field names; the reference string is never customized,
-    only the key. Key order matches the shipped templates: service_name,
-    description, connection, scenario_data.
+    only the key. It may also carry ``"<path>|__path__"`` keys renaming a
+    component BLOCK's output key (``building`` -> ``buildings``) — needed when
+    the payload contract belongs to a pre-existing live service the template
+    must conform to; the internal path/parent_path structure is untouched,
+    only the emitted key changes. Key order matches the shipped templates:
+    service_name, description, connection, scenario_data.
     """
     if not service_name:
         return {}
@@ -140,7 +144,10 @@ def build_service_template(
                 for child_key, child_value in children.items():
                     entry_structure[child_key] = child_value
 
-                result[entry.path] = entry_structure
+                out_key = entry.path
+                if use_custom_names:
+                    out_key = custom_names.get(f"{entry.path}|__path__", entry.path)
+                result[out_key] = entry_structure
 
         return result
 
