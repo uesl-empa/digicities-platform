@@ -1,0 +1,76 @@
+name: nextcloud-live
+
+# Storage-parity against a REAL NextCloud (phase 4 of the NextCloud plan):
+# the same tests/test_nextcloud_live.py suite a person runs before deployment
+# (local overlay) and after (cloud instance), here against a service
+# container on every storage-relevant change. SQLite mode is fine for CI —
+# the deploy overlay's Postgres wiring is validated by compose config + the
+# manual pre-deploy run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/workspace/**"
+      - "docker-compose.deploy.yml"
+      - "docker-compose.nextcloud.yml"
+      - "services/nextcloud/**"
+      - "tests/test_nextcloud_live.py"
+      - "tests/test_storage_parity*.py"
+      - ".github/workflows/nextcloud-live.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/workspace/**"
+      - "docker-compose.deploy.yml"
+      - "docker-compose.nextcloud.yml"
+      - "services/nextcloud/**"
+      - "tests/test_nextcloud_live.py"
+      - "tests/test_storage_parity*.py"
+      - ".github/workflows/nextcloud-live.yml"
+
+jobs:
+  live:
+    name: mirror + WebDAV against real NextCloud
+    runs-on: ubuntu-latest
+    services:
+      nextcloud:
+        image: nextcloud:29-apache
+        ports:
+          - 8080:80
+        env:
+          NEXTCLOUD_ADMIN_USER: admin
+          NEXTCLOUD_ADMIN_PASSWORD: ci-password
+          NEXTCLOUD_TRUSTED_DOMAINS: "localhost"
+          SQLITE_DATABASE: nextcloud
+        options: >-
+          --health-cmd "curl -fsS http://localhost/status.php || exit 1"
+          --health-interval 15s
+          --health-timeout 10s
+          --health-retries 20
+          --health-start-period 90s
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          pip install pytest "webdav4[fsspec]"
+      - name: Wait for authenticated WebDAV
+        run: |
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -u admin:ci-password \
+              -X PROPFIND "http://localhost:8080/remote.php/dav/files/admin/" -H "Depth: 0")
+            [ "$code" = "207" ] && exit 0
+            echo "waiting (HTTP $code)…"; sleep 3
+          done
+          echo "WebDAV never became ready"; exit 1
+      - name: Run live suite
+        env:
+          NEXTCLOUD_LIVE_URL: http://localhost:8080
+          NEXTCLOUD_LIVE_USER: admin
+          NEXTCLOUD_LIVE_PASSWORD: ci-password
+        run: pytest -m live tests/test_nextcloud_live.py -v
