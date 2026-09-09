@@ -318,6 +318,10 @@ def create_workspace(body: CreateWorkspace,
             description=body.description,
             workspace_type=body.workspace_type,
             location=body.location,
+            # Cloud tier: STORAGE_BACKEND=nextcloud means new workspaces are
+            # born on the durable store, not the server's local disk.
+            backend=("nextcloud" if os.getenv("STORAGE_BACKEND", "").lower() == "nextcloud"
+                     else "local"),
             provision_graph=True,
         )
     except Exception as exc:

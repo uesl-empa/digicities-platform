@@ -89,5 +89,22 @@ mkcol "global"
 mkcol "global/open_data_products"
 mkcol "global/workspace_meta"
 
+# The autodiscovery signal: a folder is a workspace iff it carries
+# workspace_meta/metadata.json (backend/workspace/registry.py). Without this
+# the seeded demo workspace exists as folders but never appears in the app.
+meta_url="${DAV_BASE}/${WORKSPACE_ID}/workspace_meta/metadata.json"
+code=$(curl -s -o /dev/null -w "%{http_code}" \
+  -u "${NEXTCLOUD_USER}:${NEXTCLOUD_PASS}" "${meta_url}")
+if [ "$code" = "404" ]; then
+  code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -u "${NEXTCLOUD_USER}:${NEXTCLOUD_PASS}" \
+    -X PUT -H "Content-Type: application/json" \
+    -d "{\"id\": \"${WORKSPACE_ID}\", \"name\": \"${WORKSPACE_ID}\", \"description\": \"Seeded demo workspace\", \"type\": \"Demo\", \"tags\": []}" \
+    "${meta_url}")
+  echo "   metadata.json for ${WORKSPACE_ID}: HTTP ${code}"
+else
+  echo "   metadata.json exists (HTTP ${code})"
+fi
+
 echo "==> NextCloud initialisation complete."
 echo "==> Open the web UI at http://localhost:8080 (user: ${NEXTCLOUD_USER})"
