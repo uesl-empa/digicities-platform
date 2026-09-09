@@ -45,6 +45,7 @@ WS_ROOT_CALLERS = {
 # seeding) plus two legacy local-mode fallbacks.
 USECASES_DERIVERS = {
     "apps/api/deps.py",
+    "backend/workspace/mirror.py",   # local_root: THE sanctioned mirror seam
     "backend/workspace/paths.py",
     "backend/workspace/creation.py",
     "backend/workspace/registry.py",

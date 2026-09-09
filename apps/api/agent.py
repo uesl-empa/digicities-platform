@@ -171,14 +171,21 @@ def message(body: Message, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     return _get(body.session_id, ctx).send(body.text)
 
 
-def _stream_response(sess, text: str):
+def _stream_response(sess, text: str, ctx: WorkspaceContext):
     import json as _json
     from fastapi.responses import StreamingResponse
 
     def gen():
-        for kind, data in sess.send_stream(text):
-            yield f"event: {kind}\ndata: {_json.dumps(data)}\n\n"
-        yield "event: done\ndata: {}\n\n"
+        try:
+            for kind, data in sess.send_stream(text):
+                yield f"event: {kind}\ndata: {_json.dumps(data)}\n\n"
+            yield "event: done\ndata: {}\n\n"
+        finally:
+            # An agent turn can build/import/reset the workspace — and it rides
+            # a GET that outlives the push middleware, so publish here, after
+            # the turn actually finished (no-op for local-fs workspaces).
+            from backend.workspace import mirror
+            mirror.push(ctx)
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -191,13 +198,13 @@ def message_stream(session_id: str, text: str, ctx: WorkspaceContext = Depends(g
     GET exists for EventSource clients; long messages should use the POST
     variant so the text rides in the body, not the query string / access logs.
     """
-    return _stream_response(_get(session_id, ctx), text)
+    return _stream_response(_get(session_id, ctx), text, ctx)
 
 
 @router.post("/message/stream")
 def message_stream_post(body: Message, ctx: WorkspaceContext = Depends(get_ctx)):
     """Same SSE stream, message in the request body (fetch + ReadableStream)."""
-    return _stream_response(_get(body.session_id, ctx), body.text)
+    return _stream_response(_get(body.session_id, ctx), body.text, ctx)
 
 
 @router.get("/state")

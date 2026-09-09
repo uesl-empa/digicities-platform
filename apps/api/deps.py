@@ -50,6 +50,11 @@ def get_ctx(workspace_id: str = Path(..., description="workspace id"),
     if allowed is not None and workspace_id not in allowed:
         # 404 (not 403) so a private workspace's existence isn't leaked — for anon callers too.
         raise HTTPException(status_code=404, detail=f"workspace '{workspace_id}' not found")
+    # Remote-backed workspace → refresh the local working copy (throttled,
+    # fail-soft; a no-op for local storage). The mirror's READ seam: every
+    # route that goes on to touch ws_root sees fresh files.
+    from backend.workspace import mirror
+    mirror.pull(ctx)
     return ctx
 
 

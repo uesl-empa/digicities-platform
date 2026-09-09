@@ -124,6 +124,32 @@ app = FastAPI(
     dependencies=[Depends(require_auth)],
 )
 
+# Mirror WRITE seam: after any successful mutating request on a workspace
+# route, publish the local working copy to the workspace's remote storage
+# (no-op for local-fs workspaces — see backend/workspace/mirror.py). The
+# agent's SSE stream mutates over GET and outlives this middleware, so it
+# pushes for itself at stream end (apps/api/agent.py).
+_MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def _mirror_push_after_write(request, call_next):
+    response = await call_next(request)
+    if request.method in _MUTATING and response.status_code < 400:
+        parts = request.url.path.split("/")
+        # /api/workspaces/<id>/...
+        if len(parts) > 4 and parts[1] == "api" and parts[2] == "workspaces":
+            try:
+                from backend.workspace import mirror
+                from .registry_cache import by_id as _cached_by_id
+                ctx = _cached_by_id(parts[3])
+                if ctx is not None:
+                    mirror.push(ctx)
+            except Exception as exc:              # never take the response down
+                print(f"[mirror] middleware push skipped: {exc}")
+    return response
+
+
 # The React app is served from a different origin in dev. CORS_ORIGINS is a
 # comma-separated allow-list of origins; the default "*" keeps dev open —
 # set it to the deployed frontend origin(s) before this leaves a laptop.
