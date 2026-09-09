@@ -65,13 +65,22 @@ mkcol "${WORKSPACE_ID}/ontology/mappings"
 mkcol "${WORKSPACE_ID}/ontology/mappings/input"
 mkcol "${WORKSPACE_ID}/ontology/mappings/output"
 
-# Workspace-level folders used by other modules. Names must match what the
-# Streamlit code looks for — see apps/streamlit/components/data_products/
-# data_loader.py for the private_data_products path.
+# Workspace-level folders used by other modules. This is the CANONICAL
+# workspace layout — keep in lockstep with _WORKSPACE_DIRS in the
+# onboarding agent's builder (docs/WORKSPACE_LAYOUT.md) and
+# WorkspaceStorage.ensure_canonical_layout. private_data_products must match
+# apps/streamlit/components/data_products/data_loader.py.
+mkcol "${WORKSPACE_ID}/ingestion"
+mkcol "${WORKSPACE_ID}/ingestion/input"
+mkcol "${WORKSPACE_ID}/ingestion/output"
 mkcol "${WORKSPACE_ID}/private_data_products"
 mkcol "${WORKSPACE_ID}/scenarios"
 mkcol "${WORKSPACE_ID}/services"
+mkcol "${WORKSPACE_ID}/queries"
 mkcol "${WORKSPACE_ID}/timeseries"
+mkcol "${WORKSPACE_ID}/notebooks"
+mkcol "${WORKSPACE_ID}/docs"
+mkcol "${WORKSPACE_ID}/resources"
 mkcol "${WORKSPACE_ID}/workspace_meta"
 
 # Global folder (shared, read-only from the workspace user's perspective —
