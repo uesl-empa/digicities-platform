@@ -15,7 +15,7 @@ import pathlib
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from backend.workspace import WorkspaceContext
 
@@ -107,3 +107,22 @@ def file_content(
             detail=f"'{path}' is {size} bytes; /content serves at most {MAX_CONTENT_BYTES}")
 
     return Response(content=target.read_bytes(), media_type=_guess_type(target.name))
+
+
+@router.get("/files/download")
+def file_download(
+    path: str = Query(..., description="workspace-relative file path"),
+    ctx: WorkspaceContext = Depends(get_ctx),
+) -> FileResponse:
+    """Download one workspace file as an attachment. Unlike ``/content`` there is
+    no size cap: this is the route for generated artifacts (a replica TTL, the
+    ingestion workbook, a materialized scenario) that can outgrow a browsing
+    preview, streamed from disk rather than buffered."""
+    _, target = _resolve(ctx, path)
+    if not target.exists():
+        raise HTTPException(status_code=404, detail=f"'{path}' not found")
+    if target.is_dir():
+        raise HTTPException(status_code=400, detail=f"'{path}' is a directory")
+
+    return FileResponse(target, media_type=_guess_type(target.name),
+                        filename=target.name)
