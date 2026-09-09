@@ -65,13 +65,22 @@ mkcol "${WORKSPACE_ID}/ontology/mappings"
 mkcol "${WORKSPACE_ID}/ontology/mappings/input"
 mkcol "${WORKSPACE_ID}/ontology/mappings/output"
 
-# Workspace-level folders used by other modules. Names must match what the
-# Streamlit code looks for — see apps/streamlit/components/data_products/
-# data_loader.py for the private_data_products path.
+# Workspace-level folders used by other modules. This is the CANONICAL
+# workspace layout — keep in lockstep with _WORKSPACE_DIRS in the
+# onboarding agent's builder (docs/WORKSPACE_LAYOUT.md) and
+# WorkspaceStorage.ensure_canonical_layout. private_data_products must match
+# apps/streamlit/components/data_products/data_loader.py.
+mkcol "${WORKSPACE_ID}/ingestion"
+mkcol "${WORKSPACE_ID}/ingestion/input"
+mkcol "${WORKSPACE_ID}/ingestion/output"
 mkcol "${WORKSPACE_ID}/private_data_products"
 mkcol "${WORKSPACE_ID}/scenarios"
 mkcol "${WORKSPACE_ID}/services"
+mkcol "${WORKSPACE_ID}/queries"
 mkcol "${WORKSPACE_ID}/timeseries"
+mkcol "${WORKSPACE_ID}/notebooks"
+mkcol "${WORKSPACE_ID}/docs"
+mkcol "${WORKSPACE_ID}/resources"
 mkcol "${WORKSPACE_ID}/workspace_meta"
 
 # Global folder (shared, read-only from the workspace user's perspective —
@@ -79,6 +88,23 @@ mkcol "${WORKSPACE_ID}/workspace_meta"
 mkcol "global"
 mkcol "global/open_data_products"
 mkcol "global/workspace_meta"
+
+# The autodiscovery signal: a folder is a workspace iff it carries
+# workspace_meta/metadata.json (backend/workspace/registry.py). Without this
+# the seeded demo workspace exists as folders but never appears in the app.
+meta_url="${DAV_BASE}/${WORKSPACE_ID}/workspace_meta/metadata.json"
+code=$(curl -s -o /dev/null -w "%{http_code}" \
+  -u "${NEXTCLOUD_USER}:${NEXTCLOUD_PASS}" "${meta_url}")
+if [ "$code" = "404" ]; then
+  code=$(curl -s -o /dev/null -w "%{http_code}" \
+    -u "${NEXTCLOUD_USER}:${NEXTCLOUD_PASS}" \
+    -X PUT -H "Content-Type: application/json" \
+    -d "{\"id\": \"${WORKSPACE_ID}\", \"name\": \"${WORKSPACE_ID}\", \"description\": \"Seeded demo workspace\", \"type\": \"Demo\", \"tags\": []}" \
+    "${meta_url}")
+  echo "   metadata.json for ${WORKSPACE_ID}: HTTP ${code}"
+else
+  echo "   metadata.json exists (HTTP ${code})"
+fi
 
 echo "==> NextCloud initialisation complete."
 echo "==> Open the web UI at http://localhost:8080 (user: ${NEXTCLOUD_USER})"

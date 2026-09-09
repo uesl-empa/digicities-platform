@@ -124,6 +124,17 @@ def delete_workspace(
 
     files_removed = _remove_storage_tree(ctx)
 
+    # A remote-backed workspace also keeps a server-local mirror copy — remove
+    # it too, or a stale working tree lingers under the local usecases root
+    # after the durable store is gone.
+    try:
+        from . import mirror
+        if mirror.enabled(ctx):
+            import shutil
+            shutil.rmtree(mirror.local_root(ctx), ignore_errors=True)
+    except Exception:
+        pass
+
     dataset_dropped = False
     if drop_dataset:
         dataset_dropped = delete_repository(ctx.graphdb_repository or ws_id)

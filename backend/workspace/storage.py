@@ -218,6 +218,34 @@ class WorkspaceStorage:
         if self.fs.exists(self._abs(rel_path)):
             self.fs.rm(self._abs(rel_path))
 
+    def walk_files(self) -> dict[str, dict]:
+        """Every file under the workspace root, recursively:
+        ``{rel_path: {"size": int, "mtime": float|None}}``.
+
+        The mirror layer's change-detection input. mtime is best-effort —
+        fsspec backends disagree on the key and some (WebDAV servers among
+        them) omit it; ``None`` means "compare by size + manifest only".
+        """
+        root = self.root.rstrip("/")
+        try:
+            entries = self.fs.find(root, detail=True)
+        except FileNotFoundError:
+            return {}
+        out: dict[str, dict] = {}
+        prefix = root.replace("\\", "/") + "/"
+        for name, info in entries.items():
+            if info.get("type") == "directory":
+                continue
+            rel = name.replace("\\", "/")
+            if rel.startswith(prefix):
+                rel = rel[len(prefix):]
+            mtime = info.get("mtime") or info.get("modified") or info.get("last_modified")
+            if hasattr(mtime, "timestamp"):          # datetime → epoch
+                mtime = mtime.timestamp()
+            out[rel] = {"size": int(info.get("size") or 0),
+                        "mtime": float(mtime) if mtime is not None else None}
+        return out
+
     def mkdir(self, rel_path: str, exist_ok: bool = True) -> None:
         path = self._abs(rel_path)
         if self.fs.exists(path):

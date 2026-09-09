@@ -77,6 +77,8 @@ def list_directory(
 
     entries = []
     for child in sorted(target.iterdir(), key=lambda p: (p.is_file(), p.name.lower())):
+        if child.name == ".mirror-manifest.json":   # sync bookkeeping, not user data
+            continue
         stat = child.stat()
         entries.append({
             "name": child.name,

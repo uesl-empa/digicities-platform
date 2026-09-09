@@ -1,0 +1,119 @@
+# docker-compose.deploy.yml
+# ---------------------------------------------------------------------
+# CLOUD / SERVER deployment overlay: NextCloud as the default workspace
+# store, provisioned by the initial compose bring-up.
+#
+#     docker compose -f docker-compose.yml -f docker-compose.deploy.yml up -d
+#
+# This is the "web app" deployment: users reach the platform through the
+# browser and can NOT see the server's filesystem, so NextCloud is the
+# user-facing durable store (browse/edit workspace files at :8080), while
+# the containers keep a local working copy (mirror layer, see
+# .claude/plans/nextcloud-default-storage.md).
+#
+# Differences from docker-compose.nextcloud.yml (the LOCAL opt-in overlay,
+# which stays unchanged for Docker Desktop use):
+#   - credentials are REQUIRED (compose fails loudly if .env doesn't set
+#     NEXTCLOUD_BASIC_USERNAME / NEXTCLOUD_BASIC_PASSWORD) — no admin/admin
+#     defaults on a machine that faces the internet;
+#   - NextCloud runs on Postgres (its own instance + volume), not SQLite;
+#   - trusted_domains self-heal on every container start via a
+#     before-starting hook (the env var alone is only read on FIRST boot);
+#   - the api service gets the storage env too, not just streamlit.
+#
+# Put behind a reverse proxy / TLS terminator in production; the published
+# ports here are the in-network defaults.
+# ---------------------------------------------------------------------
+
+services:
+
+  nextcloud-db:
+    image: postgres:16-alpine
+    container_name: digicities-nextcloud-db
+    environment:
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: "${NEXTCLOUD_DB_PASSWORD:?set NEXTCLOUD_DB_PASSWORD in .env}"
+    volumes:
+      - nextcloud_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nextcloud -d nextcloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  nextcloud:
+    image: nextcloud:29-apache
+    container_name: digicities-nextcloud
+    ports:
+      - "${NEXTCLOUD_PORT:-8080}:80"
+    volumes:
+      - nextcloud_data:/var/www/html
+      # Self-healing config: hooks run inside the official image's
+      # entrypoint; before-starting re-asserts trusted_domains every start.
+      - ./services/nextcloud/hooks/before-starting:/docker-entrypoint-hooks.d/before-starting:ro
+    environment:
+      NEXTCLOUD_ADMIN_USER: "${NEXTCLOUD_BASIC_USERNAME:?set NEXTCLOUD_BASIC_USERNAME in .env}"
+      NEXTCLOUD_ADMIN_PASSWORD: "${NEXTCLOUD_BASIC_PASSWORD:?set NEXTCLOUD_BASIC_PASSWORD in .env}"
+      # Every Host header NextCloud will see: browser (localhost / your
+      # public hostname via NEXTCLOUD_PUBLIC_HOST), sibling containers
+      # (service + container name). Applied on first boot AND re-asserted
+      # by the before-starting hook on every start.
+      NEXTCLOUD_TRUSTED_DOMAINS: "localhost nextcloud digicities-nextcloud ${NEXTCLOUD_PUBLIC_HOST:-}"
+      POSTGRES_HOST: nextcloud-db
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: "${NEXTCLOUD_DB_PASSWORD:?set NEXTCLOUD_DB_PASSWORD in .env}"
+    depends_on:
+      nextcloud-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/status.php"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 90s
+    restart: unless-stopped
+
+  nextcloud-init:
+    image: curlimages/curl:latest
+    container_name: digicities-nextcloud-init
+    depends_on:
+      nextcloud:
+        condition: service_healthy
+    volumes:
+      - ./services/nextcloud:/init:ro
+    environment:
+      NEXTCLOUD_URL: "http://nextcloud:80"
+      NEXTCLOUD_USER: "${NEXTCLOUD_BASIC_USERNAME:?set NEXTCLOUD_BASIC_USERNAME in .env}"
+      NEXTCLOUD_PASS: "${NEXTCLOUD_BASIC_PASSWORD:?set NEXTCLOUD_BASIC_PASSWORD in .env}"
+      WORKSPACE_ID: "${LOCAL_WORKSPACE:-workspace_demo}"
+    entrypoint: ["/bin/sh", "/init/init.sh"]
+    restart: "no"
+
+  # Storage env for BOTH app services (the local overlay only wired
+  # streamlit — the api never learned about NextCloud until now).
+  streamlit:
+    environment:
+      STORAGE_BACKEND: nextcloud
+      NEXTCLOUD_BASE_URL: "http://nextcloud:80"
+      NEXTCLOUD_BASIC_USERNAME: "${NEXTCLOUD_BASIC_USERNAME:?set NEXTCLOUD_BASIC_USERNAME in .env}"
+      NEXTCLOUD_BASIC_PASSWORD: "${NEXTCLOUD_BASIC_PASSWORD:?set NEXTCLOUD_BASIC_PASSWORD in .env}"
+    depends_on:
+      nextcloud:
+        condition: service_healthy
+
+  api:
+    environment:
+      STORAGE_BACKEND: nextcloud
+      NEXTCLOUD_BASE_URL: "http://nextcloud:80"
+      NEXTCLOUD_BASIC_USERNAME: "${NEXTCLOUD_BASIC_USERNAME:?set NEXTCLOUD_BASIC_USERNAME in .env}"
+      NEXTCLOUD_BASIC_PASSWORD: "${NEXTCLOUD_BASIC_PASSWORD:?set NEXTCLOUD_BASIC_PASSWORD in .env}"
+    depends_on:
+      nextcloud:
+        condition: service_healthy
+
+volumes:
+  nextcloud_data:
+  nextcloud_db_data:
