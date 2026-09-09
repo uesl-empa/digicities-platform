@@ -157,7 +157,16 @@ def test_api_serves_a_nextcloud_workspace_when_available():
     if not api:
         pytest.skip("set DIGICITIES_API_URL for the end-to-end API check")
     import requests
-    r = requests.get(f"{api.rstrip('/')}/api/workspaces/{WS}/files",
-                     params={"path": ""}, timeout=30)
-    assert r.status_code == 200, r.text
+
+    # The api's NextCloud discovery cache has a TTL (~60s) — a workspace this
+    # suite JUST created isn't visible until the next scan. Poll, don't flap.
+    deadline = time.monotonic() + 150
+    r = None
+    while time.monotonic() < deadline:
+        r = requests.get(f"{api.rstrip('/')}/api/workspaces/{WS}/files",
+                         params={"path": ""}, timeout=30)
+        if r.status_code == 200:
+            break
+        time.sleep(10)
+    assert r is not None and r.status_code == 200, getattr(r, "text", "no response")
     assert "entries" in r.json()
