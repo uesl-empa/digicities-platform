@@ -1369,6 +1369,38 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WorkspaceListPage": {
+        "description": "Opt-in paginated shape (returned when ``page``/``page_size`` is passed) —\nthe plain list stays the default response so existing callers (the sidebar\nworkspace switcher, in particular) keep seeing every workspace unchanged.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "WorkspaceListPage",
+        "type": "object"
+      },
       "WorkspaceSummary": {
         "properties": {
           "created_date": {
@@ -1579,22 +1611,87 @@
     },
     "/api/workspaces": {
       "get": {
-        "description": "The workspaces the caller may see (their own + shared + granted), newest first.\n\nWith no signed-in user (auth off) this is every workspace — unchanged behaviour.\n``updated_at`` is the same activity-aware stamp the Streamlit landing page sorts by.",
+        "description": "The workspaces the caller may see (their own + shared + granted).\n\nWith no signed-in user (auth off) this is every workspace — unchanged behaviour.\n``updated_at`` is the same activity-aware stamp the Streamlit landing page sorts by,\nread from the background-refreshed cache (not recomputed per request — see\n``registry_cache``, whose per-workspace disk/network cost made this endpoint slow\nonce there were dozens of workspaces).\n\nPass NO ``page``/``page_size`` (the default) to get the plain, full, sorted list —\nthe shape every existing caller (incl. the sidebar workspace switcher) expects.\nPass both to get a ``{items, total, page, page_size}`` page instead — what the\nWorkspaces landing page uses so it doesn't have to hold everyone's workspaces\nin the DOM/state at once.",
         "operationId": "list_workspaces_api_workspaces_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 200,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page Size"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "updated",
+              "pattern": "^(updated|name|created)$",
+              "title": "Sort",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/WorkspaceSummary"
-                  },
-                  "title": "Response List Workspaces Api Workspaces Get",
-                  "type": "array"
+                  "anyOf": [
+                    {
+                      "items": {
+                        "$ref": "#/components/schemas/WorkspaceSummary"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "$ref": "#/components/schemas/WorkspaceListPage"
+                    }
+                  ],
+                  "title": "Response List Workspaces Api Workspaces Get"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Workspaces",
@@ -3074,6 +3171,60 @@
           }
         },
         "summary": "File Content",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/files/download": {
+      "get": {
+        "description": "Download one workspace file as an attachment. Unlike ``/content`` there is\nno size cap: this is the route for generated artifacts (a replica TTL, the\ningestion workbook, a materialized scenario) that can outgrow a browsing\npreview, streamed from disk rather than buffered.",
+        "operationId": "file_download_api_workspaces__workspace_id__files_download_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "workspace-relative file path",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "workspace-relative file path",
+              "title": "Path",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "File Download",
         "tags": [
           "files"
         ]

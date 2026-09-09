@@ -197,6 +197,27 @@ def test_files_content_serves_small_files_with_content_type(client, ws):
                       params={"path": "private_data_products"}).status_code == 400
 
 
+def test_files_download_serves_attachment_without_size_cap(client, ws, monkeypatch):
+    import apps.api.files as files_mod
+
+    # Bigger than the /content cap on purpose — /download must still serve it.
+    monkeypatch.setattr(files_mod, "MAX_CONTENT_BYTES", 10)
+    (ws / "replica.ttl").write_bytes(b"x" * 64)
+    r = client.get(f"{B}/files/download", params={"path": "replica.ttl"})
+    assert r.status_code == 200
+    assert r.content == b"x" * 64
+    assert r.headers["content-type"].startswith("text/turtle")
+    assert 'filename="replica.ttl"' in r.headers["content-disposition"]
+
+    assert client.get(f"{B}/files/download",
+                      params={"path": "nope.ttl"}).status_code == 404
+    assert client.get(f"{B}/files/download",
+                      params={"path": "private_data_products"}).status_code == 400
+    for bad in ("..", "a/../../secret.txt"):
+        assert client.get(f"{B}/files/download",
+                          params={"path": bad}).status_code == 400
+
+
 def test_files_content_enforces_size_cap(client, ws, monkeypatch):
     import apps.api.files as files_mod
 
