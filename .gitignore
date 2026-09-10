@@ -109,7 +109,6 @@ service_functions/*.zip
 testfrr/
 701
 streamlit.yaml
-.gitlab-ci.yml
 service_functions/
 
 # Tutorial-notebook scratch outputs
