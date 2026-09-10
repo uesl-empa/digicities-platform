@@ -87,7 +87,7 @@ def test_component_table_flags_catalogue_rows(api_client, ws, monkeypatch):
 
     monkeypatch.setattr(route_mod, "graph_client", lambda ctx: object())
     monkeypatch.setattr(bx, "get_component_data_unified",
-                        lambda c, n: ([{"instance": {"value": uri_sited}}], []))
+                        lambda c, n, **_: ([{"instance": {"value": uri_sited}}], []))
     monkeypatch.setattr(bx, "process_enhanced_component_data", lambda i, a: df)
     monkeypatch.setattr(bx, "get_component_sources", lambda c, n: pd.DataFrame())
     monkeypatch.setattr(bx, "attach_sources", lambda d, s: d)
@@ -106,7 +106,7 @@ def test_component_table_empty_carries_catalogue_fields(api_client, ws, monkeypa
     import apps.api.explorer as route_mod
 
     monkeypatch.setattr(route_mod, "graph_client", lambda ctx: object())
-    monkeypatch.setattr(bx, "get_component_data_unified", lambda c, n: ([], []))
+    monkeypatch.setattr(bx, "get_component_data_unified", lambda c, n, **_: ([], []))
     body = api_client.get("/api/workspaces/testws/components/Nothing").json()
     assert body["catalogue"] == []
     assert body["has_catalogue"] is False

@@ -18,21 +18,26 @@ from backend.graphdb import queries as gdb_queries
 from backend.explorer.uris import extract_property_name
 
 
-def get_component_types_with_instances(client) -> pd.DataFrame:
+def get_component_types_with_instances(client, most_specific_only: bool = True) -> pd.DataFrame:
     """Get component types that actually have instances in the knowledge graph.
 
     Thin wrapper over ``backend.graphdb.queries`` (the SPARQL lives there, UI-free).
+    ``most_specific_only=False`` also lists the ancestor classes each instance
+    holds, so a caller can offer the whole hierarchy instead of leaves only.
     """
-    return gdb_queries.get_component_types_with_instances(client)
+    return gdb_queries.get_component_types_with_instances(
+        client, most_specific_only=most_specific_only)
 
 
-def get_component_instances(client, component_type_label: str) -> Optional[List[Dict[str, Any]]]:
+def get_component_instances(client, component_type_label: str,
+                            most_specific_only: bool = True) -> Optional[List[Dict[str, Any]]]:
     """Get all instances of a specific component type.
 
     Queries via ``backend.graphdb.queries`` and shapes the result into the
     binding-dict form the explorer's rendering expects.
     """
-    result_df = gdb_queries.get_component_instances(client, component_type_label)
+    result_df = gdb_queries.get_component_instances(
+        client, component_type_label, most_specific_only=most_specific_only)
 
     instances = []
     for _, row in result_df.iterrows():
@@ -94,9 +99,11 @@ def get_component_basic_properties(client, component_type_label: str) -> Optiona
     return properties
 
 
-def get_component_data_unified(client, component_type_label: str) -> Tuple[List[Dict], List[Dict]]:
+def get_component_data_unified(client, component_type_label: str,
+                               most_specific_only: bool = True) -> Tuple[List[Dict], List[Dict]]:
     """Unified method to get component instances and their attributes"""
-    instances = get_component_instances(client, component_type_label)
+    instances = get_component_instances(
+        client, component_type_label, most_specific_only=most_specific_only)
 
     attributes = None
     try:
