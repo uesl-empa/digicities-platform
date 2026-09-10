@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from backend.workspace import WorkspaceContext
 
@@ -28,11 +28,19 @@ def _clean(v: Any) -> Any:
 
 
 @router.get("/components")
-def component_types(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+def component_types(
+    all_levels: bool = Query(
+        False,
+        description="List each instance under EVERY ancestor class it holds "
+                    "(Converter, Energy Converter, Turbine AND Wind Turbine), not "
+                    "just its leaf class. Counts overlap by design."),
+    ctx: WorkspaceContext = Depends(get_ctx),
+) -> list[dict[str, Any]]:
     """Component classes with instance counts (the explorer's left-hand list)."""
     from backend.explorer import get_component_types_with_instances
 
-    df = get_component_types_with_instances(graph_client(ctx))
+    df = get_component_types_with_instances(graph_client(ctx),
+                                            most_specific_only=not all_levels)
     if df is None or df.empty:
         return []
     return [
@@ -42,7 +50,14 @@ def component_types(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, 
 
 
 @router.get("/components/{name}")
-def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+def component_table(
+    name: str,
+    all_levels: bool = Query(
+        False,
+        description="Include instances whose leaf class is a DESCENDANT of "
+                    "``name`` — what an ancestor-level pick has to return."),
+    ctx: WorkspaceContext = Depends(get_ctx),
+) -> dict[str, Any]:
     """The instance × attribute table for one component type — values already
     carry units (``85.0 m``, ``Curve (25 points): KiloW vs M/SEC``). Curve points
     are returned separately, keyed by instance id, so the UI can chart them."""
@@ -58,7 +73,8 @@ def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict
     )
 
     client = graph_client(ctx)
-    instances, attributes = get_component_data_unified(client, name)
+    instances, attributes = get_component_data_unified(
+        client, name, most_specific_only=not all_levels)
     if not instances:
         return {"columns": [], "rows": [], "curves": {}, "series": {}, "sources": {},
                 "has_sources": False, "catalogue": [], "has_catalogue": False}

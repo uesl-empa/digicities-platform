@@ -2758,6 +2758,18 @@
               "title": "Workspace Id",
               "type": "string"
             }
+          },
+          {
+            "description": "List each instance under EVERY ancestor class it holds (Converter, Energy Converter, Turbine AND Wind Turbine), not just its leaf class. Counts overlap by design.",
+            "in": "query",
+            "name": "all_levels",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "List each instance under EVERY ancestor class it holds (Converter, Energy Converter, Turbine AND Wind Turbine), not just its leaf class. Counts overlap by design.",
+              "title": "All Levels",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -2816,6 +2828,18 @@
               "description": "workspace id",
               "title": "Workspace Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Include instances whose leaf class is a DESCENDANT of ``name`` — what an ancestor-level pick has to return.",
+            "in": "query",
+            "name": "all_levels",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include instances whose leaf class is a DESCENDANT of ``name`` — what an ancestor-level pick has to return.",
+              "title": "All Levels",
+              "type": "boolean"
             }
           }
         ],
