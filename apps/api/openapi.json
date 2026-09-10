@@ -2849,6 +2849,62 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/components/{name}/hierarchy": {
+      "get": {
+        "description": "The type's rdfs:subClassOf ancestor chain, root-first — e.g.\n``[\"Converter\", \"Turbine\", \"WindTurbine\"]`` — for the \"view hierarchy\"\ntoggle next to a selected component type.",
+        "operationId": "component_hierarchy_api_workspaces__workspace_id__components__name__hierarchy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Component Hierarchy Api Workspaces  Workspace Id  Components  Name  Hierarchy Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Component Hierarchy",
+        "tags": [
+          "explorer"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/data-products": {
       "get": {
         "description": "Available data products (workspace-private + open/global) with fast\nmetadata — no TTL parsing, same as the tab's listing pass.",

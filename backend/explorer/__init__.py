@@ -38,6 +38,7 @@ from backend.explorer.instances import (
     get_component_attributes_comprehensive,
     get_component_basic_properties,
     get_component_data_unified,
+    get_component_hierarchy_chain,
     get_component_instances,
     get_component_types_with_instances,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "get_component_basic_properties",
     "get_catalogue_instance_uris",
     "get_component_data_unified",
+    "get_component_hierarchy_chain",
     "get_component_instances",
     "get_component_sources",
     "get_component_types_with_instances",

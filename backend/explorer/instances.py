@@ -26,6 +26,26 @@ def get_component_types_with_instances(client) -> pd.DataFrame:
     return gdb_queries.get_component_types_with_instances(client)
 
 
+def get_component_hierarchy_chain(client, component_type_label: str) -> List[str]:
+    """The rdfs:subClassOf ancestor chain for a component type, root-first,
+    ending with the type itself — e.g. ``["Converter", "Turbine",
+    "WindTurbine"]`` for a WindTurbine that specializes Turbine that
+    specializes Converter. Core ``Component`` is excluded (every chain leads
+    there eventually; it isn't informative on its own).
+
+    ``get_component_hierarchy_edges`` already returns the type's ancestor set
+    pre-ranked root-first (depth = how many OTHER ancestors-within-the-set a
+    class itself descends from — closure-proof, unlike raw subClassOf edges;
+    see that function's docstring) — this just lifts out the ordered names.
+    Falls back to ``[component_type_label]`` if the type has no modelled
+    ancestor beyond Component, or isn't found.
+    """
+    df = gdb_queries.get_component_hierarchy_edges(client, component_type_label)
+    if df.empty:
+        return [component_type_label]
+    return [str(name) for name in df["sName"]]
+
+
 def get_component_instances(client, component_type_label: str) -> Optional[List[Dict[str, Any]]]:
     """Get all instances of a specific component type.
 

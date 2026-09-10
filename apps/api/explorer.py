@@ -41,6 +41,16 @@ def component_types(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, 
     ]
 
 
+@router.get("/components/{name}/hierarchy")
+def component_hierarchy(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """The type's rdfs:subClassOf ancestor chain, root-first — e.g.
+    ``["Converter", "Turbine", "WindTurbine"]`` — for the "view hierarchy"
+    toggle next to a selected component type."""
+    from backend.explorer import get_component_hierarchy_chain
+
+    return {"chain": get_component_hierarchy_chain(graph_client(ctx), name)}
+
+
 @router.get("/components/{name}")
 def component_table(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """The instance × attribute table for one component type — values already

@@ -83,6 +83,7 @@ _EMPTY_COLS = {
     "object_props": ["component", "property", "attribute"],
     "sources": ["instance", "scope", "attributeName", "source", "sourceLabel",
                 "sourceType", "sourceUrl", "sourceDate", "sourceComment"],
+    "hierarchy": ["s", "sName", "depth"],
 }
 
 
@@ -264,6 +265,68 @@ def get_component_types_with_instances(client) -> pd.DataFrame:
     ORDER BY DESC(?instanceCount) ?componentName
     """
     return _run(client, query, "types_with_instances")
+
+
+def get_component_hierarchy_edges(client, component_type_label: str) -> pd.DataFrame:
+    """The named component type's rdfs:subClassOf ancestor-or-self set, each
+    row ranked by ``depth`` — the count of OTHER classes in that same set it
+    also descends from. Depth 0 is the root (core ``Component`` excluded, and
+    so is bare RDFS/OWL vocabulary — ``rdfs:Resource``/``owl:Thing`` — which a
+    workspace with materialised inference closure would otherwise surface as
+    a universal "ancestor" of everything); depth increases toward the type
+    itself. Columns: s, sName, depth.
+
+    Ranking by depth rather than returning raw (child, parent) edges is
+    deliberate: once RDFS-Plus inference is materialised (see
+    ``docs/INFERENCE.md``), ``rdfs:subClassOf`` triples exist for every
+    transitive ancestor pair, not just the direct one — a class ends up with
+    several simultaneous "parent" candidates and there is no longer a
+    syntactic way to tell direct from transitive. Counting how many *other*
+    ancestors-within-the-set a class itself descends from is closure-proof:
+    it produces the same total order whether or not the triple store has
+    materialised the transitive closure.
+
+    Resolves ``component_type_label`` the same way the explorer displays a
+    type's name (rdfs:label, else the URI's local name) so it matches
+    whatever the caller showed the user — not just classes with an explicit
+    label.
+    """
+    query = f"""
+    {_PREFIXES}
+    PREFIX owl: <http://www.w3.org/2002/07/owl#>
+    SELECT ?s ?sName (COUNT(DISTINCT ?anc) as ?depth)
+    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
+      ?target a owl:Class .
+      OPTIONAL {{ ?target rdfs:label ?targetLabel }}
+      BIND(COALESCE(
+        ?targetLabel,
+        IF(CONTAINS(STR(?target), "#"),
+           STRAFTER(STR(?target), "#"),
+           REPLACE(STR(?target), "^.*/([^/]+)$", "$1"))
+      ) as ?targetName)
+      FILTER(STR(?targetName) = "{component_type_label}")
+
+      ?target rdfs:subClassOf* ?s .
+      FILTER(!STRSTARTS(STR(?s), "http://www.w3.org/") && ?s != dici_onto:Component)
+      OPTIONAL {{ ?s rdfs:label ?sLabel }}
+      BIND(COALESCE(
+        ?sLabel,
+        IF(CONTAINS(STR(?s), "#"),
+           STRAFTER(STR(?s), "#"),
+           REPLACE(STR(?s), "^.*/([^/]+)$", "$1"))
+      ) as ?sName)
+
+      OPTIONAL {{
+        ?target rdfs:subClassOf* ?anc .
+        FILTER(!STRSTARTS(STR(?anc), "http://www.w3.org/") && ?anc != dici_onto:Component
+               && ?anc != ?s)
+        ?s rdfs:subClassOf* ?anc .
+      }}
+    }}
+    GROUP BY ?s ?sName
+    ORDER BY ?depth
+    """
+    return _run(client, query, "hierarchy")
 
 
 def get_component_instances(client, component_type_label: str) -> pd.DataFrame:
