@@ -271,7 +271,8 @@ def list_workspaces(
         raise HTTPException(status_code=401, detail="Sign in to see your workspaces.")
     from backend.db import workspaces_repo
     from .registry_cache import all_contexts, summary_for
-    allowed = workspaces_repo.visible_to(user["id"] if user else None)   # None = show all
+    allowed = (None if user and user.get("is_admin")                     # admins see all
+               else workspaces_repo.visible_to(user["id"] if user else None))  # None = show all
     out = []
     for c in all_contexts():
         if allowed is not None and c.id not in allowed:
@@ -350,13 +351,61 @@ def share_workspace(body: ShareBody, ctx: WorkspaceContext = Depends(get_ctx),
                     user: dict | None = Depends(current_user_optional)) -> dict[str, Any]:
     """Grant another user **editor** access to this workspace (owner-only)."""
     from backend.db import users_repo, workspaces_repo
-    if not workspaces_repo.can_edit(ctx.id, user["id"] if user else None):
+    if not ((user and user.get("is_admin"))
+            or workspaces_repo.can_edit(ctx.id, user["id"] if user else None)):
         raise HTTPException(status_code=403, detail="Only the owner can share this workspace.")
     target = users_repo.get_by_email(body.email)
     if not target:
         raise HTTPException(status_code=404, detail="No account with that email.")
     workspaces_repo.grant_editor(ctx.id, target["id"])
     return {"workspace_id": ctx.id, "granted_to": target["email"], "role": "editor"}
+
+
+class AssignBody(BaseModel):
+    """All fields optional — only what's present changes. ``members`` is declarative:
+    the editor ACL becomes exactly that list (grants and revokes in one call)."""
+    owner_email: str | None = None
+    visibility: str | None = None          # 'private' | 'shared'
+    members: list[str] | None = None       # emails
+
+
+@app.post("/api/workspaces/{workspace_id}/assign", tags=["workspaces"])
+def assign_workspace(body: AssignBody, ctx: WorkspaceContext = Depends(get_ctx),
+                     user: dict | None = Depends(current_user_optional)) -> dict[str, Any]:
+    """Set a workspace's owner / visibility / member list in one call (admin or owner).
+
+    The project-onboarding tool: after creating a project's accounts, point each of its
+    workspaces at an owner, make them private, and list every member once —
+    ``{"owner_email": "lead@x.io", "visibility": "private", "members": ["a@x.io", ...]}``.
+    Unknown member emails are skipped and reported back, not an error."""
+    from backend.db import users_repo, workspaces_repo
+    row = workspaces_repo.get(ctx.id)
+    is_admin = bool(user and user.get("is_admin"))
+    is_owner = bool(user and row and row.get("owner_id") == user["id"])
+    unowned = row is None or row.get("owner_id") is None
+    if not (is_admin or is_owner or (unowned and user)):
+        raise HTTPException(status_code=403, detail="Only an admin or the owner can assign this workspace.")
+    unknown: list[str] = []
+    if body.owner_email is not None:
+        owner = users_repo.get_by_email(body.owner_email)
+        if not owner:
+            raise HTTPException(status_code=404, detail=f"No account with email {body.owner_email!r}.")
+        workspaces_repo.set_owner(ctx.id, owner["id"],
+                                  body.visibility or (row or {}).get("visibility") or "private")
+    elif body.visibility is not None:
+        workspaces_repo.set_visibility(ctx.id, body.visibility)
+    if body.members is not None:
+        ids = []
+        for email in body.members:
+            u = users_repo.get_by_email(email)
+            (ids.append(u["id"]) if u else unknown.append(email))
+        workspaces_repo.set_members(ctx.id, ids)
+    out = workspaces_repo.get(ctx.id) or {}
+    member_ids = workspaces_repo.members(ctx.id)
+    member_emails = [u["email"] for uid in member_ids if (u := users_repo.get_user(uid))]
+    owner_u = users_repo.get_user(out.get("owner_id")) if out.get("owner_id") else None
+    return {"workspace_id": ctx.id, "owner": owner_u["email"] if owner_u else None,
+            "visibility": out.get("visibility"), "members": member_emails, "unknown": unknown}
 
 
 @app.get("/api/workspaces/{workspace_id}/info", tags=["workspaces"])

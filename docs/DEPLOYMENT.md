@@ -64,7 +64,10 @@ watch the files appear at `http://localhost:8080`.
 
 ### 3. Deploy
 
-Same compose command on the server, behind a reverse proxy / TLS terminator.
+Same compose command on the server. The overlay ships its own reverse proxy /
+TLS terminator (the `proxy` service, below) — the only ports open to the
+internet are 80/443; everything else is rebound to `127.0.0.1` (reach it via
+SSH tunnel when needed).
 Add your public hostname to `NEXTCLOUD_PUBLIC_HOST` — trusted domains are
 re-asserted from the env on **every** container start (a before-starting
 `occ` hook), so changing them later is an `.env` edit + restart, not a
@@ -86,12 +89,74 @@ With `DIGICITIES_API_URL` set, the last test drives the REST stack end to
 end: the throwaway workspace must be autodiscovered from NextCloud and its
 files listing served through `get_ctx → mirror.pull → ws_root`.
 
+## Private multi-user deployment (password-protected site)
+
+The platform has built-in accounts (email + password, bcrypt-hashed, JWT
+sessions) stored in the metadata Postgres, with per-workspace access
+control: each workspace has an owner, `private`/`shared` visibility, and an
+editor list. To run a closed instance where you hand out accounts and each
+project's members see only that project's workspaces:
+
+**1. Env** (see the "Private multi-user deployment" block in `.env.example`):
+`REQUIRE_LOGIN=1`, `ALLOW_REGISTRATION=0`, a real `JWT_SECRET`,
+`ADMIN_EMAIL`/`ADMIN_PASSWORD` (the first admin, seeded on api startup),
+`FRONTEND_DIR` (a `digicities-frontend` checkout — the `proxy` service builds
+its Dockerfile), and `DOMAIN` for automatic HTTPS.
+
+**2. Public surface**: only the `proxy` service (Caddy) is exposed — it
+serves the built React app and proxies `/api` to the api container. Streamlit
+(which runs authless under `AUTH_DISABLED`), Fuseki, Postgres, and NextCloud
+are loopback-only. Do NOT open them: Streamlit and Fuseki would bypass the
+login wall entirely.
+
+**3. Create the accounts** (admin token from `POST /api/auth/login`):
+
+```bash
+TOKEN=$(curl -s -X POST https://$DOMAIN/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.org","password":"..."}' | jq -r .token)
+
+curl -X POST https://$DOMAIN/api/auth/users -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"member@project.org","password":"...","display_name":"Member"}'
+```
+
+(`GET /api/auth/users` lists accounts; `DELETE /api/auth/users/{email}`
+removes one plus its grants. `is_admin: true` on create makes another admin —
+admins see and manage **every** workspace.)
+
+**4. Assign each project's workspaces** — one declarative call per workspace
+sets owner, makes it private, and fixes the member list (grants *and*
+revokes):
+
+```bash
+curl -X POST https://$DOMAIN/api/workspaces/<workspace_id>/assign \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"owner_email":"lead@project.org","visibility":"private",
+       "members":["member@project.org","other@project.org"]}'
+```
+
+A private workspace is invisible (404, not 403) to everyone but its owner,
+members, and admins. Workspaces never assigned stay `shared` — visible to
+every signed-in account — so assign everything that belongs to a project.
+
+**5. Frontend behaviour**: signed-out visitors get the sign-in gate; the
+Register tab hides itself when `ALLOW_REGISTRATION=0` (via
+`GET /api/auth/config`). Owners can also grant one-off access in-app via
+`POST /api/workspaces/{id}/share`.
+
 ## What users get on the cloud tier
 
-- Workspace files browse/download/upload in NextCloud's web UI (`:8080`).
-- **Edit-in-NextCloud workflow**: open the ingestion workbook in NextCloud
-  Office, fix values, save — the agent's next read (`template`, resubmit,
-  `files`) picks the edit up through the mirror pull. No re-upload needed.
+- Workspace file browse/download/upload through the app (and the agent's
+  `files` / `download` chat commands). NextCloud's own web UI is
+  loopback-only by default — it has a single admin login (the platform's
+  WebDAV credential), so exposing it would hand every visitor all projects'
+  files. Set `NEXTCLOUD_BIND=0.0.0.0` only for a single-team instance where
+  that's acceptable.
+- **Edit-in-NextCloud workflow** (when you expose it, or via SSH tunnel):
+  open the ingestion workbook in NextCloud Office, fix values, save — the
+  agent's next read (`template`, resubmit, `files`) picks the edit up through
+  the mirror pull. No re-upload needed.
 - Durability: workspaces live in NextCloud; the server's working copy is a
   cache. A redeployed api container re-pulls everything on first access, and
   NextCloud-side workspaces are autodiscovered (any folder carrying

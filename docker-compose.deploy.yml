@@ -21,11 +21,50 @@
 #     before-starting hook (the env var alone is only read on FIRST boot);
 #   - the api service gets the storage env too, not just streamlit.
 #
-# Put behind a reverse proxy / TLS terminator in production; the published
-# ports here are the in-network defaults.
+# The public surface is the `proxy` service ONLY (ports 80/443): Caddy
+# serving the built React frontend and reverse-proxying /api. Every other
+# service is rebound to 127.0.0.1 (`!override`, needs compose >= 2.24) —
+# reachable from the server itself / an SSH tunnel, never the internet.
+# Set DOMAIN in .env for automatic HTTPS (Let's Encrypt); FRONTEND_DIR must
+# point at a digicities-frontend checkout (it carries the Dockerfile).
 # ---------------------------------------------------------------------
 
 services:
+
+  proxy:
+    # Multi-stage build in the frontend repo: node builds dist/, Caddy serves
+    # it and proxies /api + /health to the api container. See its Caddyfile.
+    build:
+      context: "${FRONTEND_DIR:?set FRONTEND_DIR in .env to the digicities-frontend checkout path}"
+    container_name: digicities-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # e.g. digicities.example.org → Caddy provisions TLS automatically.
+      # Leave empty to serve plain http on :80 (local testing of this overlay).
+      DOMAIN: "${DOMAIN:-}"
+    volumes:
+      - caddy_data:/data          # TLS certificates survive restarts
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ---- loopback-only rebinds: nothing below is reachable from outside ----
+
+  fuseki:
+    ports: !override
+      - "127.0.0.1:3030:3030"
+
+  postgres:
+    ports: !override
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+  demo_energy_simulator:
+    ports: !override
+      - "127.0.0.1:5001:5000"
 
   nextcloud-db:
     image: postgres:16-alpine
@@ -47,7 +86,10 @@ services:
     image: nextcloud:29-apache
     container_name: digicities-nextcloud
     ports:
-      - "${NEXTCLOUD_PORT:-8080}:80"
+      # Loopback by default: NextCloud holds the platform's single admin
+      # credential set, so on a multi-user deployment it must not be public.
+      # Set NEXTCLOUD_BIND=0.0.0.0 to expose it deliberately.
+      - "${NEXTCLOUD_BIND:-127.0.0.1}:${NEXTCLOUD_PORT:-8080}:80"
     volumes:
       - nextcloud_data:/var/www/html
       # Self-healing config: hooks run inside the official image's
@@ -95,6 +137,8 @@ services:
   # Storage env for BOTH app services (the local overlay only wired
   # streamlit — the api never learned about NextCloud until now).
   streamlit:
+    ports: !override
+      - "127.0.0.1:8501:8501"
     environment:
       STORAGE_BACKEND: nextcloud
       NEXTCLOUD_BASE_URL: "http://nextcloud:80"
@@ -105,6 +149,8 @@ services:
         condition: service_healthy
 
   api:
+    ports: !override
+      - "127.0.0.1:8000:8000"
     environment:
       STORAGE_BACKEND: nextcloud
       NEXTCLOUD_BASE_URL: "http://nextcloud:80"
@@ -117,3 +163,5 @@ services:
 volumes:
   nextcloud_data:
   nextcloud_db_data:
+  caddy_data:
+  caddy_config:
