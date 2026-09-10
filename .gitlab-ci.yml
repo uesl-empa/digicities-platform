@@ -1,0 +1,40 @@
+# GitLab CI for the mirrored repo: build the platform image, bake the
+# onboarding-agent module in as a second layer (the deployable tag), and push
+# both to this project's Container Registry ($CI_REGISTRY_IMAGE).
+#
+# One-time setup this pipeline needs (see docs/DEPLOYMENT.md + the k8s guide):
+#   - the agent project must allowlist THIS project under
+#     Settings > CI/CD > Job token permissions (else the clone 403s);
+#   - if this repo is a pull mirror, enable "Trigger pipelines for mirror
+#     updates" in Settings > Repository > Mirroring;
+#   - AGENT_PROJECT below must match the agent mirror's GitLab path.
+#
+# Runners must allow privileged docker-in-docker; on runners that forbid it,
+# swap the job to kaniko (gcr.io/kaniko-project/executor) — same Dockerfiles.
+
+stages: [build]
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  AGENT_PROJECT: digicities/digicities-onboarding-agent   # adjust to your GitLab group
+
+build-platform-image:
+  stage: build
+  image: docker:27
+  services: ["docker:27-dind"]
+  before_script:
+    - apk add --no-cache git
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    # 1. base platform image (api + streamlit; entrypoint differs per workload)
+    - docker build -t "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" .
+    # 2. module layer: the onboarding agent at the path the api loads modules from
+    - git clone --depth 1 "https://gitlab-ci-token:$CI_JOB_TOKEN@$CI_SERVER_HOST/$AGENT_PROJECT.git" digicities-onboarding-agent
+    - printf 'FROM %s\nCOPY digicities-onboarding-agent /app/data/modules/onboarding_agent\n' "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" > Dockerfile.agent
+    - docker build -f Dockerfile.agent -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
+        docker push "$CI_REGISTRY_IMAGE:latest"
+      fi

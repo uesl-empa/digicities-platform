@@ -46,7 +46,9 @@ def get_ctx(workspace_id: str = Path(..., description="workspace id"),
     if ctx is None:
         raise HTTPException(status_code=404, detail=f"workspace '{workspace_id}' not found")
     from backend.db import workspaces_repo
-    allowed = workspaces_repo.visible_to(user["id"] if user else None)   # None = DB off (show all)
+    # Admins bypass visibility (they administer every project's workspaces).
+    allowed = (None if user and user.get("is_admin")
+               else workspaces_repo.visible_to(user["id"] if user else None))  # None = no filter
     if allowed is not None and workspace_id not in allowed:
         # 404 (not 403) so a private workspace's existence isn't leaked — for anon callers too.
         raise HTTPException(status_code=404, detail=f"workspace '{workspace_id}' not found")

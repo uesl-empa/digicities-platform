@@ -61,6 +61,57 @@ def set_owner(ws_id: str, owner_id: str, visibility: str = "private") -> None:
         s.close()
 
 
+def set_visibility(ws_id: str, visibility: str) -> None:
+    """Flip a workspace between private and shared without touching its owner."""
+    s = session()
+    if s is None:
+        return
+    try:
+        obj = s.get(Workspace, ws_id)
+        if obj is None:
+            obj = Workspace(id=ws_id, graphdb_repo=ws_id)
+            s.add(obj)
+        obj.visibility = "private" if str(visibility).lower().startswith("priv") else "shared"
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+
+
+def set_members(ws_id: str, user_ids: list[str]) -> None:
+    """Replace the workspace's editor ACL with exactly these users (declarative:
+    grants AND revokes in one call). The owner needs no ACL row."""
+    s = session()
+    if s is None:
+        return
+    try:
+        from sqlalchemy import delete
+        from .models import WorkspaceAcl
+        s.execute(delete(WorkspaceAcl).where(WorkspaceAcl.workspace_id == ws_id))
+        for uid in dict.fromkeys(user_ids):
+            s.add(WorkspaceAcl(workspace_id=ws_id, user_id=uid, role="editor"))
+        s.commit()
+    except Exception:
+        s.rollback()
+    finally:
+        s.close()
+
+
+def members(ws_id: str) -> list[str]:
+    """User ids on the workspace's editor ACL."""
+    s = session()
+    if s is None:
+        return []
+    try:
+        from sqlalchemy import select
+        from .models import WorkspaceAcl
+        return list(s.scalars(select(WorkspaceAcl.user_id).where(
+            WorkspaceAcl.workspace_id == ws_id)).all())
+    finally:
+        s.close()
+
+
 def grant_editor(ws_id: str, user_id: str) -> None:
     s = session()
     if s is None:

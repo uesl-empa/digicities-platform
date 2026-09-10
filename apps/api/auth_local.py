@@ -45,9 +45,17 @@ def bootstrap() -> None:
                     "Set JWT_SECRET to a long random value in production.")
     email = os.getenv("ADMIN_EMAIL", "").strip()
     pw = os.getenv("ADMIN_PASSWORD", "")
-    if email and pw and db_enabled() and not users_repo.get_by_email(email):
-        if users_repo.create_user(email, hash_password(pw), os.getenv("ADMIN_NAME", "Admin")):
-            log.info("Seeded admin account %s", email)
+    if email and pw and db_enabled():
+        existing = users_repo.get_by_email(email)
+        if not existing:
+            if users_repo.create_user(email, hash_password(pw), os.getenv("ADMIN_NAME", "Admin"),
+                                      is_admin=True):
+                log.info("Seeded admin account %s", email)
+        elif not existing.get("is_admin"):
+            # Account pre-dates the is_admin column (or was created via register):
+            # the ADMIN_EMAIL account is the platform admin by definition.
+            users_repo.set_admin(email, True)
+            log.info("Promoted %s to admin", email)
 
 
 def auth_required() -> bool:
@@ -59,6 +67,12 @@ def auth_required() -> bool:
     drives the older static-bearer app-level guard in ``auth.py``. Don't reuse that one here or
     it gates ``/health`` too."""
     return os.getenv("REQUIRE_LOGIN", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def registration_allowed() -> bool:
+    """``ALLOW_REGISTRATION`` (default on, preserving today's open behaviour). Set it to
+    0 on a private deployment so only admin-created accounts exist."""
+    return os.getenv("ALLOW_REGISTRATION", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 def hash_password(pw: str) -> str:
@@ -113,10 +127,29 @@ class _Login(BaseModel):
     password: str
 
 
+def current_admin(user: Optional[dict] = Depends(current_user_optional)) -> dict:
+    """Dependency: the signed-in platform admin, or 401/403."""
+    if not user:
+        raise HTTPException(401, "Not authenticated.")
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin access required.")
+    return user
+
+
+@router.get("/config")
+def config() -> dict:
+    """Public auth capabilities — the frontend uses this to hide the Register tab on a
+    closed deployment. Deliberately unauthenticated (mirrors what probing would reveal)."""
+    return {"accounts_enabled": db_enabled(), "require_login": auth_required(),
+            "allow_registration": registration_allowed()}
+
+
 @router.post("/register")
 def register(body: _Register) -> dict:
     if not db_enabled():
         raise HTTPException(503, "Accounts require the metadata database (DATABASE_URL).")
+    if not registration_allowed():
+        raise HTTPException(403, "Registration is disabled — ask an administrator for an account.")
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters.")
     if users_repo.get_by_email(body.email):
@@ -143,4 +176,48 @@ def login(body: _Login) -> dict:
 def me(user: Optional[dict] = Depends(current_user_optional)) -> dict:
     if not user:
         raise HTTPException(401, "Not authenticated.")
-    return {"id": user["id"], "email": user["email"], "display_name": user["display_name"]}
+    return {"id": user["id"], "email": user["email"], "display_name": user["display_name"],
+            "is_admin": bool(user.get("is_admin"))}
+
+
+# ---- account management (admin only) --------------------------------------
+
+def _public(u: dict) -> dict:
+    return {"id": u["id"], "email": u["email"], "display_name": u["display_name"],
+            "is_admin": bool(u.get("is_admin"))}
+
+
+class _CreateUser(BaseModel):
+    email: str
+    password: str
+    display_name: str = ""
+    is_admin: bool = False
+
+
+@router.get("/users")
+def list_users(admin: dict = Depends(current_admin)) -> list[dict]:
+    return [_public(u) for u in users_repo.list_users()]
+
+
+@router.post("/users")
+def create_user(body: _CreateUser, admin: dict = Depends(current_admin)) -> dict:
+    """Create an account on the user's behalf (no token returned — they sign in with
+    the password you hand them). The way accounts are made when registration is closed."""
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    if users_repo.get_by_email(body.email):
+        raise HTTPException(409, "An account with that email already exists.")
+    u = users_repo.create_user(str(body.email), hash_password(body.password),
+                               body.display_name, is_admin=body.is_admin)
+    if not u:
+        raise HTTPException(500, "Could not create the account.")
+    return _public(u)
+
+
+@router.delete("/users/{email}")
+def delete_user(email: str, admin: dict = Depends(current_admin)) -> dict:
+    if email.strip().lower() == admin["email"]:
+        raise HTTPException(400, "You cannot delete your own account.")
+    if not users_repo.delete_user(email):
+        raise HTTPException(404, "No account with that email.")
+    return {"deleted": email.strip().lower()}
