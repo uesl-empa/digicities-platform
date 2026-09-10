@@ -7,27 +7,32 @@
 #     Settings > CI/CD > Job token permissions (else the clone 403s);
 #   - if this repo is a pull mirror, enable "Trigger pipelines for mirror
 #     updates" in Settings > Repository > Mirroring;
-#   - AGENT_PROJECT below must match the agent mirror's GitLab path.
+#   - AGENT_PROJECT below must match the agent mirror's GitLab path
+#     (override via a project CI/CD variable if the group differs).
 #
-# Runners must allow privileged docker-in-docker; on runners that forbid it,
-# swap the job to kaniko (gcr.io/kaniko-project/executor) — same Dockerfiles.
+# The dind-capable runners are tag-scoped: without `tags: [dind]` the job
+# stays pending forever ("no runners match").
 
 stages: [build]
 
 variables:
-  DOCKER_TLS_CERTDIR: "/certs"
   AGENT_PROJECT: digicities/digicities-onboarding-agent   # adjust to your GitLab group
 
 build-platform-image:
   stage: build
-  image: docker:27
-  services: ["docker:27-dind"]
+  image: docker:cli
+  services:
+    - docker:dind
+  tags:
+    - dind
+  rules:
+    - if: $CI_COMMIT_BRANCH
   before_script:
     - apk add --no-cache git
-    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
   script:
     # 1. base platform image (api + streamlit; entrypoint differs per workload)
-    - docker build -t "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" .
+    - docker build --pull -t "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" .
     # 2. module layer: the onboarding agent at the path the api loads modules from
     - git clone --depth 1 "https://gitlab-ci-token:$CI_JOB_TOKEN@$CI_SERVER_HOST/$AGENT_PROJECT.git" digicities-onboarding-agent
     - printf 'FROM %s\nCOPY digicities-onboarding-agent /app/data/modules/onboarding_agent\n' "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" > Dockerfile.agent
