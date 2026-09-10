@@ -239,11 +239,19 @@ def get_all_instance_direct_properties(client) -> pd.DataFrame:
 # Digital Replica Explorer queries
 # ---------------------------------------------------------------------------
 
-def get_component_types_with_instances(client) -> pd.DataFrame:
+def get_component_types_with_instances(client, most_specific_only: bool = True) -> pd.DataFrame:
     """Component types that actually have instances, with instance counts.
 
     Columns: componentType, componentName, instanceCount.
+
+    ``most_specific_only`` (the default) lists each instance under its leaf
+    class only — see ``MOST_SPECIFIC_TYPE``. Pass False to list it under every
+    ancestor class it also holds, so the caller can show the whole modelled
+    hierarchy (Converter, Energy Converter, Turbine AND Wind Turbine) instead
+    of just the leaf. The counts then legitimately overlap: the same turbine
+    is counted once per level it belongs to.
     """
+    specific = MOST_SPECIFIC_TYPE if most_specific_only else ""
     query = f"""
     {_PREFIXES}
     SELECT ?componentType ?componentName (COUNT(DISTINCT ?instance) as ?instanceCount)
@@ -251,7 +259,7 @@ def get_component_types_with_instances(client) -> pd.DataFrame:
       ?componentType rdfs:subClassOf* dici_onto:Component .
       FILTER(?componentType != dici_onto:Component)
       ?instance a ?componentType .
-{NOT_ATTRIBUTE_NODE}{MOST_SPECIFIC_TYPE}      OPTIONAL {{ ?componentType rdfs:label ?label }}
+{NOT_ATTRIBUTE_NODE}{specific}      OPTIONAL {{ ?componentType rdfs:label ?label }}
       BIND(COALESCE(
         ?label,
         IF(CONTAINS(STR(?componentType), "#"),
@@ -266,15 +274,22 @@ def get_component_types_with_instances(client) -> pd.DataFrame:
     return _run(client, query, "types_with_instances")
 
 
-def get_component_instances(client, component_type_label: str) -> pd.DataFrame:
-    """All instances of a component type (by label). Columns: instance, instanceLabel."""
+def get_component_instances(client, component_type_label: str,
+                            most_specific_only: bool = True) -> pd.DataFrame:
+    """All instances of a component type (by label). Columns: instance, instanceLabel.
+
+    ``most_specific_only=False`` keeps instances whose leaf class is a
+    DESCENDANT of the named one — what an ancestor-level pick (Turbine, when
+    every turbine is really a WindTurbine) has to return to be worth showing.
+    """
+    specific = MOST_SPECIFIC_TYPE if most_specific_only else ""
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?instance ?instanceLabel
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
-{NOT_ATTRIBUTE_NODE}{MOST_SPECIFIC_TYPE}      OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
+{NOT_ATTRIBUTE_NODE}{specific}      OPTIONAL {{ ?instance rdfs:label ?instanceLabel }}
     }}
     ORDER BY ?instance
     """
