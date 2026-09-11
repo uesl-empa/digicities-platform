@@ -71,7 +71,7 @@ If you use the Digicities platform in published work, please cite it:
 ```bibtex
 @software{digicities-platform,
   title  = {Digicities Platform},
-  author = {Allan, James and Fricker, Reto},
+  author = {Allan, James and Fricker, Reto and Akdodov, Khusrav},
   year   = {2026},
   url    = {https://github.com/uesl-empa/digicities-platform},
 }
