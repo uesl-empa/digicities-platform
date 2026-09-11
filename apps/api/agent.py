@@ -173,19 +173,49 @@ def message(body: Message, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
 
 def _stream_response(sess, text: str, ctx: WorkspaceContext):
     import json as _json
+    import logging
+    import queue as _queue
+    import threading
     from fastapi.responses import StreamingResponse
 
-    def gen():
+    # The turn runs in its own thread feeding a queue, so the response
+    # generator can emit `: keepalive` comments while the agent is silent.
+    # Long deterministic phases (harvest, build, OM runs) send no tokens for
+    # minutes — an idle SSE stream gets killed by middleboxes between the
+    # browser and the api (seen live: EventSource errored mid-`build` while
+    # the build finished server-side). Comment lines are ignored by
+    # EventSource. Side benefit: the turn now survives a client disconnect —
+    # the worker runs to completion instead of dying with the response.
+    q: "_queue.Queue" = _queue.Queue()
+
+    def worker():
         try:
             for kind, data in sess.send_stream(text):
-                yield f"event: {kind}\ndata: {_json.dumps(data)}\n\n"
-            yield "event: done\ndata: {}\n\n"
+                q.put((kind, data))
+        except Exception:
+            logging.getLogger("digicities.agent").exception("agent turn failed")
         finally:
             # An agent turn can build/import/reset the workspace — and it rides
             # a GET that outlives the push middleware, so publish here, after
             # the turn actually finished (no-op for local-fs workspaces).
             from backend.workspace import mirror
             mirror.push(ctx)
+            q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def gen():
+        while True:
+            try:
+                item = q.get(timeout=15)
+            except _queue.Empty:
+                yield ": keepalive\n\n"
+                continue
+            if item is None:
+                yield "event: done\ndata: {}\n\n"
+                return
+            kind, data = item
+            yield f"event: {kind}\ndata: {_json.dumps(data)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
