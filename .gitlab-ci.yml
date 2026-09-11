@@ -12,8 +12,14 @@
 #
 # The dind-capable runners are tag-scoped: without `tags: [dind]` the job
 # stays pending forever ("no runners match").
+#
+# CD: the deploy stage rolls the live cluster to the image this pipeline just
+# built. It needs a project CI/CD variable KUBE_CONFIG (type: File) holding
+# the scoped gitlab-deployer kubeconfig (Settings > CI/CD > Variables). Runs
+# automatically on the default branch; NB an api roll drops in-flight agent
+# chat sessions (users just start a fresh chat).
 
-stages: [build]
+stages: [build, deploy]
 
 variables:
   AGENT_PROJECT: digicities/digicities-onboarding-agent   # adjust to your GitLab group
@@ -43,3 +49,18 @@ build-platform-image:
         docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
         docker push "$CI_REGISTRY_IMAGE:latest"
       fi
+
+deploy-api:
+  stage: deploy
+  image:
+    name: bitnami/kubectl:latest
+    entrypoint: [""]
+  tags: [dind]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  environment:
+    name: production
+    url: https://platform.digicities.ch
+  script:
+    - kubectl --kubeconfig "$KUBE_CONFIG" -n digicities set image deployment/api "api=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - kubectl --kubeconfig "$KUBE_CONFIG" -n digicities rollout status deployment/api --timeout=300s
