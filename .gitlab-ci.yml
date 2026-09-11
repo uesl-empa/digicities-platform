@@ -35,7 +35,7 @@ build-platform-image:
     - docker build --pull --provenance=false -t "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" .
     # 2. module layer: the onboarding agent at the path the api loads modules from
     - git clone --depth 1 "https://gitlab-ci-token:$CI_JOB_TOKEN@$CI_SERVER_HOST/$AGENT_PROJECT.git" digicities-onboarding-agent
-    - printf 'FROM %s\nCOPY digicities-onboarding-agent /app/data/modules/onboarding_agent\n' "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" > Dockerfile.agent
+    - printf 'FROM %s\nCOPY digicities-onboarding-agent /app/data/modules\n' "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" > Dockerfile.agent
     - docker build --provenance=false -f Dockerfile.agent -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
     - |
