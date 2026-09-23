@@ -186,9 +186,14 @@ def _start_workspace_cache() -> None:
         ensure_schema()
     except Exception:
         pass
+    from .auth_local import InsecureConfiguration, bootstrap
     try:
-        from .auth_local import bootstrap
         bootstrap()
+    except InsecureConfiguration:
+        # Enforced login on the public dev secret protects nothing — refuse to serve
+        # rather than come up looking protected. The rest here is best-effort
+        # housekeeping and stays tolerant.
+        raise
     except Exception:
         pass
     from .registry_cache import start_background
