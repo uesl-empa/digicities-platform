@@ -158,14 +158,20 @@ def test_from_request_normalizes_and_requires_type():
         ScenarioDraft.from_request("S", "ws", components=[{"uri": WT_URI}])
 
 
-def test_backend_filters_keep_truthiness_quirk():
-    """Same pinned behavior as the characterization test, explicit-args form:
-    a 0-valued required attribute drops the component, and links follow."""
+def test_backend_filters_zero_is_present_absent_drops():
+    """Explicit-args form of the completeness filter: a 0-valued required
+    attribute KEEPS its component (zero is a value; the old truthiness quirk
+    hollowed wind payloads with TurbulenceIntensity 0.0), while a genuinely
+    absent value still drops it, and links follow the drop."""
     components = [_wind_turbine(), _demand_profile()]
     kept = emitter.get_filtered_components_for_ttl(components, REQUIRED_ATTRIBUTES)
     assert [c["label"] for c in kept] == ["Turbine One", "Demand Profile One"]
 
     components[0]["attributes"]["hubHeight"]["value"] = 0
+    kept = emitter.get_filtered_components_for_ttl(components, REQUIRED_ATTRIBUTES)
+    assert [c["label"] for c in kept] == ["Turbine One", "Demand Profile One"]
+
+    components[0]["attributes"]["hubHeight"]["value"] = None
     kept = emitter.get_filtered_components_for_ttl(components, REQUIRED_ATTRIBUTES)
     assert [c["label"] for c in kept] == ["Demand Profile One"]
 
