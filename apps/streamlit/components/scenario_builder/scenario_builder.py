@@ -392,6 +392,11 @@ def extract_required_attributes_enhanced(yaml_content):
     find_attributes(yaml_content.get('scenario_data', {}))
 
     # Convert sets to lists and filter out generic attributes
+    # Optional inputs (template `optional_attributes`) never drop an instance —
+    # same rule as backend.scenario_builder.requirements.
+    from backend.scenario_builder.requirements import drop_optional_requirements
+    drop_optional_requirements(yaml_content, required_attributes, nested_requirements)
+
     result_attributes = {}
     result_nested = {}
 

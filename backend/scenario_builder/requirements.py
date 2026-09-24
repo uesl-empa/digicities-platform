@@ -70,6 +70,28 @@ def extract_component_types_from_templates(yaml_content: dict) -> set[str]:
     return component_types
 
 
+def drop_optional_requirements(yaml_content: dict, required: dict, nested: dict | None = None) -> None:
+    """Remove the template's ``optional_attributes`` (``Type.Attr``) from the
+    required sets, in place.
+
+    An optional attribute stays in the payload template, but an instance without
+    a value for it is sent without it instead of being dropped from the scenario.
+    The onboarding agent marks an input optional when the source data has it for
+    some instances but not all — requiring it would silently throw away the
+    instances the data does describe. Templates without the key are unchanged.
+    """
+    for key in (yaml_content or {}).get("optional_attributes") or []:
+        comp_type, _, attr = str(key).partition(".")
+        if not attr or comp_type not in required:
+            continue
+        kept = [a for a in required[comp_type] if a != attr and not str(a).startswith(attr + ".")]
+        if isinstance(required[comp_type], set):
+            kept = set(kept)
+        required[comp_type] = kept
+        if nested is not None and comp_type in nested:
+            nested[comp_type].pop(attr, None)
+
+
 def extract_required_attributes_enhanced(
     yaml_content: dict,
 ) -> tuple[dict[str, list[str]], dict[str, dict[str, list[str]]]]:
@@ -125,6 +147,7 @@ def extract_required_attributes_enhanced(
                     find_attributes(item)
 
     find_attributes(yaml_content.get("scenario_data", {}))
+    drop_optional_requirements(yaml_content, required_attributes, nested_requirements)
 
     result_attributes = {
         comp_type: sorted(attrs)
