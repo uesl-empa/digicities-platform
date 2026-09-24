@@ -4,11 +4,17 @@
 """
 Predefined assumption types with enhanced attribute category support
 Simplified and streamlined for integration
+
+NOTE (2026-09-24): every template below targets WindTurbine — this is DEMO
+seed content from the original wind pilot, not generic platform behavior.
+When the Assumptions module is ported to the React app, replace these with
+templates derived from the workspace's own component types (or move them
+into the bundled demo workspace as data). Tracked in the hardcoding audit.
 """
 
 
 def create_predefined_assumptions():
-    """Create predefined assumption templates"""
+    """Create predefined assumption templates (DEMO content — see module note)."""
     return [
         # PHYSICAL ATTRIBUTES
         {

@@ -219,7 +219,7 @@ class TTLParser:
                 predicate_str = str(predicate)
 
                 if 'hasAttribute' in predicate_str or (predicate_str.startswith(str(self.DICI)) and 'Attribute' in predicate_str):
-                    attr_name = self._extract_attribute_name_from_predicate(predicate_str)
+                    attr_name = self._extract_attribute_name_from_predicate(predicate_str, component_type)
                     if attr_name:
                         attr_data = self._extract_attribute_details(graph, attr_uri, attr_name)
                         if attr_data:
@@ -261,23 +261,23 @@ class TTLParser:
             return str(label)
         return str(uri).split('/')[-1]
 
-    def _extract_attribute_name_from_predicate(self, predicate_str: str) -> Optional[str]:
-        """Extract attribute name from predicate URI"""
+    def _extract_attribute_name_from_predicate(self, predicate_str: str,
+                                               component_type: str = "") -> Optional[str]:
+        """Extract attribute name from predicate URI.
+
+        A high-specificity predicate carries the owning component's class as a
+        prefix (``hasWindTurbineHubHeightAttribute`` on a WindTurbine) — strip
+        the ACTUAL class of the component being parsed, which the caller always
+        knows. The previous version scanned a hardcoded list of usecase class
+        names, which silently mis-parsed every domain not on the list."""
         if str(self.DICI) in predicate_str:
             local_part = predicate_str.replace(str(self.DICI), "")
 
             if local_part.startswith('has') and local_part.endswith('Attribute'):
                 attr_part = local_part[3:-9]
 
-                # Remove component type prefix if present
-                component_types = [
-                    'WindTurbine', 'GlobalWindAtlasSite', 'Region', 'EnergyCarrier',
-                    'PV', 'SolarPanel', 'Battery', 'Grid', 'Load', 'Generator', 'Building'
-                ]
-                for comp_type in component_types:
-                    if attr_part.startswith(comp_type):
-                        attr_part = attr_part[len(comp_type):]
-                        break
+                if component_type and attr_part.startswith(component_type):
+                    attr_part = attr_part[len(component_type):]
 
                 return attr_part if attr_part else None
             elif local_part == 'hasAttribute':
