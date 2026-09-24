@@ -504,23 +504,46 @@ class RobustTTL2YAMLProcessor:
 
         return value
 
+    @staticmethod
+    def _norm_attr_name(name: str) -> str:
+        # Same cleaning the scenario emitter applies to attribute local names
+        # (drops "_", " ", "."), compared case-insensitively.
+        return re.sub(r'[\s_.]', '', name).lower()
+
+    def _attribute_is(self, attr_uri: URIRef, attr_name: str) -> bool:
+        """True if the attribute node IS ``attr_name``: one of its dici_onto
+        rdf:types is that class, or (untyped node) its path-style URI ends in
+        ``/<attr_name>``."""
+        want = self._norm_attr_name(attr_name)
+        for t in self.g.objects(attr_uri, RDF.type):
+            if str(t).startswith(str(self.DICI)) and \
+                    self._norm_attr_name(self._extract_name(str(t))) == want:
+                return True
+        return self._norm_attr_name(self._extract_name(str(attr_uri))) == want
+
+    def _find_attribute(self, component: URIRef, comp_type: str, attr_name: str) -> Optional[URIRef]:
+        """The component's attribute node for ``attr_name``, or None.
+
+        The typed predicates name the attribute, so their first object is it.
+        The generic ``hasAttribute`` links EVERY attribute of the component, so
+        only an object that actually is ``attr_name`` may be used — taking the
+        first one handed a missing attribute some other attribute's value.
+        """
+        for pattern in (f"has{comp_type}{attr_name}Attribute", f"has{attr_name}Attribute"):
+            attrs = list(self.g.objects(component, self.DICI[pattern]))
+            if attrs:
+                return attrs[0]
+        for attr in self.g.objects(component, self.DICI.hasAttribute):
+            if self._attribute_is(attr, attr_name):
+                return attr
+        return None
+
     def _get_attribute_value(self, component: URIRef, comp_type: str, attr_name: str) -> Any:
         """Get attribute value from component."""
-
-        # Try different predicate patterns
-        patterns = [
-            f"has{comp_type}{attr_name}Attribute",
-            f"has{attr_name}Attribute",
-            "hasAttribute"
-        ]
-
-        for pattern in patterns:
-            predicate = self.DICI[pattern]
-            attrs = list(self.g.objects(component, predicate))
-            if attrs:
-                return self._extract_attribute_value(attrs[0])
-
-        return None
+        attr = self._find_attribute(component, comp_type, attr_name)
+        if attr is None:
+            return None
+        return self._extract_attribute_value(attr)
 
     def _get_nested_attribute(self, component: URIRef, comp_type: str, attr_path: List[str]) -> Any:
         """Get nested attribute value."""
@@ -528,21 +551,7 @@ class RobustTTL2YAMLProcessor:
             return None
 
         # Find intermediate attribute
-        intermediate = attr_path[0]
-        patterns = [
-            f"has{comp_type}{intermediate}Attribute",
-            f"has{intermediate}Attribute",
-            "hasAttribute"
-        ]
-
-        attr_uri = None
-        for pattern in patterns:
-            predicate = self.DICI[pattern]
-            attrs = list(self.g.objects(component, predicate))
-            if attrs:
-                attr_uri = attrs[0]
-                break
-
+        attr_uri = self._find_attribute(component, comp_type, attr_path[0])
         if not attr_uri:
             return None
 

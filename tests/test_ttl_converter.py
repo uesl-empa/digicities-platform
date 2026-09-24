@@ -237,3 +237,50 @@ def test_no_scenario_in_ttl_raises():
     """
     with pytest.raises(ValueError, match="No scenario found"):
         convert_scenario(_template(), ttl)
+
+
+# ── generic hasAttribute must not borrow another attribute's value ───────────
+_GP = "https://x.org/p"
+_GENERIC_TTL = f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+<urn:s> a dici_onto:Scenario .
+<urn:cl1> a dici_onto:ComponentLink ; dici_onto:hasInputEntity <urn:s> ;
+    dici_onto:linksInputyEntityTo <{_GP}/Machine/M1> .
+<urn:cl2> a dici_onto:ComponentLink ; dici_onto:hasInputEntity <urn:s> ;
+    dici_onto:linksInputyEntityTo <{_GP}/Machine/M2> .
+<{_GP}/Machine/M1> a dici_onto:Machine ;
+    dici_onto:hasAttribute <{_GP}/Machine/M1/PerformanceCurve>, <{_GP}/Machine/M1/RatedPower> .
+<{_GP}/Machine/M1/PerformanceCurve> a dici_onto:PerformanceCurve, dici_onto:CurveAttribute ;
+    dici_onto:hasDataPoints "[[3.0, 0.0], [4.0, 5.0]]" .
+<{_GP}/Machine/M1/RatedPower> a dici_onto:RatedPower, dici_onto:PhysicalAttribute ;
+    qudt:value "5.0"^^xsd:decimal .
+<{_GP}/Machine/M2> a dici_onto:Machine ;
+    dici_onto:hasAttribute <{_GP}/Machine/M2/Height> .
+<{_GP}/Machine/M2/Height> qudt:value "7.0"^^xsd:decimal .
+"""
+
+_GENERIC_TEMPLATE = {"service_name": "svc", "scenario_data": {"machine": {
+    "uri": "Machine.URI",
+    "power": "Machine.RatedPower",
+    "height": "Machine.Height",
+    "height_ref": "Machine.Height.HistoricTimeSeriesReference",
+}}}
+
+
+def test_generic_has_attribute_only_returns_the_named_attribute():
+    """M1 links two attributes through the generic hasAttribute and has no
+    Height. Height must come back missing, never as the curve or the power
+    that happen to be linked first."""
+    raw = convert_scenario(_GENERIC_TEMPLATE, _GENERIC_TTL, clean=False)
+    by_uri = {m["uri"]: m for m in raw["scenario_data"]["machine"]}
+    m1 = by_uri[f"{_GP}/Machine/M1"]
+    assert m1["power"] == 5.0
+    assert "height" not in m1 and "height_ref" not in m1
+
+
+def test_generic_has_attribute_matches_untyped_node_by_uri_path():
+    raw = convert_scenario(_GENERIC_TEMPLATE, _GENERIC_TTL, clean=False)
+    m2 = {m["uri"]: m for m in raw["scenario_data"]["machine"]}[f"{_GP}/Machine/M2"]
+    assert m2["height"] == 7.0 and "power" not in m2
