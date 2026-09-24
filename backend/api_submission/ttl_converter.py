@@ -679,25 +679,93 @@ def _legacy_curve_points(raw: str) -> Optional[List[List[float]]]:
     return points
 
 
-def clean_placeholder_values(data: Any) -> Any:
-    """Remove placeholder values from results."""
+# Sentinels for the template walk in clean_placeholder_values: the caller gave
+# no template at all, vs. a template was given but has nothing at this spot.
+_NO_TEMPLATE = object()
+_NO_COUNTERPART = object()
+
+# Without a template, only this strict <ClassName>.<AttrName> shape counts as
+# an unresolved placeholder.
+_STRICT_PLACEHOLDER_RE = re.compile(r'^[A-Z][A-Za-z0-9]*\.[A-Z][A-Za-z0-9_]*$')
+
+
+def _is_link_spec(t: Any) -> bool:
+    return isinstance(t, dict) and 'link' in t and 'template' in t
+
+
+def _element_template(t: Any) -> Any:
+    """The template each element of a converter-expanded list follows: a link
+    spec's ``template`` (plus its extra fields), an implicit component block
+    itself, the matching item of a literal list."""
+    if t is _NO_TEMPLATE or t is _NO_COUNTERPART:
+        return t
+    if _is_link_spec(t):
+        inner = t['template']
+        if isinstance(inner, dict):
+            merged = dict(inner)
+            merged.update({k: v for k, v in t.items() if k not in ('link', 'template')})
+            return merged
+        return inner
+    if isinstance(t, dict):
+        return t
+    return _NO_COUNTERPART
+
+
+def _is_unresolved_placeholder(value: str, t: Any) -> bool:
+    """True when ``value`` is a template reference the converter handed back
+    unresolved. With a template, only a string IDENTICAL to the reference at
+    the same position counts (a resolved value never is); without one, only
+    the strict ``<ClassName>.<AttrName>`` shape does."""
+    if t is _NO_TEMPLATE:
+        return bool(_STRICT_PLACEHOLDER_RE.match(value))
+    if isinstance(t, str) and value == t:
+        from backend.api_submission.validation import _is_reference
+        return _is_reference(t)
+    return False
+
+
+def clean_placeholder_values(data: Any, template: Any = _NO_TEMPLATE) -> Any:
+    """Remove placeholder values from results.
+
+    Drops unresolved ``.URI`` / ``.label`` / ``_not_found`` markers and any
+    template reference that came back unresolved (e.g. ``Building.Height``
+    when the component has no such attribute), so a literal reference string
+    never reaches a service as if it were data.
+
+    Pass the service ``template`` the payload was converted from: a string is
+    then only treated as an unresolved reference when it equals the template's
+    reference at that exact position. Without it, only strings of the strict
+    ``<ClassName>.<AttrName>`` shape are.
+    """
     if isinstance(data, dict):
         cleaned = {}
         for key, value in data.items():
-            cleaned_value = clean_placeholder_values(value)
+            if template is _NO_TEMPLATE:
+                sub = _NO_TEMPLATE
+            elif isinstance(template, dict) and not _is_link_spec(template):
+                sub = template.get(key, _NO_COUNTERPART)
+            else:
+                sub = _NO_COUNTERPART
+            cleaned_value = clean_placeholder_values(value, sub)
             if cleaned_value is not None:
                 cleaned[key] = cleaned_value
         return cleaned if cleaned else None
     elif isinstance(data, list):
         cleaned = []
-        for item in data:
-            cleaned_item = clean_placeholder_values(item)
+        for i, item in enumerate(data):
+            if isinstance(template, list):
+                sub = template[i] if i < len(template) else _NO_COUNTERPART
+            else:
+                sub = _element_template(template)
+            cleaned_item = clean_placeholder_values(item, sub)
             if cleaned_item is not None:
                 cleaned.append(cleaned_item)
         return cleaned if cleaned else []
     elif isinstance(data, str):
         # Remove unresolved references
         if any(x in data for x in ['_not_found>', '.URI', '.label'] if '.' in data):
+            return None
+        if _is_unresolved_placeholder(data, template):
             return None
         return data
     else:
@@ -719,7 +787,7 @@ def convert_scenario(template: Dict, ttl_text: str, *, clean: bool = True,
     processor = RobustTTL2YAMLProcessor()
     payload = processor.process(template, ttl_text, is_ttl_file=False, debug=debug)
     if clean:
-        payload = clean_placeholder_values(payload) or {}
+        payload = clean_placeholder_values(payload, template) or {}
     return payload
 
 

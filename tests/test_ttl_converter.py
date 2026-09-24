@@ -213,10 +213,11 @@ def test_reverse_direction_link_also_resolves():
 
 
 # ── cleaning and error behavior ──────────────────────────────────────────────
-def test_cleaning_drops_uri_label_placeholders_only():
-    """Pin the cleaner's exact contract: unresolved ``.URI``/``.label``
-    placeholders are dropped, but a plain ``<Type>.<attr>`` reference that
-    found no component passes through as its literal string (clean or not)."""
+def test_cleaning_drops_every_unresolved_template_reference():
+    """Pin the cleaner's contract: the raw payload keeps unresolved references
+    (validation reports them), the cleaned one drops them all — the
+    ``.URI``/``.label`` placeholders AND plain ``<Type>.<attr>`` references
+    that found no component, which used to reach services as literal strings."""
     template = _template()
     template["scenario_data"]["ghost"] = {"uri": "Ghost.URI",
                                           "power": "Ghost.power"}
@@ -227,7 +228,42 @@ def test_cleaning_drops_uri_label_placeholders_only():
                                              "power": "Ghost.power"}
 
     cleaned = convert_scenario(template, ttl)
-    assert cleaned["scenario_data"]["ghost"] == {"power": "Ghost.power"}
+    assert "ghost" not in cleaned["scenario_data"]
+    # Resolved data next to it is untouched.
+    assert cleaned["scenario_data"]["building"][0]["manufacturer"] == "ACME"
+
+
+def test_cleaner_with_template_only_drops_the_reference_at_its_position():
+    from backend.api_submission.ttl_converter import clean_placeholder_values
+
+    template = {
+        "service_name": "svc",
+        "scenario_data": {"machine": {
+            "link": "CL.Scenario.Machine",
+            "template": {"uri": "Machine.URI", "height": "Machine.Height",
+                         "maker": "Machine.Manufacturer"},
+            "part": {"link": "CL.Machine.Part",
+                     "template": {"size": "Part.Size"}},
+        }},
+    }
+    raw = {"service_name": "svc", "scenario_data": {"machine": [
+        {"uri": "urn:m1", "height": "Machine.Height",      # unresolved
+         "maker": "Acme.Industries",                        # real data, dotted
+         "part": [{"size": "Part.Size"}, {"size": 3.0}]},
+    ]}}
+    cleaned = clean_placeholder_values(raw, template)
+    (m,) = cleaned["scenario_data"]["machine"]
+    assert "height" not in m
+    assert m["maker"] == "Acme.Industries"
+    assert m["part"] == [{"size": 3.0}]
+
+
+def test_cleaner_without_template_uses_the_strict_shape():
+    from backend.api_submission.ttl_converter import clean_placeholder_values
+
+    cleaned = clean_placeholder_values({"a": "Machine.Height", "b": "Machine.height",
+                                        "c": "plain text", "d": 4.2})
+    assert cleaned == {"b": "Machine.height", "c": "plain text", "d": 4.2}
 
 
 def test_no_scenario_in_ttl_raises():

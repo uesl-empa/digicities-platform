@@ -113,7 +113,7 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
     validation = validate_payload(raw, template, template.get("required_attributes"))
-    payload = clean_placeholder_values(raw) or {}
+    payload = clean_placeholder_values(raw, template) or {}
     return {"payload": payload, "validation": asdict(validation)}
 
 
