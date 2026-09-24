@@ -13,6 +13,7 @@ hard no-op for local-fs workspaces.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import fsspec
@@ -154,3 +155,69 @@ def test_mirror_failures_are_soft(env, monkeypatch):
     assert "error" in mirror.pull(env.ctx, force=True)    # returned, not raised
     monkeypatch.setattr(env.ctx.storage, "write_bytes", _boom)
     assert "error" in mirror.push(env.ctx)
+
+
+# ── provisioning publishes the local working copy before it loads ────────────
+def _stub_triplestore(monkeypatch, prov, uploads):
+    """Everything ensure_workspace_repo touches outside the workspace files."""
+    class _Backend:
+        auth = None
+
+        def dataset_exists(self, repo_id):
+            return True
+
+    monkeypatch.setattr(prov, "get_backend", lambda: _Backend())
+    monkeypatch.setattr(prov, "_core_ttl_path", lambda: Path("no-such-core.ttl"))
+    monkeypatch.setattr(prov, "clear_default_graph", lambda repo_id, base_url=None: True)
+    monkeypatch.setattr(prov, "clear_graph", lambda repo_id, graph_iri, base_url=None: True)
+    monkeypatch.setattr(prov, "_collections_fingerprint", lambda repo_id: None)
+    monkeypatch.setattr(prov, "_stamp_collections_fingerprint", lambda repo_id, fp: None)
+
+    def upload(repo_id, graph_iri, ttl_content, replace=True, base_url=None):
+        uploads[graph_iri] = ttl_content
+        return True
+
+    monkeypatch.setattr(prov, "upload_ttl_to_graph", upload)
+
+
+def test_provisioning_loads_fresh_local_writes_not_the_stale_remote(env, monkeypatch):
+    from backend.graphdb.graphs import CLASSES_AND_ATTRIBUTES_GRAPH
+    from backend.workspace import graphdb_provisioning as prov
+
+    # The remote holds the previous build; the mirror is in sync with it.
+    _w(env.remote / "ingestion" / "output" / "ws1.ttl", '<urn:m1> <urn:p> "stale" .\n')
+    mirror.pull(env.ctx, force=True)
+    time.sleep(0.01)
+    # A caller (the onboarding agent) writes the new build into the LOCAL
+    # working copy and loads before pushing.
+    _w(env.local / "ingestion" / "output" / "ws1.ttl",
+       '<urn:m1> <urn:p> "fresh build, rewritten" .\n')
+    _w(env.local / "ingestion" / "output" / "added.ttl", '<urn:m2> <urn:p> "added" .\n')
+
+    uploads: dict[str, str] = {}
+    _stub_triplestore(monkeypatch, prov, uploads)
+    ctx = SimpleNamespace(id="ws1", name="WS1", graphdb_repository="ws1",
+                          storage=env.ctx.storage)
+
+    assert prov.ensure_workspace_repo(ctx) is True
+
+    loaded = uploads[CLASSES_AND_ATTRIBUTES_GRAPH]
+    assert "fresh build, rewritten" in loaded and "added" in loaded
+    assert "stale" not in loaded
+    assert "ingestion/output/added.ttl" in ctx.storage.glob("ingestion/output/*.ttl")
+
+
+def test_provisioning_publish_is_a_noop_locally_and_never_fatal(env, tmp_path, monkeypatch, capsys):
+    from backend.workspace import graphdb_provisioning as prov
+
+    def boom(ctx):
+        raise RuntimeError("push exploded")
+
+    monkeypatch.setattr(mirror, "push", boom)
+    # Local-filesystem workspace: the mirror is not involved at all.
+    local_ctx = SimpleNamespace(id="w", storage=WorkspaceStorage.local(str(tmp_path / "w")))
+    prov._publish_local_working_copy(local_ctx)
+    assert "push exploded" not in capsys.readouterr().out
+    # Remote-backed: a failing push is reported and swallowed.
+    prov._publish_local_working_copy(env.ctx)
+    assert "push exploded" in capsys.readouterr().out

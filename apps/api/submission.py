@@ -106,14 +106,24 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
         client = graph_client(ctx)
     except Exception:
         client = None
+    skipped_files: list[dict[str, str]] = []
     ttl_text = materialize_against_workspace(getattr(ctx, "storage", None),
-                                             scen.read_text(encoding="utf-8"), client)
+                                             scen.read_text(encoding="utf-8"), client,
+                                             skipped=skipped_files)
     try:
         raw = convert_scenario(template, ttl_text, clean=False)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
     validation = validate_payload(raw, template, template.get("required_attributes"))
-    payload = clean_placeholder_values(raw) or {}
+    # A replica file that does not parse drops every component in it — say so
+    # next to the payload instead of only in the server log.
+    for s in skipped_files:
+        validation.warnings.append(
+            f"Replica file {s['file']} could not be parsed and was skipped; its "
+            f"components and attributes are missing from this payload ({s['error']})")
+    if skipped_files and validation.data_quality == "good":
+        validation.data_quality = "needs_review"
+    payload = clean_placeholder_values(raw, template) or {}
     return {"payload": payload, "validation": asdict(validation)}
 
 
@@ -124,6 +134,34 @@ class SubmitReq(BaseModel):
     # (like the Streamlit results viewer); pass persist=False to skip.
     scenario_file: str | None = None
     persist: bool = True
+    # An empty payload (or one whose component arrays are all empty) is
+    # refused with 422; force=True sends it anyway.
+    force: bool = False
+
+
+def _is_empty_value(v: Any) -> bool:
+    return v is None or (isinstance(v, (dict, list, str)) and len(v) == 0)
+
+
+def _hollow_payload_reason(payload: dict[str, Any]) -> str | None:
+    """Why ``payload`` carries nothing a service could run on, or None.
+
+    Deliberately minimal (no schema validation): refuses a payload with no
+    content besides service_name/description, and one whose top-level
+    component arrays (lists at the top level or directly under
+    scenario_data) are ALL empty — what a conversion that found no
+    components produces.
+    """
+    content = {k: v for k, v in payload.items() if k not in ("service_name", "description")}
+    if not content or all(_is_empty_value(v) for v in content.values()):
+        return "the payload is empty"
+    arrays = [v for v in content.values() if isinstance(v, list)]
+    scenario_data = content.get("scenario_data")
+    if isinstance(scenario_data, dict):
+        arrays += [v for v in scenario_data.values() if isinstance(v, list)]
+    if arrays and all(len(a) == 0 for a in arrays):
+        return "every component array in the payload is empty (no components were converted)"
+    return None
 
 
 @router.post("/submit")
@@ -146,6 +184,13 @@ def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     resolved = resolve_connection(conn)
     if resolved["transport"] == "http" and not resolved["url"]:
         raise HTTPException(status_code=400, detail="Template has no connection.url.")
+    # Don't send a hollow payload as if it were a scenario.
+    hollow = None if req.force else _hollow_payload_reason(req.payload)
+    if hollow:
+        raise HTTPException(
+            status_code=422,
+            detail=(f"Refusing to submit: {hollow}. Re-run the conversion and check its "
+                    f"validation report, or pass force=true to submit it anyway."))
     # The payload's service_name must match the service actually submitted to
     # (Streamlit stamps it the same way before submitting).
     payload = dict(req.payload)

@@ -504,23 +504,46 @@ class RobustTTL2YAMLProcessor:
 
         return value
 
+    @staticmethod
+    def _norm_attr_name(name: str) -> str:
+        # Same cleaning the scenario emitter applies to attribute local names
+        # (drops "_", " ", "."), compared case-insensitively.
+        return re.sub(r'[\s_.]', '', name).lower()
+
+    def _attribute_is(self, attr_uri: URIRef, attr_name: str) -> bool:
+        """True if the attribute node IS ``attr_name``: one of its dici_onto
+        rdf:types is that class, or (untyped node) its path-style URI ends in
+        ``/<attr_name>``."""
+        want = self._norm_attr_name(attr_name)
+        for t in self.g.objects(attr_uri, RDF.type):
+            if str(t).startswith(str(self.DICI)) and \
+                    self._norm_attr_name(self._extract_name(str(t))) == want:
+                return True
+        return self._norm_attr_name(self._extract_name(str(attr_uri))) == want
+
+    def _find_attribute(self, component: URIRef, comp_type: str, attr_name: str) -> Optional[URIRef]:
+        """The component's attribute node for ``attr_name``, or None.
+
+        The typed predicates name the attribute, so their first object is it.
+        The generic ``hasAttribute`` links EVERY attribute of the component, so
+        only an object that actually is ``attr_name`` may be used — taking the
+        first one handed a missing attribute some other attribute's value.
+        """
+        for pattern in (f"has{comp_type}{attr_name}Attribute", f"has{attr_name}Attribute"):
+            attrs = list(self.g.objects(component, self.DICI[pattern]))
+            if attrs:
+                return attrs[0]
+        for attr in self.g.objects(component, self.DICI.hasAttribute):
+            if self._attribute_is(attr, attr_name):
+                return attr
+        return None
+
     def _get_attribute_value(self, component: URIRef, comp_type: str, attr_name: str) -> Any:
         """Get attribute value from component."""
-
-        # Try different predicate patterns
-        patterns = [
-            f"has{comp_type}{attr_name}Attribute",
-            f"has{attr_name}Attribute",
-            "hasAttribute"
-        ]
-
-        for pattern in patterns:
-            predicate = self.DICI[pattern]
-            attrs = list(self.g.objects(component, predicate))
-            if attrs:
-                return self._extract_attribute_value(attrs[0])
-
-        return None
+        attr = self._find_attribute(component, comp_type, attr_name)
+        if attr is None:
+            return None
+        return self._extract_attribute_value(attr)
 
     def _get_nested_attribute(self, component: URIRef, comp_type: str, attr_path: List[str]) -> Any:
         """Get nested attribute value."""
@@ -528,21 +551,7 @@ class RobustTTL2YAMLProcessor:
             return None
 
         # Find intermediate attribute
-        intermediate = attr_path[0]
-        patterns = [
-            f"has{comp_type}{intermediate}Attribute",
-            f"has{intermediate}Attribute",
-            "hasAttribute"
-        ]
-
-        attr_uri = None
-        for pattern in patterns:
-            predicate = self.DICI[pattern]
-            attrs = list(self.g.objects(component, predicate))
-            if attrs:
-                attr_uri = attrs[0]
-                break
-
+        attr_uri = self._find_attribute(component, comp_type, attr_path[0])
         if not attr_uri:
             return None
 
@@ -607,7 +616,13 @@ class RobustTTL2YAMLProcessor:
                 try:
                     points = json.loads(raw)
                 except Exception:
-                    return raw
+                    # Replicas built before the writer emitted JSON hold one
+                    # "[x, y]" row per line with no commas between rows. Read
+                    # those too; anything else (e.g. a file reference) passes
+                    # through as the raw string.
+                    points = _legacy_curve_points(raw)
+                    if points is None:
+                        return raw
                 curve: Dict[str, Any] = {'points': points}
                 for pred, key in ((self.DICI.xUnitLabel, 'x_unit'),
                                   (self.DICI.yUnitLabel, 'y_unit')):
@@ -651,25 +666,106 @@ class RobustTTL2YAMLProcessor:
         return uri.split('/')[-1].split('#')[-1]
 
 
-def clean_placeholder_values(data: Any) -> Any:
-    """Remove placeholder values from results."""
+def _legacy_curve_points(raw: str) -> Optional[List[List[float]]]:
+    """Points from a non-JSON curve literal, or None when it holds none."""
+    from backend.replica_builder.utils.ttl_attribute_helpers import parse_curve_points
+
+    points, dropped = parse_curve_points(raw)
+    if not points:
+        return None
+    if dropped:
+        print(f"[ttl_converter] curve literal: {dropped} unreadable point(s) "
+              f"skipped, {len(points)} kept")
+    return points
+
+
+# Sentinels for the template walk in clean_placeholder_values: the caller gave
+# no template at all, vs. a template was given but has nothing at this spot.
+_NO_TEMPLATE = object()
+_NO_COUNTERPART = object()
+
+# Without a template, only this strict <ClassName>.<AttrName> shape counts as
+# an unresolved placeholder.
+_STRICT_PLACEHOLDER_RE = re.compile(r'^[A-Z][A-Za-z0-9]*\.[A-Z][A-Za-z0-9_]*$')
+
+
+def _is_link_spec(t: Any) -> bool:
+    return isinstance(t, dict) and 'link' in t and 'template' in t
+
+
+def _element_template(t: Any) -> Any:
+    """The template each element of a converter-expanded list follows: a link
+    spec's ``template`` (plus its extra fields), an implicit component block
+    itself, the matching item of a literal list."""
+    if t is _NO_TEMPLATE or t is _NO_COUNTERPART:
+        return t
+    if _is_link_spec(t):
+        inner = t['template']
+        if isinstance(inner, dict):
+            merged = dict(inner)
+            merged.update({k: v for k, v in t.items() if k not in ('link', 'template')})
+            return merged
+        return inner
+    if isinstance(t, dict):
+        return t
+    return _NO_COUNTERPART
+
+
+def _is_unresolved_placeholder(value: str, t: Any) -> bool:
+    """True when ``value`` is a template reference the converter handed back
+    unresolved. With a template, only a string IDENTICAL to the reference at
+    the same position counts (a resolved value never is); without one, only
+    the strict ``<ClassName>.<AttrName>`` shape does."""
+    if t is _NO_TEMPLATE:
+        return bool(_STRICT_PLACEHOLDER_RE.match(value))
+    if isinstance(t, str) and value == t:
+        from backend.api_submission.validation import _is_reference
+        return _is_reference(t)
+    return False
+
+
+def clean_placeholder_values(data: Any, template: Any = _NO_TEMPLATE) -> Any:
+    """Remove placeholder values from results.
+
+    Drops unresolved ``.URI`` / ``.label`` / ``_not_found`` markers and any
+    template reference that came back unresolved (e.g. ``Building.Height``
+    when the component has no such attribute), so a literal reference string
+    never reaches a service as if it were data.
+
+    Pass the service ``template`` the payload was converted from: a string is
+    then only treated as an unresolved reference when it equals the template's
+    reference at that exact position. Without it, only strings of the strict
+    ``<ClassName>.<AttrName>`` shape are.
+    """
     if isinstance(data, dict):
         cleaned = {}
         for key, value in data.items():
-            cleaned_value = clean_placeholder_values(value)
+            if template is _NO_TEMPLATE:
+                sub = _NO_TEMPLATE
+            elif isinstance(template, dict) and not _is_link_spec(template):
+                sub = template.get(key, _NO_COUNTERPART)
+            else:
+                sub = _NO_COUNTERPART
+            cleaned_value = clean_placeholder_values(value, sub)
             if cleaned_value is not None:
                 cleaned[key] = cleaned_value
         return cleaned if cleaned else None
     elif isinstance(data, list):
         cleaned = []
-        for item in data:
-            cleaned_item = clean_placeholder_values(item)
+        for i, item in enumerate(data):
+            if isinstance(template, list):
+                sub = template[i] if i < len(template) else _NO_COUNTERPART
+            else:
+                sub = _element_template(template)
+            cleaned_item = clean_placeholder_values(item, sub)
             if cleaned_item is not None:
                 cleaned.append(cleaned_item)
         return cleaned if cleaned else []
     elif isinstance(data, str):
         # Remove unresolved references
         if any(x in data for x in ['_not_found>', '.URI', '.label'] if '.' in data):
+            return None
+        if _is_unresolved_placeholder(data, template):
             return None
         return data
     else:
@@ -691,7 +787,7 @@ def convert_scenario(template: Dict, ttl_text: str, *, clean: bool = True,
     processor = RobustTTL2YAMLProcessor()
     payload = processor.process(template, ttl_text, is_ttl_file=False, debug=debug)
     if clean:
-        payload = clean_placeholder_values(payload) or {}
+        payload = clean_placeholder_values(payload, template) or {}
     return payload
 
 

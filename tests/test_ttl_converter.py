@@ -213,10 +213,11 @@ def test_reverse_direction_link_also_resolves():
 
 
 # ── cleaning and error behavior ──────────────────────────────────────────────
-def test_cleaning_drops_uri_label_placeholders_only():
-    """Pin the cleaner's exact contract: unresolved ``.URI``/``.label``
-    placeholders are dropped, but a plain ``<Type>.<attr>`` reference that
-    found no component passes through as its literal string (clean or not)."""
+def test_cleaning_drops_every_unresolved_template_reference():
+    """Pin the cleaner's contract: the raw payload keeps unresolved references
+    (validation reports them), the cleaned one drops them all — the
+    ``.URI``/``.label`` placeholders AND plain ``<Type>.<attr>`` references
+    that found no component, which used to reach services as literal strings."""
     template = _template()
     template["scenario_data"]["ghost"] = {"uri": "Ghost.URI",
                                           "power": "Ghost.power"}
@@ -227,7 +228,42 @@ def test_cleaning_drops_uri_label_placeholders_only():
                                              "power": "Ghost.power"}
 
     cleaned = convert_scenario(template, ttl)
-    assert cleaned["scenario_data"]["ghost"] == {"power": "Ghost.power"}
+    assert "ghost" not in cleaned["scenario_data"]
+    # Resolved data next to it is untouched.
+    assert cleaned["scenario_data"]["building"][0]["manufacturer"] == "ACME"
+
+
+def test_cleaner_with_template_only_drops_the_reference_at_its_position():
+    from backend.api_submission.ttl_converter import clean_placeholder_values
+
+    template = {
+        "service_name": "svc",
+        "scenario_data": {"machine": {
+            "link": "CL.Scenario.Machine",
+            "template": {"uri": "Machine.URI", "height": "Machine.Height",
+                         "maker": "Machine.Manufacturer"},
+            "part": {"link": "CL.Machine.Part",
+                     "template": {"size": "Part.Size"}},
+        }},
+    }
+    raw = {"service_name": "svc", "scenario_data": {"machine": [
+        {"uri": "urn:m1", "height": "Machine.Height",      # unresolved
+         "maker": "Acme.Industries",                        # real data, dotted
+         "part": [{"size": "Part.Size"}, {"size": 3.0}]},
+    ]}}
+    cleaned = clean_placeholder_values(raw, template)
+    (m,) = cleaned["scenario_data"]["machine"]
+    assert "height" not in m
+    assert m["maker"] == "Acme.Industries"
+    assert m["part"] == [{"size": 3.0}]
+
+
+def test_cleaner_without_template_uses_the_strict_shape():
+    from backend.api_submission.ttl_converter import clean_placeholder_values
+
+    cleaned = clean_placeholder_values({"a": "Machine.Height", "b": "Machine.height",
+                                        "c": "plain text", "d": 4.2})
+    assert cleaned == {"b": "Machine.height", "c": "plain text", "d": 4.2}
 
 
 def test_no_scenario_in_ttl_raises():
@@ -237,3 +273,50 @@ def test_no_scenario_in_ttl_raises():
     """
     with pytest.raises(ValueError, match="No scenario found"):
         convert_scenario(_template(), ttl)
+
+
+# ── generic hasAttribute must not borrow another attribute's value ───────────
+_GP = "https://x.org/p"
+_GENERIC_TTL = f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+<urn:s> a dici_onto:Scenario .
+<urn:cl1> a dici_onto:ComponentLink ; dici_onto:hasInputEntity <urn:s> ;
+    dici_onto:linksInputyEntityTo <{_GP}/Machine/M1> .
+<urn:cl2> a dici_onto:ComponentLink ; dici_onto:hasInputEntity <urn:s> ;
+    dici_onto:linksInputyEntityTo <{_GP}/Machine/M2> .
+<{_GP}/Machine/M1> a dici_onto:Machine ;
+    dici_onto:hasAttribute <{_GP}/Machine/M1/PerformanceCurve>, <{_GP}/Machine/M1/RatedPower> .
+<{_GP}/Machine/M1/PerformanceCurve> a dici_onto:PerformanceCurve, dici_onto:CurveAttribute ;
+    dici_onto:hasDataPoints "[[3.0, 0.0], [4.0, 5.0]]" .
+<{_GP}/Machine/M1/RatedPower> a dici_onto:RatedPower, dici_onto:PhysicalAttribute ;
+    qudt:value "5.0"^^xsd:decimal .
+<{_GP}/Machine/M2> a dici_onto:Machine ;
+    dici_onto:hasAttribute <{_GP}/Machine/M2/Height> .
+<{_GP}/Machine/M2/Height> qudt:value "7.0"^^xsd:decimal .
+"""
+
+_GENERIC_TEMPLATE = {"service_name": "svc", "scenario_data": {"machine": {
+    "uri": "Machine.URI",
+    "power": "Machine.RatedPower",
+    "height": "Machine.Height",
+    "height_ref": "Machine.Height.HistoricTimeSeriesReference",
+}}}
+
+
+def test_generic_has_attribute_only_returns_the_named_attribute():
+    """M1 links two attributes through the generic hasAttribute and has no
+    Height. Height must come back missing, never as the curve or the power
+    that happen to be linked first."""
+    raw = convert_scenario(_GENERIC_TEMPLATE, _GENERIC_TTL, clean=False)
+    by_uri = {m["uri"]: m for m in raw["scenario_data"]["machine"]}
+    m1 = by_uri[f"{_GP}/Machine/M1"]
+    assert m1["power"] == 5.0
+    assert "height" not in m1 and "height_ref" not in m1
+
+
+def test_generic_has_attribute_matches_untyped_node_by_uri_path():
+    raw = convert_scenario(_GENERIC_TEMPLATE, _GENERIC_TTL, clean=False)
+    m2 = {m["uri"]: m for m in raw["scenario_data"]["machine"]}[f"{_GP}/Machine/M2"]
+    assert m2["height"] == 7.0 and "power" not in m2

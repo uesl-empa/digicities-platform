@@ -205,6 +205,69 @@ def test_dry_run_reports_without_touching_anything(storage, monkeypatch):
     assert not client.updates and not client.uploads
 
 
+# ── a graph that cannot be read must never prune the baseline ────────────────
+class _GraphClient(_FakeClient):
+    """A client whose reads go through the REAL attach_graph_attributes.
+
+    ``mode``: "raise" (connection error), "none" (the client's give-up value
+    after retries), "empty" (graph reachable, lists no component instances),
+    "answered" (lists the types, but holds no attribute values)."""
+
+    def __init__(self, mode):
+        super().__init__()
+        self.mode = mode
+        self.queries = 0
+
+    def sparql_api_query(self, query, **kwargs):
+        import pandas as pd
+        self.queries += 1
+        if self.mode == "raise":
+            raise ConnectionError("graph down")
+        if self.mode == "none":
+            return None
+        if "instanceCount" in query and self.mode == "answered":
+            return pd.DataFrame(
+                [[f"https://digicities.info/ontology#{t}", t, 1] for t in ("Site", "WindTurbine")],
+                columns=["componentType", "componentName", "instanceCount"])
+        return pd.DataFrame()
+
+
+@pytest.mark.parametrize("mode,reason", [("raise", "ConnectionError"),
+                                         ("none", "no response"),
+                                         ("empty", "no component instances")])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_failed_graph_read_skips_and_leaves_the_scenario_untouched(storage, mode, reason,
+                                                                  dry_run):
+    svc = _write_service(storage, {"HubHeight": ["Static"]})
+    rel = _write_scenario(storage)
+    before = storage.read_text(rel)
+    client = _GraphClient(mode)
+    rep = sync_mod.sync_scenarios_for_service(storage, client, svc, dry_run=dry_run)
+    (entry,) = rep["scenarios"]
+    assert client.queries, "the real enrichment path must have queried the graph"
+    assert entry["action"] == "skipped"
+    assert "graph read failed" in entry["detail"] and reason in entry["detail"]
+    assert storage.read_text(rel) == before
+    assert not storage.glob("scenarios/_archive/*.ttl")
+    assert not client.updates and not client.uploads
+
+
+def test_answered_graph_read_still_prunes(storage):
+    """The guard is about failed reads only: a graph that answers but holds no
+    values for the required attributes is a real gap, and the sync acts."""
+    svc = _write_service(storage, {"HubHeight": ["Static"]})
+    rel = _write_scenario(storage)
+    rep = sync_mod.sync_scenarios_for_service(storage, _GraphClient("answered"), svc)
+    (entry,) = rep["scenarios"]
+    assert entry["action"] == "removed"
+    assert not storage.exists(rel)
+
+
+def test_attach_graph_attributes_reports_success_as_empty_list():
+    assert sync_mod.attach_graph_attributes(None, []) == []
+    assert sync_mod.attach_graph_attributes(None, [{"uri": "u", "type": "T"}]) == ["no graph client"]
+
+
 def test_materialized_full_files_are_never_synced(storage, monkeypatch):
     """A `<name>_full.ttl` is a fat export of its thin twin (same URI, same
     service): syncing it would rewrite it thin. It must be skipped entirely."""

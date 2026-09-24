@@ -1123,6 +1123,11 @@
       },
       "SubmitReq": {
         "properties": {
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
           "payload": {
             "additionalProperties": true,
             "title": "Payload",

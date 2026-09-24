@@ -18,6 +18,16 @@
 # the scoped gitlab-deployer kubeconfig (Settings > CI/CD > Variables). Runs
 # automatically on the default branch; NB an api roll drops in-flight agent
 # chat sessions (users just start a fresh chat).
+#
+# Image tags: :<sha> is the platform commit (kept for manual rollbacks), but
+# an agent-only merge re-runs this pipeline at the SAME platform sha, so
+# :<sha> alone would not change and the cluster would keep the old agent
+# (and a node may reuse its cached :<sha>). Every pipeline therefore also
+# pushes :<sha>-p<pipeline iid>, unique per pipeline, and deploys THAT tag:
+# the rollout always happens and always pulls the image just built.
+# Re-running an older pipeline's deploy job redeploys exactly its image.
+# The baked agent commit is in the image as ENV AGENT_COMMIT (reported by
+# the api's /health) and LABEL org.digicities.agent-commit.
 
 stages: [build, deploy]
 
@@ -41,9 +51,12 @@ build-platform-image:
     - docker build --pull --provenance=false -t "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" .
     # 2. module layer: the onboarding agent at the path the api loads modules from
     - git clone --depth 1 "https://gitlab-ci-token:$CI_JOB_TOKEN@$CI_SERVER_HOST/$AGENT_PROJECT.git" digicities-onboarding-agent
-    - printf 'FROM %s\nCOPY digicities-onboarding-agent /app/data/modules\nRUN pip install --no-cache-dir -r /app/data/modules/requirements.txt\n' "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" > Dockerfile.agent
-    - docker build --provenance=false -f Dockerfile.agent -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    - AGENT_COMMIT="$(git -C digicities-onboarding-agent rev-parse HEAD)"
+    - echo "Baking onboarding agent commit $AGENT_COMMIT"
+    - printf 'FROM %s\nCOPY digicities-onboarding-agent /app/data/modules\nRUN pip install --no-cache-dir -r /app/data/modules/requirements.txt\nENV AGENT_COMMIT=%s\nLABEL org.digicities.agent-commit=%s\n' "$CI_REGISTRY_IMAGE:base-$CI_COMMIT_SHORT_SHA" "$AGENT_COMMIT" "$AGENT_COMMIT" > Dockerfile.agent
+    - docker build --provenance=false -f Dockerfile.agent -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA-p$CI_PIPELINE_IID" .
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA-p$CI_PIPELINE_IID"
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
         docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
@@ -62,5 +75,8 @@ deploy-api:
     name: production
     url: https://platform.digicities.ch
   script:
-    - kubectl --kubeconfig "$KUBE_CONFIG" -n digicities set image deployment/api "api=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    # The per-pipeline tag (see header) always differs from what is running,
+    # so this set image always rolls the pods onto the freshly built image,
+    # agent-only merges included. Plain :<sha> was a no-op for those.
+    - kubectl --kubeconfig "$KUBE_CONFIG" -n digicities set image deployment/api "api=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA-p$CI_PIPELINE_IID"
     - kubectl --kubeconfig "$KUBE_CONFIG" -n digicities rollout status deployment/api --timeout=300s

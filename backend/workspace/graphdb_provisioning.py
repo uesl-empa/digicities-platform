@@ -256,6 +256,36 @@ def clear_default_graph(repo_id: str, base_url: Optional[str] = None) -> bool:
 # Per-workspace provisioning
 # ---------------------------------------------------------------------------
 
+def _publish_local_working_copy(ctx: WorkspaceContext) -> None:
+    """Mirror-backed workspaces: push the local working copy before loading.
+
+    For a remote-backed workspace (NextCloud) the working store is the local
+    copy (backend.workspace.mirror.local_root); files a caller just wrote
+    there reach ``ctx.storage`` only on the next push. The
+    loads below read ``ctx.storage``, so without this a load right after a
+    local write (e.g. the onboarding agent's build) would put the PREVIOUS
+    remote copy into the graph. Callers should still push themselves; this is
+    defense in depth. A no-op for local-filesystem workspaces and never fatal:
+    on failure the load continues with whatever the remote holds.
+    """
+    try:
+        from . import mirror            # lazy: mirror imports only .context
+        if not mirror.enabled(ctx):
+            return
+        result = mirror.push(ctx)
+    except Exception as exc:
+        print(f"[graphdb_provisioning] {getattr(ctx, 'id', '?')}: publishing the local "
+              f"working copy before load failed (loading the remote copy): {exc}")
+        return
+    if result.get("error"):
+        print(f"[graphdb_provisioning] {getattr(ctx, 'id', '?')}: publishing the local "
+              f"working copy before load failed (loading the remote copy): {result['error']}")
+    elif result.get("pushed") or result.get("deleted"):
+        print(f"[graphdb_provisioning] {getattr(ctx, 'id', '?')}: published "
+              f"{len(result.get('pushed') or [])} changed / "
+              f"{len(result.get('deleted') or [])} deleted local file(s) before loading")
+
+
 def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None) -> bool:
     """Make sure the triplestore has a dataset for this workspace and that its
     canonical TTLs are loaded. Returns True if the dataset is usable after
@@ -268,6 +298,9 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     repo_id = ctx.graphdb_repository
     if not repo_id:
         return False
+
+    # Load what was just written, not a stale remote copy (no-op locally).
+    _publish_local_working_copy(ctx)
 
     backend = get_backend()
     if not backend.dataset_exists(repo_id):

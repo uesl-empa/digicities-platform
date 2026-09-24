@@ -230,7 +230,13 @@ class QueryResponse(BaseModel):
 # ── meta ──────────────────────────────────────────────────────────────────────
 @app.get("/health", tags=["meta"])
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    out = {"status": "ok"}
+    # The onboarding-agent commit baked into this image (the GitLab build sets
+    # AGENT_COMMIT), so "which agent is live?" is answerable without kubectl.
+    agent_commit = os.getenv("AGENT_COMMIT")
+    if agent_commit:
+        out["agent_commit"] = agent_commit
+    return out
 
 
 def _sort_workspaces(out: list[WorkspaceSummary], sort: str) -> None:
