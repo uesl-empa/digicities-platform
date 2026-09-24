@@ -106,13 +106,23 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
         client = graph_client(ctx)
     except Exception:
         client = None
+    skipped_files: list[dict[str, str]] = []
     ttl_text = materialize_against_workspace(getattr(ctx, "storage", None),
-                                             scen.read_text(encoding="utf-8"), client)
+                                             scen.read_text(encoding="utf-8"), client,
+                                             skipped=skipped_files)
     try:
         raw = convert_scenario(template, ttl_text, clean=False)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
     validation = validate_payload(raw, template, template.get("required_attributes"))
+    # A replica file that does not parse drops every component in it — say so
+    # next to the payload instead of only in the server log.
+    for s in skipped_files:
+        validation.warnings.append(
+            f"Replica file {s['file']} could not be parsed and was skipped; its "
+            f"components and attributes are missing from this payload ({s['error']})")
+    if skipped_files and validation.data_quality == "good":
+        validation.data_quality = "needs_review"
     payload = clean_placeholder_values(raw, template) or {}
     return {"payload": payload, "validation": asdict(validation)}
 

@@ -5,8 +5,17 @@ import pandas as pd
 
 from backend.replica_builder.utils.ttl_attribute_helpers import (
     curve_points_literal,
+    dici_term,
+    escape_iri,
     parse_curve_points,
+    prefixed_or_iri,
 )
+from backend.replica_builder.utils.ttl_attribute_helpers import (
+    escape_ttl_string as _lit,
+)
+
+_UNIT_NS = "http://qudt.org/vocab/unit/"
+_CURRENCY_NS = "http://qudt.org/vocab/currency/"
 
 
 def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="default",
@@ -85,15 +94,19 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             return f"{num}"
 
     def generate_instance_uri(project_uri, sheet_name, row_id, uri_mode):
-        """Generate instance URI based on the specified URI mode"""
+        """Generate instance URI based on the specified URI mode.
+
+        The id comes from a cell, so characters Turtle forbids in an IRI
+        (spaces, quotes, <>, ...) are percent-encoded; ClassObject links to the
+        row are encoded the same way, so they still resolve."""
         if uri_mode == "default":
-            return f"<{project_uri}/{sheet_name}/{row_id}>"
+            return f"<{project_uri}/{sheet_name}/{escape_iri(str(row_id).strip())}>"
         elif uri_mode == "full-uri-in-cell":
             # Assume row_id contains the complete URI
-            return f"<{row_id}>"
+            return f"<{escape_iri(str(row_id).strip())}>"
         elif uri_mode == "complete-project-uri":
             # project_uri should end with # and row_id is just the identifier
-            return f"<{project_uri}{row_id}>"
+            return f"<{project_uri}{escape_iri(str(row_id).strip())}>"
         else:
             raise ValueError(f"Unknown uri_mode: {uri_mode}")
 
@@ -173,7 +186,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             if part in ref_uri_map:
                 lines.append(f'prov:wasDerivedFrom {ref_uri_map[part]}')
             else:
-                lines.append(f'dcterms:source "{part}"^^xsd:string')
+                lines.append(f'dcterms:source "{_lit(part)}"^^xsd:string')
         return lines
 
     # Validate uri_mode parameter
@@ -265,7 +278,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                 if not is_nonempty(ref_id):
                     continue
                 ref_id_str = str(ref_id).strip()
-                ref_uri = f"<{project_uri}/Reference/{ref_id_str}>"
+                ref_uri = f"<{project_uri}/Reference/{escape_iri(ref_id_str)}>"
                 ref_uri_map[ref_id_str] = ref_uri
 
                 ref_props = [f"{ref_uri} a dici_onto:Reference"]
@@ -282,13 +295,13 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                     val_str = str(val).strip()
 
                     if attr_name_r == "description":
-                        ref_props.append(f'\trdfs:label "{val_str}"')
+                        ref_props.append(f'\trdfs:label "{_lit(val_str)}"')
                     elif attr_name_r == "ReferenceType":
-                        ref_props.append(f'\tdici_onto:hasReferenceType dici_onto:{val_str}')
+                        ref_props.append(f'\tdici_onto:hasReferenceType {dici_term(val_str)}')
                     elif attr_name_r == "URL":
-                        ref_props.append(f'\tschema:url "{val_str}"^^xsd:anyURI')
+                        ref_props.append(f'\tschema:url "{_lit(val_str)}"^^xsd:anyURI')
                     elif attr_name_r == "comment":
-                        ref_props.append(f'\trdfs:comment "{val_str}"')
+                        ref_props.append(f'\trdfs:comment "{_lit(val_str)}"')
                     elif attr_name_r == "AccessDate":
                         if isinstance(val, (datetime.datetime, datetime.date)):
                             date_str = val.strftime('%Y-%m-%d') if hasattr(val, 'strftime') else str(val)
@@ -301,7 +314,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                 except ValueError:
                                     continue
                             date_str = parsed if parsed else val_str
-                        ref_props.append(f'\tdcterms:dateAccessed "{date_str}"^^xsd:date')
+                        ref_props.append(f'\tdcterms:dateAccessed "{_lit(date_str)}"^^xsd:date')
 
                 reference_declarations.append(" ;\n".join(ref_props) + " .")
                 reference_declarations.append("")
@@ -445,7 +458,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         if time_type == "Historic":
                             attr_properties.extend([
                                 f"dici_onto:hasHistoricTimeSeries {ts_attr_uri}",
-                                f'dici_onto:hasHistoricTimeSeriesReference "{value}"^^xsd:string'
+                                f'dici_onto:hasHistoricTimeSeriesReference "{_lit(value)}"^^xsd:string'
                             ])
 
                             # Build TimeSeries node lines
@@ -453,16 +466,16 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             if qudt_unit:
                                 ts_lines = [
                                     f"{ts_attr_uri} a dici_onto:TimeSeries ;",
-                                    f'\tdici_onto:storedAt "{value}"^^xsd:string ;',
-                                    f'\tdici_onto:hasFileName "{value}"^^xsd:string ;',
-                                    f'\tqudt:unit <http://qudt.org/vocab/unit/{qudt_unit}> ;',
-                                    f'\tdici_onto:hasUnitLabel "{qudt_unit}"^^xsd:string .'
+                                    f'\tdici_onto:storedAt "{_lit(value)}"^^xsd:string ;',
+                                    f'\tdici_onto:hasFileName "{_lit(value)}"^^xsd:string ;',
+                                    f'\tqudt:unit <http://qudt.org/vocab/unit/{escape_iri(qudt_unit)}> ;',
+                                    f'\tdici_onto:hasUnitLabel "{_lit(qudt_unit)}"^^xsd:string .'
                                 ]
                             else:
                                 ts_lines = [
                                     f"{ts_attr_uri} a dici_onto:TimeSeries ;",
-                                    f'\tdici_onto:storedAt "{value}"^^xsd:string ;',
-                                    f'\tdici_onto:hasFileName "{value}"^^xsd:string .'
+                                    f'\tdici_onto:storedAt "{_lit(value)}"^^xsd:string ;',
+                                    f'\tdici_onto:hasFileName "{_lit(value)}"^^xsd:string .'
                                 ]
 
                             ts_declarations.extend(ts_lines)
@@ -471,22 +484,22 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         elif time_type == "Future":
                             attr_properties.extend([
                                 f"dici_onto:hasFutureTimeSeries {ts_attr_uri}",
-                                f'dici_onto:hasFutureTimeSeriesReference "{value}"^^xsd:string'
+                                f'dici_onto:hasFutureTimeSeriesReference "{_lit(value)}"^^xsd:string'
                             ])
 
                             if qudt_unit:
                                 ts_lines = [
                                     f"{ts_attr_uri} a dici_onto:TimeSeries ;",
-                                    f'\tdici_onto:storedAt "{value}"^^xsd:string ;',
-                                    f'\tdici_onto:hasFileName "{value}"^^xsd:string ;',
-                                    f'\tqudt:unit <http://qudt.org/vocab/unit/{qudt_unit}> ;',
-                                    f'\tdici_onto:hasUnitLabel "{qudt_unit}"^^xsd:string .'
+                                    f'\tdici_onto:storedAt "{_lit(value)}"^^xsd:string ;',
+                                    f'\tdici_onto:hasFileName "{_lit(value)}"^^xsd:string ;',
+                                    f'\tqudt:unit <http://qudt.org/vocab/unit/{escape_iri(qudt_unit)}> ;',
+                                    f'\tdici_onto:hasUnitLabel "{_lit(qudt_unit)}"^^xsd:string .'
                                 ]
                             else:
                                 ts_lines = [
                                     f"{ts_attr_uri} a dici_onto:TimeSeries ;",
-                                    f'\tdici_onto:storedAt "{value}"^^xsd:string ;',
-                                    f'\tdici_onto:hasFileName "{value}"^^xsd:string .'
+                                    f'\tdici_onto:storedAt "{_lit(value)}"^^xsd:string ;',
+                                    f'\tdici_onto:hasFileName "{_lit(value)}"^^xsd:string .'
                                 ]
 
                             ts_declarations.extend(ts_lines)
@@ -495,20 +508,20 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         elif time_type == "Live":
                             attr_properties.extend([
                                 f"dici_onto:hasLiveTimeSeries {ts_attr_uri}",
-                                f'dici_onto:hasLiveTimeSeriesReference "{value}"^^xsd:string'
+                                f'dici_onto:hasLiveTimeSeriesReference "{_lit(value)}"^^xsd:string'
                             ])
 
                             if qudt_unit:
                                 ts_lines = [
                                     f"{ts_attr_uri} a dici_onto:TimeSeries ;",
-                                    f'\tdici_onto:realTimeSource "{value}"^^xsd:string ;',
-                                    f'\tqudt:unit <http://qudt.org/vocab/unit/{qudt_unit}> ;',
-                                    f'\tdici_onto:hasUnitLabel "{qudt_unit}"^^xsd:string .'
+                                    f'\tdici_onto:realTimeSource "{_lit(value)}"^^xsd:string ;',
+                                    f'\tqudt:unit <http://qudt.org/vocab/unit/{escape_iri(qudt_unit)}> ;',
+                                    f'\tdici_onto:hasUnitLabel "{_lit(qudt_unit)}"^^xsd:string .'
                                 ]
                             else:
                                 ts_lines = [
                                     f"{ts_attr_uri} a dici_onto:TimeSeries ;",
-                                    f'\tdici_onto:realTimeSource "{value}"^^xsd:string .'
+                                    f'\tdici_onto:realTimeSource "{_lit(value)}"^^xsd:string .'
                                 ]
 
                             ts_declarations.extend(ts_lines)
@@ -588,13 +601,13 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         }
                         if attr_name in VALID_RDFS_ANNOTATIONS:
                             annotation_lines.append(
-                                f'\trdfs:{attr_name} "{str(value).strip()}"'
+                                f'\trdfs:{attr_name} "{_lit(str(value).strip())}"'
                             )
                         else:
                             # Project namespace — IRI is well-formed and
                             # project-scoped (https://digicities.info/proj/<P>#name).
                             annotation_lines.append(
-                                f'\t:{attr_name} "{str(value).strip()}"'
+                                f'\t:{attr_name} "{_lit(str(value).strip())}"'
                             )
                         continue
 
@@ -604,10 +617,13 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         # so no unit label is applicable here.
                         if predicate and is_nonempty(predicate):
                             # Check if LinkedClassObjectType is provided
+                            # Cell text is percent-encoded where Turtle forbids it
+                            # in an IRI — the same encoding generate_instance_uri
+                            # gives the target row, so the link still resolves.
                             if linked_class_type and is_nonempty(linked_class_type):
                                 # LinkedClassObjectType is always a full URI prefix including
                                 # its trailing separator (/ or #). Concatenate directly.
-                                target_uri = f"<{linked_class_type.strip()}{str(value).strip()}>"
+                                target_uri = f"<{linked_class_type.strip()}{escape_iri(str(value).strip())}>"
                             else:
                                 # Fall back to existing behavior based on uri_mode
                                 if uri_mode == "default":
@@ -619,18 +635,20 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                             f"{sheet_name}.{row_id}.{attr_name} -> "
                                             f"'{str(value).strip()}'")
                                         continue
-                                    target_uri = f"<{project_uri}/{str(value).strip()}>"
+                                    link_sheet, _, link_id = str(value).strip().partition("/")
+                                    target_uri = (f"<{project_uri}/{escape_iri(link_sheet.strip())}/"
+                                                  f"{escape_iri(link_id.strip())}>")
                                 elif uri_mode == "full-uri-in-cell":
                                     # Assume the value contains the complete target URI
-                                    target_uri = f"<{str(value).strip()}>"
+                                    target_uri = f"<{escape_iri(str(value).strip())}>"
                                 elif uri_mode == "complete-project-uri":
                                     # Use the project_uri base with the value
-                                    target_uri = f"<{project_uri}{str(value).strip()}>"
+                                    target_uri = f"<{project_uri}{escape_iri(str(value).strip())}>"
 
                             if predicate == "a":
                                 class_object_lines.append(f'\ta {target_uri}')
                             else:
-                                class_object_lines.append(f'\tdici_onto:{predicate} {target_uri}')
+                                class_object_lines.append(f'\t{dici_term(predicate)} {target_uri}')
                         continue
 
                     elif attr_type == "Identifier":
@@ -642,7 +660,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         # Create the identifier declaration
                         identifier_lines = [
                             f"{identifier_uri} a dici_onto:{attr_name} ;",
-                            f'\tdici_onto:identifierValue "{str(value).strip()}" .'
+                            f'\tdici_onto:identifierValue "{_lit(str(value).strip())}" .'
                         ]
                         identifier_declarations.extend(identifier_lines)
                         identifier_declarations.append("")
@@ -658,7 +676,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         attr_lines = [
                             f"{attr_uri} a dici_onto:{attr_name} ;",
                             f"\ta dici_onto:ResourceAttribute ;",
-                            f'\tdici_onto:hasDataPath "{str(value).strip()}"^^xsd:string .'
+                            f'\tdici_onto:hasDataPath "{_lit(str(value).strip())}"^^xsd:string .'
                         ]
                         attribute_value_declarations.extend(attr_lines)
                         attribute_value_declarations.append("")
@@ -691,9 +709,9 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                 decimal_str = format_decimal(numeric_val)
                                 attr_lines.append(f'dici_onto:hasAttributeValue "{decimal_str}"^^xsd:decimal')
                             else:
-                                attr_lines.append(f'dici_onto:hasAttributeValue "{value}"^^xsd:string')
+                                attr_lines.append(f'dici_onto:hasAttributeValue "{_lit(value)}"^^xsd:string')
                         except:
-                            attr_lines.append(f'dici_onto:hasAttributeValue "{str(value).strip()}"^^xsd:string')
+                            attr_lines.append(f'dici_onto:hasAttributeValue "{_lit(str(value).strip())}"^^xsd:string')
 
                         # Format with semicolons and final period
                         formatted_attr = f"{attr_lines[0]} ;\n\t" + " ;\n\t".join(attr_lines[1:]) + " ."
@@ -731,19 +749,19 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                 decimal_str = format_decimal(numeric_val)
                                 attr_lines.append(f'\tqudt:value "{decimal_str}"^^xsd:decimal ;')
                             else:
-                                attr_lines.append(f'\tqudt:value "{value}"^^xsd:string ;')
+                                attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
                         except:
-                            attr_lines.append(f'\tqudt:value "{str(value).strip()}"^^xsd:string ;')
+                            attr_lines.append(f'\tqudt:value "{_lit(str(value).strip())}"^^xsd:string ;')
 
                         # Build the unit label string using dici_onto:hasUnitLabel (DatatypeProperty).
                         # Note: qudt:unit is an ObjectProperty requiring a qudt:Unit IRI — it is NOT
                         # used here because no composite ratio IRI exists in QUDT for arbitrary ratios.
                         if qudt_unit and qudt_unit_y:
-                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{qudt_unit}/{qudt_unit_y}" .')
+                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{_lit(qudt_unit)}/{_lit(qudt_unit_y)}" .')
                         elif qudt_unit:
-                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{qudt_unit}" .')
+                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{_lit(qudt_unit)}" .')
                         elif qudt_unit_y:
-                            attr_lines.append(f'\tdici_onto:hasUnitLabel "1/{qudt_unit_y}" .')
+                            attr_lines.append(f'\tdici_onto:hasUnitLabel "1/{_lit(qudt_unit_y)}" .')
                         else:
                             # No units: remove trailing semicolon from last line and close
                             attr_lines[-1] = attr_lines[-1].rstrip(" ;") + " ."
@@ -830,15 +848,15 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
 
                             # If we successfully parsed a temporal value
                             if temporal_value and temporal_type:
-                                attr_lines.append(f'\tdici_onto:hasTemporalValue "{temporal_value}"^^{temporal_type}')
+                                attr_lines.append(f'\tdici_onto:hasTemporalValue "{_lit(temporal_value)}"^^{temporal_type}')
                             else:
                                 # Fallback to string if we can't parse it
-                                attr_lines.append(f'\tdici_onto:hasTemporalValue "{value_str}"^^xsd:string')
+                                attr_lines.append(f'\tdici_onto:hasTemporalValue "{_lit(value_str)}"^^xsd:string')
                                 attr_lines.append(f"\tdici_onto:hasTemporalPrecision dici_onto:Unknown")
 
                         except Exception as e:
                             # If all parsing fails, store as string
-                            attr_lines.append(f'\tdici_onto:hasTemporalValue "{value_str}"^^xsd:string')
+                            attr_lines.append(f'\tdici_onto:hasTemporalValue "{_lit(value_str)}"^^xsd:string')
                             attr_lines.append(f"\tdici_onto:hasTemporalPrecision dici_onto:Unknown")
 
                         # Check for datasource
@@ -866,11 +884,15 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             attr_uri_list.append(attr_uri)
                         add_specific_attr_uri(sheet_name, attr_name, attr_uri, specific_attr_uri_list)
 
+                        # The category is an ontology term, not a literal: write
+                        # it as a safe dici_onto: term (see dici_term) so a value
+                        # with spaces or punctuation can't break the whole file.
+                        category = dici_term(value)
                         attr_lines = [
                             f"{attr_uri} a dici_onto:{attr_name} ;",
                             f"\ta dici_onto:CategoricalAttribute ;",
-                            f"\ta dici_onto:{str(value).strip()} ;"
-                            f"\tdici_onto:hasCategoricalValue dici_onto:{str(value).strip()} ."
+                            f"\ta {category} ;"
+                            f"\tdici_onto:hasCategoricalValue {category} ."
                         ]
                         attribute_value_declarations.extend(attr_lines)
                         attribute_value_declarations.append("")
@@ -906,11 +928,11 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             f"\ta dici_onto:CurveAttribute ;",
                         ])
                         if qudt_unit:
-                            attr_lines.append(f"\tdici_onto:xUnit unit:{qudt_unit} ;")
-                            attr_lines.append(f'\tdici_onto:xUnitLabel "{qudt_unit}"^^xsd:string ;')
+                            attr_lines.append(f"\tdici_onto:xUnit {prefixed_or_iri('unit', _UNIT_NS, qudt_unit)} ;")
+                            attr_lines.append(f'\tdici_onto:xUnitLabel "{_lit(qudt_unit)}"^^xsd:string ;')
                         if qudt_unit_y:
-                            attr_lines.append(f"\tdici_onto:yUnit unit:{qudt_unit_y} ;")
-                            attr_lines.append(f'\tdici_onto:yUnitLabel "{qudt_unit_y}"^^xsd:string ;')
+                            attr_lines.append(f"\tdici_onto:yUnit {prefixed_or_iri('unit', _UNIT_NS, qudt_unit_y)} ;")
+                            attr_lines.append(f'\tdici_onto:yUnitLabel "{_lit(qudt_unit_y)}"^^xsd:string ;')
 
                         # The literal is JSON ([[x, y], ...], comma-separated) so
                         # readers can json.loads it; one point per line for humans.
@@ -940,15 +962,15 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                 decimal_str = format_decimal(numeric_val)
                                 attr_lines.append(f'\tqudt:value "{decimal_str}"^^xsd:decimal ;')
                             else:
-                                attr_lines.append(f'\tqudt:value "{value}"^^xsd:string ;')
+                                attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
                         except:
-                            attr_lines.append(f'\tqudt:value "{value}"^^xsd:string ;')
+                            attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
 
                         if attr_type == "UnitBasedCost" and qudt_unit:
                             # Preserve existing qudt:unit IRI
-                            attr_lines.append(f"\tqudt:unit <http://qudt.org/vocab/unit/{qudt_unit}> ;")
+                            attr_lines.append(f"\tqudt:unit <http://qudt.org/vocab/unit/{escape_iri(qudt_unit)}> ;")
                             # Add string label for backwards-compatible string-based access
-                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{qudt_unit}"^^xsd:string ;')
+                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{_lit(qudt_unit)}"^^xsd:string ;')
 
                         # Add datasource if present
                         if datasource_value and is_nonempty(datasource_value):
@@ -956,7 +978,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                 attr_lines.append(f"\t{ds_line} ;")
 
                         if currency:
-                            attr_lines.append(f"\tdici_onto:currency cur:{currency} .")
+                            attr_lines.append(f"\tdici_onto:currency {prefixed_or_iri('cur', _CURRENCY_NS, currency)} .")
                         else:
                             attr_lines[-1] = attr_lines[-1].rstrip(" ;") + " ."
 
@@ -973,9 +995,9 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
 
                         if qudt_unit:
                             # Preserve the existing IRI-based unit triple
-                            attr_lines.append(f"\tqudt:unit <http://qudt.org/vocab/unit/{qudt_unit}> ;")
+                            attr_lines.append(f"\tqudt:unit <http://qudt.org/vocab/unit/{escape_iri(qudt_unit)}> ;")
                             # Add human-readable string label alongside the IRI
-                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{qudt_unit}"^^xsd:string ;')
+                            attr_lines.append(f'\tdici_onto:hasUnitLabel "{_lit(qudt_unit)}"^^xsd:string ;')
 
                         # Add datasource if present
                         if datasource_value and is_nonempty(datasource_value):
@@ -988,9 +1010,9 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                 decimal_str = format_decimal(numeric_val)
                                 attr_lines.append(f'\tqudt:value "{decimal_str}"^^xsd:decimal ;')
                             else:
-                                attr_lines.append(f'\tqudt:value "{value}"^^xsd:string ;')
+                                attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
                         except:
-                            attr_lines.append(f'\tqudt:value "{value}"^^xsd:string ;')
+                            attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
 
                         attr_lines[-1] = attr_lines[-1].rstrip(" ;") + " ."
 
@@ -1035,13 +1057,15 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
         if len(unresolved_links) > 20:
             print(f"  …and {len(unresolved_links) - 20} more")
 
-    # Validate with rdflib
+    # Validate with rdflib. A file that does not parse is skipped wholesale by
+    # everything that loads it (provisioning, convert), so say so plainly.
     g = rdflib.Graph()
     try:
         g.parse(output_ttl_path, format="turtle")
         print(f"TTL file successfully created and validated: {output_ttl_path}")
         print(f"URI mode used: {uri_mode}")
     except Exception as e:
-        print("Warning: Errors were detected in the output TTL:", e)
+        print(f"ERROR: the generated TTL does not parse and will be skipped by "
+              f"everything that loads it ({output_ttl_path}): {e}")
 
 

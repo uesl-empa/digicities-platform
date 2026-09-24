@@ -72,7 +72,55 @@ def escape_ttl_string(s: str) -> str:
     s = s.replace('"', '\\"')
     s = s.replace('\n', '\\n')
     s = s.replace('\r', '\\r')
+    s = s.replace('\t', '\\t')
     return s
+
+
+# Characters Turtle forbids inside <IRI> (IRIREF): controls, space and <>"{}|^`\
+_IRI_FORBIDDEN = set('<>"{}|^`\\')
+
+# A local name that can be written as prefix:name without escaping. Anything
+# else is written as a full <IRI> instead (same IRI, always valid Turtle).
+_SAFE_LOCAL_NAME = re.compile(r'^[A-Za-z0-9_](?:[A-Za-z0-9_.\-]*[A-Za-z0-9_\-])?$')
+
+DICI_ONTO_NS = "https://digicities.info/ontology#"
+
+
+def escape_iri(s: Any) -> str:
+    """Percent-encode the characters Turtle does not allow inside ``<...>``.
+
+    Every other character is kept, so an IRI that was already valid comes
+    back unchanged (no double encoding of an existing ``%20``).
+    """
+    out = []
+    for ch in str(s):
+        if ord(ch) <= 0x20 or ch in _IRI_FORBIDDEN:
+            out.append(''.join(f'%{b:02X}' for b in ch.encode('utf-8')))
+        else:
+            out.append(ch)
+    return ''.join(out)
+
+
+def prefixed_or_iri(prefix: str, namespace: str, local: Any) -> str:
+    """``prefix:local`` when ``local`` is a plain local name, else the full
+    ``<namespace+local>`` IRI (percent-encoded where Turtle requires it)."""
+    local = str(local).strip()
+    if _SAFE_LOCAL_NAME.match(local):
+        return f"{prefix}:{local}"
+    return f"<{namespace}{escape_iri(local)}>"
+
+
+def dici_term(name: Any) -> str:
+    """A ``dici_onto:`` term for a value-derived name (a categorical value, a
+    reference type, a predicate from a header).
+
+    Whitespace is removed the way the Ontology Manager names individuals
+    (``add_named_individual``: ``"".join(label.split())``), so a category
+    typed with spaces resolves to the individual the ontology defines; any
+    remaining character that is not valid in a local name makes the term a
+    full IRI instead of breaking the file.
+    """
+    return prefixed_or_iri("dici_onto", DICI_ONTO_NS, "".join(str(name).split()))
 
 
 # ---------------------------------------------------------------------------

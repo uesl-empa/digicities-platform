@@ -16,14 +16,29 @@ from __future__ import annotations
 from typing import Optional
 
 
-def materialize_against_workspace(storage, scenario_text: str, client=None) -> str:
+def materialize_against_workspace(storage, scenario_text: str, client=None,
+                                  *, skipped: Optional[list] = None) -> str:
     """Merge a scenario with the workspace replica into a self-contained TTL.
 
     Returns the original text on any problem (not a scenario, no replica to
     merge, parse failure) — materialization must never make conversion worse.
     When a graph client is given, the derived collections graph is merged in
     too, so projected aggregate attributes ride along.
+
+    A replica file that does not parse is skipped (the rest still merges) but
+    never silently: an error naming the file is printed, and when a list is
+    passed as ``skipped`` each skipped file is appended to it as
+    ``{"file": rel, "error": "..."}`` so callers can surface it — every
+    component and attribute in that file is missing from the result.
     """
+    def _record_skip(rel: str, exc: Exception) -> None:
+        error = f"{type(exc).__name__}: {exc}"
+        print(f"[materialize] ERROR: replica file {rel} could not be parsed and was "
+              f"SKIPPED; its components and attributes are missing from this "
+              f"conversion. {error}")
+        if skipped is not None:
+            skipped.append({"file": rel, "error": error})
+
     try:
         from rdflib import Graph
         from rdflib.namespace import RDF
@@ -42,10 +57,10 @@ def materialize_against_workspace(storage, scenario_text: str, client=None) -> s
                 for rel in storage.glob("ingestion/output/*.ttl"):
                     try:
                         rep.parse(data=storage.read_text(rel), format="turtle")
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as exc:
+                        _record_skip(rel, exc)
+        except Exception as exc:
+            _record_skip("ingestion/output (listing)", exc)
 
         # Derived collections (projected aggregates) live only in the graph —
         # fetch the named graph via the graph-store endpoint (typed Turtle,
