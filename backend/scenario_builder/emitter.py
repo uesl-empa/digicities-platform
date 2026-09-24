@@ -18,9 +18,13 @@ including the quirks:
 * booleans hit the ``isinstance(value, (int, float))`` branch and are emitted
   as ``"True"^^xsd:decimal``;
 * the ``dici_onto:linksInputyEntityTo`` spelling (shared with the thin builder
-  in ``backend/scenario_builder/__init__.py`` and the shipped demo scenarios);
-* the completeness filter is truthiness-based, so a legitimate ``0`` value
-  drops a component.
+  in ``backend/scenario_builder/__init__.py`` and the shipped demo scenarios).
+
+One pinned quirk was deliberately UNPINNED (2026-09-24): the completeness filter
+was truthiness-based, so a legitimate ``0`` value (TurbulenceIntensity 0.0,
+NumberOfFloors 0) dropped its component from the scenario and converted the
+payload hollow — the wind-forecasting empty-payload failure. The filter now
+treats only None/empty as missing (see ``_requirement_absent``).
 
 Also moved here: ``resolve_nested_attribute_requirement`` (previously in
 ``components/scenario_builder/scenario_builder_components.py``; that module
@@ -1048,6 +1052,19 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
     ])
 
 
+def _requirement_absent(attr_value) -> bool:
+    """A required attribute is missing only when it has NO value — None, or an
+    empty string/collection. A plain truthiness test wrongly counted legitimate
+    zero values (TurbulenceIntensity 0.0, NumberOfFloors 0, a False flag) as
+    missing, which silently dropped the whole component from the scenario and
+    converted its payload block hollow."""
+    if attr_value is None:
+        return True
+    if isinstance(attr_value, (str, list, tuple, dict, set)):
+        return len(attr_value) == 0
+    return False
+
+
 def validate_enhanced_component_attributes(components, required_attributes):
     """Enhanced validation that handles nested property requirements including EventAttribute"""
     missing_attributes = []
@@ -1061,7 +1078,7 @@ def validate_enhanced_component_attributes(components, required_attributes):
             for req_attr in required_attrs:
                 try:
                     attr_value = resolve_nested_attribute_requirement(component, req_attr)
-                    if not attr_value:
+                    if _requirement_absent(attr_value):
                         missing_attributes.append({
                             'component': component['label'],
                             'type': comp_type,
@@ -1107,7 +1124,7 @@ def get_filtered_components_for_ttl(components, required_attributes):
             for req_attr in required_attrs:
                 try:
                     attr_value = resolve_nested_attribute_requirement(component, req_attr)
-                    if not attr_value:
+                    if _requirement_absent(attr_value):
                         missing_count += 1
                 except Exception:
                     missing_count += 1
@@ -1160,7 +1177,7 @@ def validate_enhanced_component_attributes_filtered(filtered_components, require
             for req_attr in required_attrs:
                 try:
                     attr_value = resolve_nested_attribute_requirement(component, req_attr)
-                    if not attr_value:
+                    if _requirement_absent(attr_value):
                         missing_attributes.append({
                             'component': component['label'],
                             'type': comp_type,
