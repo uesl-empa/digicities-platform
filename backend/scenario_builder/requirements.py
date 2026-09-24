@@ -21,19 +21,6 @@ from __future__ import annotations
 
 from typing import Any
 
-# Well-known collection keys → component type, used when a template block
-# carries no explicit ``type:`` field (mirrors the Streamlit builder).
-_CONTEXT_TYPE_MAP = {
-    "turbines": "WindTurbine",
-    "site": "GlobalWindAtlasSite",
-    "pv": "PV",
-    "energy_carrier": "EnergyCarrier",
-    "grid": "Grid",
-    "battery": "Battery",
-    "buildings": "Building",
-}
-
-
 def extract_component_links(yaml_content: dict) -> list[str]:
     """All ``CL.Source.Target`` patterns found under any ``link:`` key."""
     links: list[str] = []
@@ -113,7 +100,13 @@ def extract_required_attributes_enhanced(
         else:
             required_attributes[comp_type].add(parts[1])
 
-    def find_attributes(data: Any, current_component: str | None = None) -> None:
+    def find_attributes(data: Any) -> None:
+        # NOTE: component types come from the dotted values themselves
+        # (``GlobalWindAtlasSite.Roughness`` names its type). The verbatim
+        # Streamlit port carried a hardcoded collection-key → usecase-class
+        # context map here, whose result was threaded through the recursion
+        # but never read — removed 2026-09-24 (hardcoding audit), behavior
+        # identical.
         if isinstance(data, dict):
             for key, value in data.items():
                 if key == "template" and isinstance(value, dict):
@@ -121,21 +114,15 @@ def extract_required_attributes_enhanced(
                         if isinstance(template_value, str) and "." in template_value:
                             process_attribute_pattern(template_value)
                         elif isinstance(template_value, dict):
-                            find_attributes(template_value, current_component)
+                            find_attributes(template_value)
                 elif isinstance(value, str) and "." in value and key != "link":
                     process_attribute_pattern(value)
                 elif isinstance(value, (dict, list)):
-                    new_component = current_component
-                    if key in _CONTEXT_TYPE_MAP and isinstance(value, dict):
-                        if "type" in value:
-                            new_component = value["type"]
-                        elif "template" in value:
-                            new_component = _CONTEXT_TYPE_MAP.get(key, "Unknown")
-                    find_attributes(value, new_component)
+                    find_attributes(value)
         elif isinstance(data, list):
             for item in data:
                 if isinstance(item, (dict, list)):
-                    find_attributes(item, current_component)
+                    find_attributes(item)
 
     find_attributes(yaml_content.get("scenario_data", {}))
 
