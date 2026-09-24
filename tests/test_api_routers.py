@@ -790,6 +790,15 @@ def test_submission_submit_persist_opt_out(client, ws):
     assert client.get(f"{B}/submission/results").json() == []
 
 
+def test_health_reports_the_baked_agent_commit(client, monkeypatch):
+    """CI bakes AGENT_COMMIT into the image; /health surfaces it (same
+    string-map schema, the key is simply absent when not set)."""
+    monkeypatch.delenv("AGENT_COMMIT", raising=False)
+    assert client.get("/health").json() == {"status": "ok"}
+    monkeypatch.setenv("AGENT_COMMIT", "0123abcd")
+    assert client.get("/health").json() == {"status": "ok", "agent_commit": "0123abcd"}
+
+
 def test_service_mappings_degrade_without_graph(client, ws):
     r = client.get(f"{B}/service/mappings")
     assert r.status_code == 200
