@@ -3,6 +3,11 @@
 
 import pandas as pd
 
+from backend.replica_builder.utils.ttl_attribute_helpers import (
+    curve_points_literal,
+    parse_curve_points,
+)
+
 
 def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="default",
                          default_units=None):
@@ -137,28 +142,23 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             return None
         return val_str
 
-    def process_curve_data(value):
-        """Process curve data from string format '[(x,y);(x,y);...]'"""
+    def process_curve_data(value, where):
+        """Parse a curve cell ('[(x,y);(x,y);...]', JSON pairs, a list of
+        pairs, ...) into [[x, y], ...]. Points that cannot be read are never
+        dropped silently: the count is reported against ``where``."""
         try:
-            # Remove any outer quotes if present
-            value = value.strip('"\'')
-
-            # Split the string into point pairs and process each pair
-            points_str = value.strip('[]').split(';')
-            formatted_points = []
-
-            for point_str in points_str:
-                # Extract x and y values using regex
-                match = re.match(r'\((\d+\.?\d*),(\d+\.?\d*)\)', point_str.strip())
-                if match:
-                    x_str = format_decimal(float(match.group(1)))
-                    y_str = format_decimal(float(match.group(2)))
-                    formatted_points.append(f'    [{x_str:>8}, {y_str:>10}]')
-
-            return formatted_points
+            points, dropped = parse_curve_points(value)
         except Exception as e:
-            print(f"Error processing curve data: {e}")
+            print(f"Warning: curve {where}: could not parse curve data ({e}); "
+                  f"no points written (value: {str(value)[:80]!r})")
             return []
+        if dropped:
+            print(f"Warning: curve {where}: {dropped} point(s) could not be parsed "
+                  f"and were dropped; {len(points)} kept (value: {str(value)[:80]!r})")
+        elif not points:
+            print(f"Warning: curve {where}: no points could be parsed "
+                  f"(value: {str(value)[:80]!r})")
+        return points
 
     def get_datasource_lines(datasource_value, ref_uri_map):
         """Split a datasource value on ';' and resolve each part.
@@ -912,10 +912,12 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             attr_lines.append(f"\tdici_onto:yUnit unit:{qudt_unit_y} ;")
                             attr_lines.append(f'\tdici_onto:yUnitLabel "{qudt_unit_y}"^^xsd:string ;')
 
-                        attr_lines.append('\tdici_onto:hasDataPoints """[')
-                        formatted_points = process_curve_data(str(value))
-                        attr_lines.extend(formatted_points)
-                        attr_lines.append('    ]"""')
+                        # The literal is JSON ([[x, y], ...], comma-separated) so
+                        # readers can json.loads it; one point per line for humans.
+                        points = process_curve_data(
+                            value, f"{sheet_name}.{row_id}.{attr_name}")
+                        attr_lines.append(
+                            '\tdici_onto:hasDataPoints """' + curve_points_literal(points) + '"""')
 
                         # Add datasource if present
                         if datasource_value and is_nonempty(datasource_value):

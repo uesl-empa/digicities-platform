@@ -607,7 +607,13 @@ class RobustTTL2YAMLProcessor:
                 try:
                     points = json.loads(raw)
                 except Exception:
-                    return raw
+                    # Replicas built before the writer emitted JSON hold one
+                    # "[x, y]" row per line with no commas between rows. Read
+                    # those too; anything else (e.g. a file reference) passes
+                    # through as the raw string.
+                    points = _legacy_curve_points(raw)
+                    if points is None:
+                        return raw
                 curve: Dict[str, Any] = {'points': points}
                 for pred, key in ((self.DICI.xUnitLabel, 'x_unit'),
                                   (self.DICI.yUnitLabel, 'y_unit')):
@@ -649,6 +655,19 @@ class RobustTTL2YAMLProcessor:
     def _extract_name(self, uri: str) -> str:
         """Extract name from URI."""
         return uri.split('/')[-1].split('#')[-1]
+
+
+def _legacy_curve_points(raw: str) -> Optional[List[List[float]]]:
+    """Points from a non-JSON curve literal, or None when it holds none."""
+    from backend.replica_builder.utils.ttl_attribute_helpers import parse_curve_points
+
+    points, dropped = parse_curve_points(raw)
+    if not points:
+        return None
+    if dropped:
+        print(f"[ttl_converter] curve literal: {dropped} unreadable point(s) "
+              f"skipped, {len(points)} kept")
+    return points
 
 
 def clean_placeholder_values(data: Any) -> Any:

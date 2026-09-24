@@ -45,7 +45,11 @@ Geospatial:
     value, datasource
 """
 
-from typing import Dict, List
+import ast
+import json
+import math
+import re
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -71,27 +75,136 @@ def escape_ttl_string(s: str) -> str:
     return s
 
 
+# ---------------------------------------------------------------------------
+# Curve points
+# ---------------------------------------------------------------------------
+
+# One number: sign, decimals, leading dot, exponent ("-1.5", "+.5", "2e3").
+_CURVE_NUM = r'[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?'
+# The content of an innermost (...) or [...] group, e.g. "3, 0" in "[(3, 0);(4,5)]".
+_CURVE_GROUP = re.compile(r'[\[(]([^\[\]()]*)[\])]')
+# "x, y" / "x;y" / "x y" inside one group.
+_CURVE_PAIR = re.compile(r'^\s*(%s)\s*(?:[,;]|\s)\s*(%s)\s*$' % (_CURVE_NUM, _CURVE_NUM))
+
+
+def _finite_pair(x: Any, y: Any) -> Optional[List[float]]:
+    """``[float(x), float(y)]`` when both are finite numbers, else None."""
+    if isinstance(x, bool) or isinstance(y, bool):
+        return None
+    try:
+        fx, fy = float(x), float(y)
+    except (TypeError, ValueError):
+        return None
+    if math.isfinite(fx) and math.isfinite(fy):
+        return [fx, fy]
+    return None
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _pairs_from_items(items: List[Any]) -> Tuple[List[List[float]], int]:
+    if len(items) == 2 and all(_is_number(i) for i in items):
+        items = [items]                      # a bare [x, y] is one point
+    points: List[List[float]] = []
+    dropped = 0
+    for item in items:
+        pt = None
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            pt = _finite_pair(item[0], item[1])
+        elif isinstance(item, str):
+            sub, bad = _pairs_from_text(item)
+            if len(sub) == 1 and not bad:
+                pt = sub[0]
+        if pt is None:
+            dropped += 1
+        else:
+            points.append(pt)
+    return points, dropped
+
+
+def _pairs_from_text(text: str) -> Tuple[List[List[float]], int]:
+    groups = _CURVE_GROUP.findall(text)
+    if not groups:
+        # No brackets at all: "x,y;x,y" or one pair per line.
+        groups = re.split(r'[;\n]', text)
+    points: List[List[float]] = []
+    dropped = 0
+    for group in groups:
+        if not group.strip():
+            continue
+        m = _CURVE_PAIR.match(group)
+        pt = _finite_pair(m.group(1), m.group(2)) if m else None
+        if pt is None:
+            dropped += 1
+        else:
+            points.append(pt)
+    return points, dropped
+
+
+def parse_curve_points(value: Any) -> Tuple[List[List[float]], int]:
+    """Parse curve data into ``([[x, y], ...], dropped)``.
+
+    Accepts every shape curves arrive in: the authoring format
+    ``[(x,y);(x,y)]`` or ``(x,y);(x,y)`` (spaces allowed), JSON
+    ``[[x,y],...]``, Python lists/tuples of pairs, and the legacy comma-less
+    ``[x, y]``-per-line literal older replicas stored. Numbers may carry a
+    sign, decimals and an exponent.
+
+    ``dropped`` counts entries that looked like points but could not be read,
+    so callers can report them instead of losing them silently.
+    """
+    if value is None:
+        return [], 0
+    if isinstance(value, float) and math.isnan(value):
+        return [], 0
+    if isinstance(value, (list, tuple)):
+        return _pairs_from_items(list(value))
+
+    text = str(value).strip().strip('"\'').strip()
+    if not text:
+        return [], 0
+
+    # Structured forms first: they keep the pairing exactly.
+    for loader in (json.loads, ast.literal_eval):
+        try:
+            loaded = loader(text)
+        except Exception:
+            continue
+        if isinstance(loaded, (list, tuple)):
+            return _pairs_from_items(list(loaded))
+        break
+
+    return _pairs_from_text(text)
+
+
+def curve_points_literal(points: List[List[float]]) -> str:
+    """The ``hasDataPoints`` literal: valid JSON, one point per line."""
+    if not points:
+        return "[]"
+    rows = ",\n".join(f"    [{json.dumps(float(x))}, {json.dumps(float(y))}]"
+                      for x, y in points)
+    return "[\n" + rows + "\n]"
+
+
 def process_curve_data_string(data_str: str) -> List[str]:
     """Parse a curve data string into formatted point strings.
 
-    Expected input format:  [(x1,y1);(x2,y2);...]
-    Returns a list of formatted strings like '[   1.0,      2.5],'
+    Expected input format:  [(x1,y1);(x2,y2);...] (or any other shape
+    :func:`parse_curve_points` accepts). Returns a list of formatted strings
+    like '[   1.0,      2.5],' (no comma after the last one).
     """
-    import re
     if not data_str:
         return []
 
     try:
-        data_str = data_str.strip('[]')
-        points_str = data_str.split(';')
-
+        points, _dropped = parse_curve_points(data_str)
         formatted_points = []
-        for point_str in points_str:
-            match = re.match(r'\((\d+\.?\d*),(\d+\.?\d*)\)', point_str.strip())
-            if match:
-                x_str = format_decimal(float(match.group(1)))
-                y_str = format_decimal(float(match.group(2)))
-                formatted_points.append(f'[{x_str:>8}, {y_str:>10}],')
+        for x, y in points:
+            x_str = format_decimal(float(x))
+            y_str = format_decimal(float(y))
+            formatted_points.append(f'[{x_str:>8}, {y_str:>10}],')
 
         if formatted_points:
             formatted_points[-1] = formatted_points[-1].rstrip(',')
