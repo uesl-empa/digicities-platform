@@ -776,7 +776,8 @@ def test_submission_submit_stamps_service_name(client, ws):
     _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
     r = client.post(f"{B}/submission/submit", json={
         "template_file": "Svc.yaml", "scenario_file": "s.ttl",
-        "payload": {"service_name": "SomethingElse", "scenario_data": {}}})
+        "payload": {"service_name": "SomethingElse",
+                    "scenario_data": {"building": [{"uri": "urn:b1"}]}}})
     saved = r.json()["saved"]
     content = client.get(f"{B}/submission/results/content", params={"file": saved}).json()
     assert content["submitted_data"]["service_name"] == "Svc"
@@ -785,9 +786,44 @@ def test_submission_submit_stamps_service_name(client, ws):
 def test_submission_submit_persist_opt_out(client, ws):
     _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
     r = client.post(f"{B}/submission/submit", json={
-        "template_file": "Svc.yaml", "payload": {}, "persist": False})
+        "template_file": "Svc.yaml", "payload": {"a": 1}, "persist": False})
     assert "saved" not in r.json()
     assert client.get(f"{B}/submission/results").json() == []
+
+
+@pytest.mark.parametrize("payload", [
+    {},
+    {"service_name": "Svc", "description": "d"},
+    {"service_name": "Svc", "scenario_data": {}},
+    {"service_name": "Svc", "scenario_data": {"uri": "urn:s", "building": [], "site": []}},
+    {"building": [], "site": []},
+])
+def test_submission_submit_refuses_hollow_payloads(client, ws, payload):
+    """An empty payload, or one whose component arrays are all empty, is
+    refused with 422 before anything is sent or persisted."""
+    _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
+    r = client.post(f"{B}/submission/submit", json={
+        "template_file": "Svc.yaml", "scenario_file": "s.ttl", "payload": payload})
+    assert r.status_code == 422, r.text
+    assert "force=true" in r.json()["detail"]
+    assert client.get(f"{B}/submission/results").json() == []
+
+
+def test_submission_submit_force_sends_a_hollow_payload(client, ws):
+    _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
+    r = client.post(f"{B}/submission/submit", json={
+        "template_file": "Svc.yaml", "payload": {"scenario_data": {"building": []}},
+        "force": True, "persist": False})
+    assert r.status_code == 200 and r.json()["ok"] is False   # sent (and failed to connect)
+
+
+def test_submission_submit_accepts_partly_filled_payloads(client, ws):
+    """Only ALL-empty arrays are hollow: one populated component list is enough."""
+    _seed_template(ws, connection={"url": "http://localhost:59999/nope", "timeout": 2})
+    r = client.post(f"{B}/submission/submit", json={
+        "template_file": "Svc.yaml", "persist": False,
+        "payload": {"scenario_data": {"building": [], "site": [{"uri": "urn:s1"}]}}})
+    assert r.status_code == 200
 
 
 def test_health_reports_the_baked_agent_commit(client, monkeypatch):
