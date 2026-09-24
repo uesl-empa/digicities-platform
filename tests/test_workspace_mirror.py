@@ -12,6 +12,7 @@ hard no-op for local-fs workspaces.
 """
 from __future__ import annotations
 
+import threading
 import time
 from types import SimpleNamespace
 
@@ -154,3 +155,53 @@ def test_mirror_failures_are_soft(env, monkeypatch):
     assert "error" in mirror.pull(env.ctx, force=True)    # returned, not raised
     monkeypatch.setattr(env.ctx.storage, "write_bytes", _boom)
     assert "error" in mirror.push(env.ctx)
+
+
+def test_middleware_pushes_off_the_event_loop(monkeypatch):
+    """The write seam must not run mirror.push on the loop thread.
+
+    push() walks the tree and PUTs each changed file over WebDAV — blocking
+    disk + network. Starlette gives async middleware no threadpool of its own,
+    and the api runs a single uvicorn worker, so a direct call stalls EVERY
+    other request (and SSE stream) for the duration. Asserted by thread
+    identity: by_id runs inline on the loop, push must not.
+
+    The real middleware function is mounted on a throwaway app with a trivial
+    route, so what's tested is the seam itself rather than whatever work some
+    production route happens to do.
+    """
+    pytest.importorskip("fastapi")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    import apps.api.main as main_mod
+    import apps.api.registry_cache as cache_mod
+    from backend.workspace import mirror as mirror_mod
+
+    seen: dict[str, int] = {}
+    ctx = SimpleNamespace(id="ws1", storage=None)
+
+    def _by_id(ws_id):                       # called inline by the middleware → loop thread
+        seen["loop"] = threading.get_ident()
+        return ctx
+
+    def _push(c):
+        seen["push"] = threading.get_ident()
+        return {"pushed": [], "deleted": []}
+
+    monkeypatch.setattr(cache_mod, "by_id", _by_id)
+    monkeypatch.setattr(mirror_mod, "push", _push)
+
+    app = FastAPI()
+    app.add_middleware(BaseHTTPMiddleware, dispatch=main_mod._mirror_push_after_write)
+
+    @app.post("/api/workspaces/{ws}/thing")
+    def _thing(ws: str):
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        assert client.post("/api/workspaces/ws1/thing").status_code == 200
+
+    assert "push" in seen, "middleware never pushed after a mutating request"
+    assert seen["push"] != seen["loop"], "push ran on the event-loop thread"

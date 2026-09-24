@@ -140,11 +140,21 @@ async def _mirror_push_after_write(request, call_next):
         # /api/workspaces/<id>/...
         if len(parts) > 4 and parts[1] == "api" and parts[2] == "workspaces":
             try:
+                from starlette.concurrency import run_in_threadpool
+
                 from backend.workspace import mirror
                 from .registry_cache import by_id as _cached_by_id
                 ctx = _cached_by_id(parts[3])
                 if ctx is not None:
-                    mirror.push(ctx)
+                    # mirror.push walks the workspace tree and PUTs each changed file
+                    # over WebDAV — blocking disk + network. This middleware is async,
+                    # and Starlette gives async middleware no threadpool of its own
+                    # (only sync endpoints/dependencies get one), so calling it
+                    # directly stalled the single uvicorn event loop for the whole
+                    # push: no other request, health check or SSE stream got served
+                    # meanwhile. The pull side is already safe — it hangs off get_ctx,
+                    # a sync dependency FastAPI offloads by itself.
+                    await run_in_threadpool(mirror.push, ctx)
             except Exception as exc:              # never take the response down
                 print(f"[mirror] middleware push skipped: {exc}")
     return response
