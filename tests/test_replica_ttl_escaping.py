@@ -38,7 +38,10 @@ LABEL = 'He said "hi"\nsecond line\twith tab and a \\ backslash'
 NOTE = 'quote " and backslash \\ end'
 PATH = 'C:\\data\\input files\\file "1".csv'
 IDENT = 'ID\\42 "x"'
-TEXT_VALUE = 'n/a "unknown"\r\nsee notes'
+# No carriage return here: an xlsx cell's CR is normalised to LF by the XML
+# reader on some platforms (the workbook layer's behaviour, not the TTL
+# escaping this file tests). CR escaping is checked on the helper directly.
+TEXT_VALUE = 'n/a "unknown"\nsee notes\tend'
 EVENT = 'sometime "soon"'
 REF_DESC = 'Report "2024"\nvolume \\ 2'
 
@@ -177,3 +180,13 @@ def test_materialize_reports_unparsable_replica_files(tmp_path, capsys):
 
     # Backward compatible: no list passed, same text back.
     assert materialize_against_workspace(storage, scenario) == merged
+
+
+def test_carriage_return_is_escaped_and_parses_back():
+    import rdflib
+
+    from backend.replica_builder.utils.ttl_attribute_helpers import escape_ttl_string
+    raw = 'a\r\nb\rc "q"'
+    g = rdflib.Graph().parse(data=f'<urn:s> <urn:p> "{escape_ttl_string(raw)}" .',
+                             format="turtle")
+    assert str(next(g.objects())) == raw
