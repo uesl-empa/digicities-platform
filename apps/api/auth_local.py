@@ -35,14 +35,29 @@ def _secret() -> str:
     return os.getenv("JWT_SECRET") or _DEV_SECRET
 
 
+class InsecureConfiguration(RuntimeError):
+    """Login is enforced on a secret that cannot protect anything. Raised at startup
+    so the deployment fails CLOSED; its own type so a blanket ``except Exception``
+    around startup housekeeping can't swallow it (see apps/api/main.py)."""
+
+
 def bootstrap() -> None:
-    """Startup: warn loudly if login is enforced on the insecure default secret, and seed the
+    """Startup: refuse to run login on the insecure default secret, and seed the
     first admin from ``ADMIN_EMAIL`` / ``ADMIN_PASSWORD`` (idempotent). Safe to call always."""
     import logging
     log = logging.getLogger("digicities.auth")
     if auth_required() and _secret() == _DEV_SECRET:
-        log.warning("REQUIRE_LOGIN is on but JWT_SECRET is unset — using the INSECURE dev default. "
-                    "Set JWT_SECRET to a long random value in production.")
+        # HS256 signs and verifies with the same key, and _DEV_SECRET is a constant in
+        # this public repo — so anyone could mint a token for any user id, admin
+        # included. Warning about it was not enough: the failure is invisible from
+        # outside (login page renders, passwords are checked, sessions "work"), so a
+        # deployment that missed the variable looks protected while being wide open.
+        raise InsecureConfiguration(
+            "REQUIRE_LOGIN is on but JWT_SECRET is unset or empty, so sessions would be "
+            "signed with the public dev default — anyone could forge a token for any "
+            "account. Set JWT_SECRET to a long random value (e.g. `openssl rand -hex 32`), "
+            "or unset REQUIRE_LOGIN to run the app open on purpose.")
+    log.debug("JWT secret configured")
     email = os.getenv("ADMIN_EMAIL", "").strip()
     pw = os.getenv("ADMIN_PASSWORD", "")
     if email and pw and db_enabled():

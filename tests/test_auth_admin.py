@@ -90,6 +90,34 @@ def test_bootstrap_promotes_seeded_admin(db, monkeypatch):
     assert users_repo.get_by_email("seed@x.io")["is_admin"] is True
 
 
+def test_enforced_login_on_the_dev_secret_refuses_to_start(db, monkeypatch):
+    # HS256 verifies with the signing key, and _DEV_SECRET is a constant in this
+    # public repo — enforcing login on it means anyone can forge a token for any
+    # account. Fail CLOSED: a deployment that missed JWT_SECRET must not come up
+    # looking protected.
+    from apps.api import auth_local
+    monkeypatch.setenv("REQUIRE_LOGIN", "1")
+
+    monkeypatch.delenv("JWT_SECRET", raising=False)          # variable absent
+    with pytest.raises(auth_local.InsecureConfiguration):
+        auth_local.bootstrap()
+
+    monkeypatch.setenv("JWT_SECRET", "")                     # compose's set-but-empty
+    with pytest.raises(auth_local.InsecureConfiguration):
+        auth_local.bootstrap()
+
+
+def test_bootstrap_is_quiet_when_the_secret_is_real_or_login_is_off(db, monkeypatch):
+    from apps.api import auth_local
+    monkeypatch.setenv("REQUIRE_LOGIN", "1")
+    monkeypatch.setenv("JWT_SECRET", "a-real-long-random-secret")
+    auth_local.bootstrap()                         # configured: starts
+
+    monkeypatch.setenv("REQUIRE_LOGIN", "")        # open on purpose: dev default is fine
+    monkeypatch.setenv("JWT_SECRET", "")
+    auth_local.bootstrap()
+
+
 class _Ctx:
     id = "assignws"
     name = "Assign WS"
