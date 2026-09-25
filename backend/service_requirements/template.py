@@ -84,6 +84,12 @@ def build_service_template(
     must conform to; the internal path/parent_path structure is untouched,
     only the emitted key changes. Key order matches the shipped templates:
     service_name, description, connection, scenario_data.
+
+    A ``"<path>|label|Static"`` key sends the instance's own label (its id when
+    it has none) under that field name — a running service that identifies its
+    instances by a field of its own (``room_id: "101"``) gets it. The root's
+    ``name`` stays (it marks the block as a component when parsed back); a
+    nested block, which otherwise carries no label, gains the field.
     """
     if not service_name:
         return {}
@@ -123,6 +129,14 @@ def build_service_template(
                             'uri': f'{entry.component_type}.URI'
                         }
                     }
+                # The instance's own id under the service's field name, when
+                # one is recorded (see the docstring).
+                id_field = (custom_names.get(f"{entry.path}|label|Static")
+                            if use_custom_names else None)
+                if id_field and id_field not in ('name', 'label', 'uri'):
+                    target = (entry_structure if entry.level == 1
+                              else entry_structure['template'])
+                    target[id_field] = f'{entry.component_type}.label'
 
                 for attr_name, attr_types in entry.configured_attributes.items():
                     for attr_type in attr_types:
