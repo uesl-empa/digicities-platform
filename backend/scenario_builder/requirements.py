@@ -126,16 +126,38 @@ def extract_required_attributes_enhanced(
 
     find_attributes(yaml_content.get("scenario_data", {}))
 
+    # `optional_attributes` ("Type.Attr") are inputs the service can RUN WITHOUT:
+    # the source has them for some instances and not others, so requiring them
+    # would drop the rest — three of six road segments have loop-detector counts,
+    # and the other three are forecast all the same. The onboarding agent records
+    # them on the template it registers; until now nothing here read the key, so
+    # every consumer of this function (the emitter gate, `sync`) re-imposed the
+    # full set and dropped exactly the instances the template asked to keep.
+    # Dropping the base attribute drops its nested paths with it
+    # (`Power` -> `Power.hasHistoricTimeSeriesReference`).
+    optional: dict[str, set] = {}
+    for item in yaml_content.get("optional_attributes") or []:
+        comp_type, _, attr = str(item).strip().partition(".")
+        if comp_type and attr:
+            optional.setdefault(comp_type, set()).add(attr)
+
+    def _wanted(comp_type: str, attr: str) -> bool:
+        return not any(attr == o or attr.startswith(o + ".")
+                       for o in optional.get(comp_type, ()))
+
     result_attributes = {
-        comp_type: sorted(attrs)
+        comp_type: sorted(a for a in attrs if _wanted(comp_type, a))
         for comp_type, attrs in required_attributes.items()
         if attrs and comp_type != "CL"
     }
+    result_attributes = {t: a for t, a in result_attributes.items() if a}
     result_nested = {
-        comp_type: {base: sorted(props) for base, props in nested.items() if props}
+        comp_type: {base: sorted(props) for base, props in nested.items()
+                    if props and _wanted(comp_type, base)}
         for comp_type, nested in nested_requirements.items()
         if nested and comp_type != "CL"
     }
+    result_nested = {t: n for t, n in result_nested.items() if n}
     return result_attributes, result_nested
 
 
