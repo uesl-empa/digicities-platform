@@ -124,6 +124,17 @@ class OntologyAPIClient:
             st.error(f"❌ {message}")
         return success
 
+    def rename_component(self, extension_filename: str, component_uri: str,
+                         new_label: str) -> bool:
+        success, message = self.functions.rename_component(
+            extension_filename, component_uri, new_label
+        )
+        if success:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
+        return success
+
     # =================== Attribute Operations ===================
 
     def fetch_attributes(self, extension_filename: str) -> List[Dict]:

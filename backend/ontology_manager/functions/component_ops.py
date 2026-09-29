@@ -8,6 +8,8 @@ File: components/ontology_manager/functions/components.py
 Mixin for component CRUD operations and hierarchy management.
 """
 
+import re
+
 import rdflib
 from rdflib import Namespace, RDF, RDFS, Literal, URIRef, OWL
 from typing import List, Dict, Tuple
@@ -104,23 +106,68 @@ class ComponentMixin:
             print(f"Error exploring properties: {e}")
             return []
 
+    def component_tree(self, extension_filename: str, root: str = "Component",
+                       depth: int = 6) -> Dict:
+        """The class tree below ``root`` in core + this extension (``…Attribute``
+        scaffolding left out) — what a user picks a parent from."""
+        from .. import hierarchy
+        return hierarchy.tree(self.merge_ontologies(extension_filename), root, depth)
+
+    def suggest_parents(self, extension_filename: str, text: str, limit: int = 5) -> List[Dict]:
+        """Existing component classes whose names, labels or examples share words with
+        ``text`` — a shortlist to offer the user, never an automatic choice."""
+        from .. import hierarchy
+        return hierarchy.parent_candidates(self.merge_ontologies(extension_filename), text,
+                                           limit=limit)
+
+    def check_component_name(self, extension_filename: str, label: str) -> Dict:
+        """The name a label would get and the verdict of the naming rules on it."""
+        from ..naming import check_class_name, class_name
+        from .. import hierarchy
+        name = class_name(label)
+        chk = check_class_name(name, core=self.load_core_ontology(),
+                               existing=hierarchy.classes(self.load_extension(extension_filename)),
+                               label=label)
+        return {"name": name, "ok": chk.ok, "errors": chk.errors, "warnings": chk.warnings,
+                "similar": [t for t, _h in chk.similar]}
+
     # =================== Component CRUD Operations ===================
 
     def add_component(self, extension_filename: str, new_component_label: str,
                       parent_component: str) -> Tuple[bool, str]:
-        """Add a new component to the ontology"""
-        try:
-            new_component = "".join(new_component_label.split())
+        """Add a new component to the ontology.
 
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+        The name is formed from the label by the shared naming rules
+        (:mod:`backend.ontology_manager.naming`) and refused when it is not a
+        valid class name, redefines a core term or already exists; the parent
+        must be an existing class (core or this extension)."""
+        try:
+            from ..naming import check_class_name, class_name
+            from .. import hierarchy
+
+            new_component = class_name(new_component_label)
+            core_mod = extension_filename == "CORE_ONTOLOGY_MODIFICATION"
+
+            if core_mod:
                 if self.use_nextcloud:
                     return False, "Cannot modify core ontology in NextCloud mode (read-only)"
                 ext_graph = self.load_core_ontology()
             else:
                 ext_graph = self.load_extension(extension_filename)
 
+            core = self.load_core_ontology()
+            chk = check_class_name(new_component, core=None if core_mod else core,
+                                   existing=hierarchy.classes(ext_graph),
+                                   label=new_component_label)
+            if not chk.ok:
+                return False, f"Cannot add `{new_component}`: {'; '.join(chk.errors)}"
+
             parent_local = parent_component.split('#')[-1]
             parent_component_uri = dici_onto[parent_local]
+            if parent_local not in hierarchy.classes(core) | hierarchy.classes(ext_graph):
+                return False, (f"Cannot add `{new_component}`: its parent `{parent_local}` is not "
+                               "a class in the core ontology or this extension — add the parent "
+                               "first")
 
             new_component_uri = dici_onto[new_component]
             ext_graph.add((new_component_uri, RDF.type, OWL.Class))
@@ -136,7 +183,8 @@ class ComponentMixin:
                 self.save_extension(extension_filename, ext_graph)
                 self.update_temp_and_export(extension_filename)
 
-            return True, "Component added successfully"
+            note = f" Note: {'; '.join(chk.warnings)}." if chk.warnings else ""
+            return True, f"Component `{new_component}` added under `{parent_local}`.{note}"
         except Exception as e:
             return False, f"Error adding component: {str(e)}"
 
@@ -151,6 +199,27 @@ class ComponentMixin:
                 ext_graph = self.load_extension(extension_filename)
 
             component_ref = URIRef(component_uri)
+            component_local = component_uri.split('#')[-1]
+
+            # A class with subclasses can't go first: removing it would strip their
+            # parent and leave them floating outside the tree. Proper sequence:
+            # move or remove the subclasses, then the class.
+            subs = sorted(str(s).split('#')[-1]
+                          for s in ext_graph.subjects(RDFS.subClassOf, component_ref)
+                          if s != component_ref
+                          and not str(s).split('#')[-1].endswith("Attribute"))
+            if subs:
+                return False, (f"Cannot remove `{component_local}`: "
+                               f"{', '.join(f'`{s}`' for s in subs)} "
+                               f"{'is' if len(subs) == 1 else 'are'} under it — move or remove "
+                               f"{'it' if len(subs) == 1 else 'them'} first")
+
+            # The properties this component owns, collected BEFORE the component's
+            # triples go (their domain triples point at it): has<X>Attribute and the
+            # per-attribute has<X><Attr>[Attribute] properties declared for it.
+            owned = {dici_onto["has" + component_local + "Attribute"]}
+            owned |= {p for p in ext_graph.subjects(RDFS.domain, component_ref)
+                      if str(p).startswith(str(dici_onto) + "has" + component_local)}
 
             # Remove all triples where this component is the subject
             triples_to_remove = list(ext_graph.triples((component_ref, None, None)))
@@ -162,18 +231,14 @@ class ComponentMixin:
             for triple in triples_to_remove:
                 ext_graph.remove(triple)
 
-            # Remove associated properties
-            component_local = component_uri.split('#')[-1]
-            property_uri = dici_onto["has" + component_local + "Attribute"]
-            triples_to_remove = list(ext_graph.triples((property_uri, None, None)))
-            for triple in triples_to_remove:
-                ext_graph.remove(triple)
-
-            # Remove specific attribute properties
-            all_triples = list(ext_graph.triples((None, None, None)))
-            for subject, predicate, obj in all_triples:
-                if str(predicate).startswith(str(dici_onto) + "has" + component_local):
-                    ext_graph.remove((subject, predicate, obj))
+            # Remove exactly the properties it owned — never every predicate that
+            # merely STARTS with has<X> (removing `Wind` used to wipe `hasWindTurbine…`).
+            for prop in owned:
+                for triple in list(ext_graph.triples((prop, None, None))):
+                    ext_graph.remove(triple)
+                for triple in list(ext_graph.triples((None, None, prop))):
+                    ext_graph.remove(triple)
+            self.cleanup_orphaned_attribute_classes(ext_graph)
 
             if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
                 self.save_core_ontology(ext_graph)
@@ -200,6 +265,26 @@ class ComponentMixin:
             component_ref = URIRef(component_uri)
             new_parent_ref = URIRef(new_parent_uri)
             component_local = component_uri.split('#')[-1]
+            new_parent_local = new_parent_uri.split('#')[-1]
+
+            # The proper sequence, checked on core + extension: the class is this
+            # extension's own (a core class keeps its core parent — re-parenting it
+            # here would give it two), the new parent exists, and the move doesn't
+            # put the class under itself.
+            from .. import hierarchy
+            core = self.load_core_ontology()
+            merged = core + ext_graph
+            if extension_filename != "CORE_ONTOLOGY_MODIFICATION":
+                if component_local not in hierarchy.classes(ext_graph):
+                    return False, (f"`{component_local}` is not a class of this extension"
+                                   + (" (it is a core class)"
+                                      if component_local in hierarchy.classes(core) else ""))
+            if new_parent_local not in hierarchy.classes(merged):
+                return False, (f"`{new_parent_local}` is not a class in the core ontology or "
+                               "this extension — add it first")
+            if hierarchy.would_cycle(merged, component_local, new_parent_local):
+                return False, (f"`{new_parent_local}` is `{component_local}` itself or sits "
+                               f"under it — a class can't be moved under its own subclass")
 
             # Get all attributes currently linked to this component and its descendants
             component_attributes = self.get_component_and_descendant_attributes(ext_graph, component_local)
@@ -232,6 +317,85 @@ class ComponentMixin:
             return True, "Component parent changed and attribute hierarchy updated successfully"
         except Exception as e:
             return False, f"Error changing component parent: {str(e)}"
+
+    def rename_component(self, extension_filename: str, component_uri: str,
+                         new_label: str) -> Tuple[bool, str]:
+        """Rename a component of this extension and everything the platform generated
+        for it: the class, its ``<X>Attribute`` scaffold class, ``has<X>Attribute``,
+        the per-attribute properties declared for it (``has<X><Attr>…``) and the link
+        properties named after it (``partOf<X>``), every triple that mentions them,
+        and their labels. The new name follows the shared naming rules.
+
+        Instance data in the replica is typed by the class name, so instances keep
+        the old name until the replica is rebuilt from its workbook (the message
+        says so)."""
+        try:
+            from ..naming import check_class_name, class_name
+            from .. import hierarchy
+
+            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+                return False, "Core classes are renamed in the ontology repository, not here"
+            ext_graph = self.load_extension(extension_filename)
+            core = self.load_core_ontology()
+            old = component_uri.split('#')[-1]
+            new = class_name(new_label)
+            ext_classes = hierarchy.classes(ext_graph)
+            if old not in ext_classes:
+                return False, (f"`{old}` is not a class of this extension"
+                               + (" (it is a core class)" if old in hierarchy.classes(core)
+                                  else ""))
+            if new == old:
+                return False, f"`{old}` already has that name"
+            chk = check_class_name(new, core=core, existing=ext_classes, label=new_label)
+            if not chk.ok:
+                return False, f"Cannot rename `{old}` to `{new}`: {'; '.join(chk.errors)}"
+
+            old_uri, new_uri = dici_onto[old], dici_onto[new]
+            rename = {old_uri: new_uri,
+                      dici_onto[old + "Attribute"]: dici_onto[new + "Attribute"],
+                      dici_onto["has" + old + "Attribute"]: dici_onto["has" + new + "Attribute"]}
+            # Properties generated for this class: named after it AND pointing at it.
+            for p in set(ext_graph.subjects(RDFS.domain, old_uri)) | \
+                    set(ext_graph.subjects(RDFS.range, old_uri)):
+                local = str(p).split('#')[-1]
+                if not str(p).startswith(str(dici_onto)):
+                    continue
+                if local.startswith("has" + old):
+                    rename[p] = dici_onto["has" + new + local[len("has" + old):]]
+                elif local.endswith(old) and local != old:
+                    rename[p] = dici_onto[local[:-len(old)] + new]
+            clash = [str(t).split('#')[-1] for f, t in rename.items()
+                     if f != t and (t, None, None) in ext_graph]
+            if clash:
+                return False, (f"Cannot rename `{old}` to `{new}`: "
+                               f"{', '.join(f'`{c}`' for c in clash)} already exist")
+
+            old_human = {old, re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", old)}
+            renamed = rdflib.Graph()
+            for prefix, ns in ext_graph.namespaces():
+                renamed.bind(prefix, ns)
+            for s, p, o in ext_graph:
+                s2, p2, o2 = rename.get(s, s), rename.get(p, p), rename.get(o, o)
+                if p == RDFS.label and s in rename and isinstance(o, Literal):
+                    # a generated label follows the name; a hand-written one stays
+                    text = str(o)
+                    for h in sorted(old_human, key=len, reverse=True):
+                        if h in text:
+                            o2 = Literal(text.replace(h, re.sub(r"(?<=[a-z0-9])(?=[A-Z])",
+                                                                " ", new)), lang=o.language)
+                            break
+                renamed.add((s2, p2, o2))
+
+            self.save_extension(extension_filename, renamed)
+            self.update_temp_and_export(extension_filename)
+            moved = len(rename) - 1
+            return True, (f"Renamed `{old}` to `{new}`"
+                          + (f" (and {moved} generated term{'s' if moved != 1 else ''})"
+                             if moved else "")
+                          + ". Instances in the replica keep the old type until the replica "
+                            "is rebuilt from its workbook.")
+        except Exception as e:
+            return False, f"Error renaming component: {str(e)}"
 
     # =================== Component Helper Functions ===================
 

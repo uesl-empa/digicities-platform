@@ -15,6 +15,20 @@ from typing import List, Dict, Tuple
 dici_onto = Namespace("https://digicities.info/ontology#")
 
 
+# The attribute-type superclass each Ontology Manager type string lands under.
+_TYPE_CLASS = {
+    "Physical": dici_onto.PhysicalAttribute,
+    "Simple Cost": dici_onto.SimpleCostAttribute,
+    "Unit-Based Cost": dici_onto.UnitBasedCostAttribute,
+    "Curve": dici_onto.CurveAttribute,
+    "Categorical": dici_onto.CategoricalAttribute,
+    "Geospatial": dici_onto.GeospatialAttribute,
+    "CustomPhysicalRatio": dici_onto.CustomPhysicalRatioAttribute,
+    "Event": dici_onto.EventAttribute,
+    "SimpleValue": dici_onto.SimpleValueAttribute,
+}
+
+
 class AttributeMixin:
     """Mixin for attribute operations"""
 
@@ -138,14 +152,27 @@ class AttributeMixin:
             if attribute_type == "Event" and not temporal_precision:
                 return False, "Temporal precision is required for Event attributes"
 
-            new_attribute = "".join(attribute_label.split())
+            from ..naming import check_class_name, class_name
+            from .. import hierarchy
 
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+            new_attribute = class_name(attribute_label)
+            core_mod = extension_filename == "CORE_ONTOLOGY_MODIFICATION"
+
+            if core_mod:
                 if self.use_nextcloud:
                     return False, "Cannot modify core ontology in NextCloud mode (read-only)"
                 ext_graph = self.load_core_ontology()
             else:
                 ext_graph = self.load_extension(extension_filename)
+
+            if not parent_property and attribute_type not in _TYPE_CLASS:
+                return False, (f"Unknown attribute type `{attribute_type}` — one of "
+                               f"{', '.join(sorted(_TYPE_CLASS))}")
+            chk = check_class_name(new_attribute,
+                                   core=None if core_mod else self.load_core_ontology(),
+                                   existing=hierarchy.classes(ext_graph), label=attribute_label)
+            if not chk.ok:
+                return False, f"Cannot add `{new_attribute}`: {'; '.join(chk.errors)}"
 
             new_attribute_uri = dici_onto[new_attribute]
 
@@ -160,18 +187,7 @@ class AttributeMixin:
                 ext_graph.add((new_attribute_uri, RDFS.subClassOf, parent_property_uri))
             else:
                 # Make it a direct subclass of the appropriate attribute type class
-                type_class_map = {
-                    "Physical": dici_onto.PhysicalAttribute,
-                    "Simple Cost": dici_onto.SimpleCostAttribute,
-                    "Unit-Based Cost": dici_onto.UnitBasedCostAttribute,
-                    "Curve": dici_onto.CurveAttribute,
-                    "Categorical": dici_onto.CategoricalAttribute,
-                    "Geospatial": dici_onto.GeospatialAttribute,
-                    "CustomPhysicalRatio": dici_onto.CustomPhysicalRatioAttribute,
-                    "Event": dici_onto.EventAttribute,
-                    "SimpleValue": dici_onto.SimpleValueAttribute
-                }
-                ext_graph.add((new_attribute_uri, RDFS.subClassOf, type_class_map[attribute_type]))
+                ext_graph.add((new_attribute_uri, RDFS.subClassOf, _TYPE_CLASS[attribute_type]))
 
             # Handle different attribute types with their specific properties
             if attribute_type in ["Physical", "Geospatial"]:
@@ -214,7 +230,8 @@ class AttributeMixin:
                 self.save_extension(extension_filename, ext_graph)
                 self.update_temp_and_export(extension_filename)
 
-            return True, "Attribute added successfully"
+            note = f" Note: {'; '.join(chk.warnings)}." if chk.warnings else ""
+            return True, f"Attribute `{new_attribute}` added.{note}"
         except Exception as e:
             return False, f"Error adding attribute: {str(e)}"
 
@@ -366,6 +383,20 @@ class AttributeMixin:
 
             attribute_ref = URIRef(attribute_uri)
 
+            # The per-component properties link_attribute declared for THIS attribute
+            # (has<Comp><Attr> and has<Comp><Attr>Attribute: range = the attribute,
+            # sub-property of a has<Comp>Attribute), collected before their range
+            # triples go. Exactly those — never every predicate whose name merely
+            # CONTAINS the attribute's name (removing `Area` used to hit `FloorArea`'s).
+            attr_local = attribute_uri.split('#')[-1]
+            owned = set()
+            for prop in ext_graph.subjects(RDFS.range, attribute_ref):
+                local = str(prop).split('#')[-1]
+                for dom in ext_graph.objects(prop, RDFS.domain):
+                    comp = str(dom).split('#')[-1]
+                    if local in (f"has{comp}{attr_local}", f"has{comp}{attr_local}Attribute"):
+                        owned.add(prop)
+
             # Remove all triples where this attribute is the subject
             triples_to_remove = list(ext_graph.triples((attribute_ref, None, None)))
             for triple in triples_to_remove:
@@ -376,12 +407,11 @@ class AttributeMixin:
             for triple in triples_to_remove:
                 ext_graph.remove(triple)
 
-            # Remove specific properties that reference this attribute
-            attribute_local = attribute_uri.split('#')[-1]
-            all_triples = list(ext_graph.triples((None, None, None)))
-            for subject, predicate, obj in all_triples:
-                if attribute_local in str(predicate):
-                    ext_graph.remove((subject, predicate, obj))
+            for prop in owned:
+                for triple in list(ext_graph.triples((prop, None, None))):
+                    ext_graph.remove(triple)
+                for triple in list(ext_graph.triples((None, prop, None))):
+                    ext_graph.remove(triple)
 
             if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
                 self.save_core_ontology(ext_graph)
@@ -441,6 +471,17 @@ class AttributeMixin:
                 ext_graph.add((specific_property, RDFS.subPropertyOf, general_property))
                 ext_graph.add((specific_property, RDFS.range, attribute_property_uri))
                 ext_graph.add((specific_property, RDFS.domain, URIRef(component)))
+
+            # The predicate instance data actually uses: the replica converter writes
+            # has<Comp><Attr>Attribute for every attribute value (and the payload
+            # converter / collections read it). Declare it too, so the data's predicate
+            # is in the schema (sub-property of has<Comp>Attribute -> hasAttribute).
+            data_property = dici_onto["has" + component_local + property_name + "Attribute"]
+            if (data_property, RDF.type, OWL.ObjectProperty) not in ext_graph:
+                ext_graph.add((data_property, RDF.type, OWL.ObjectProperty))
+                ext_graph.add((data_property, RDFS.subPropertyOf, general_property))
+                ext_graph.add((data_property, RDFS.range, attribute_property_uri))
+                ext_graph.add((data_property, RDFS.domain, URIRef(component)))
 
             # Ensure the general property has the correct domain
             has_domain = False
@@ -726,7 +767,10 @@ class AttributeMixin:
                              attribute_uri: str) -> Tuple[bool, str]:
         """Add a named individual to a categorical attribute"""
         try:
-            individual_id = "".join(individual_label.split())
+            from ..naming import class_name
+            individual_id = class_name(individual_label)
+            if not individual_id:
+                return False, f"`{individual_label}` has no letters or digits to name a value by"
 
             if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
                 if self.use_nextcloud:
