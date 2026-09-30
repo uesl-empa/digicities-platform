@@ -242,6 +242,26 @@ def state(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     return _get(session_id, ctx).snapshot()
 
 
+def _working_folder(sess) -> str | None:
+    """The folder this chat reads, if it still exists. The upload's temp dir is
+    wiped by a server restart; the agent keeps a copy of the folder inside the
+    workspace and names it (``working_folder``, absent on older agents), so an
+    upload that ADDS a file after a restart lands next to the data it belongs
+    with instead of starting a one-file folder."""
+    existing = getattr(sess, "_upload_folder", None)
+    if existing and Path(existing).is_dir():
+        return existing
+    finder = getattr(sess, "working_folder", None)
+    if callable(finder):
+        try:
+            got = finder()
+        except Exception:
+            got = None
+        if got and Path(got).is_dir():
+            return str(got)
+    return None
+
+
 @router.post("/upload")
 async def upload(
     session_id: str = Form(...),
@@ -285,8 +305,8 @@ async def upload(
         entries = [p for p in root.iterdir() if not p.name.startswith("__MACOSX")]
         content = entries[0] if len(entries) == 1 and entries[0].is_dir() else root
 
-        existing = getattr(sess, "_upload_folder", None)
-        if existing and Path(existing).is_dir():
+        existing = _working_folder(sess)
+        if existing:
             # ADD MORE DATA: nest this zip under a subfolder of the current working folder so
             # its files accumulate (the intake reads the folder recursively). Start fresh = New chat.
             base = Path(name).stem or "added"
@@ -310,8 +330,8 @@ async def upload(
         return sess.propose(content)
 
     # ── a single file added to the current working folder → re-read it ───────────
-    existing = getattr(sess, "_upload_folder", None)
-    if existing and Path(existing).is_dir():
+    existing = _working_folder(sess)
+    if existing:
         (Path(existing) / name).write_bytes(data)
         sess.state.oa_messages.append(("user", f"📎 Added `{name}` to the working folder"))
         return sess.propose(Path(existing))

@@ -1117,6 +1117,24 @@ def test_agent_upload_single_file_added_to_existing_folder(client, agent_env, tm
     assert any("Added `guide.txt`" in m[1] for m in sess.state.oa_messages)
 
 
+def test_agent_upload_after_a_restart_adds_to_the_kept_folder(client, agent_env, tmp_path):
+    """The upload's temp dir is gone (server restart); the agent names the copy it
+    kept in the workspace, and an added file goes there."""
+    from pathlib import Path
+    sid = _start_session(client)
+    sess = _FakeAgentSession.instances[-1]
+    kept = tmp_path / "ws" / "workspace_meta" / "onboarding_source"
+    kept.mkdir(parents=True)
+    (kept / "rooms.csv").write_text("room\n101\n")
+    sess._upload_folder = str(tmp_path / "oa-zip-gone" / "x")
+    sess.working_folder = lambda: str(kept)
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid},
+                    files={"file": ("guide.md", b"inputs: Room\n", "text/markdown")})
+    assert r.status_code == 200, r.text
+    assert (kept / "guide.md").exists() and sess.proposed == str(kept)
+    assert not Path(sess._upload_folder).exists()
+
+
 def test_agent_upload_rejects_empty_filename(client, agent_env):
     sid = _start_session(client)
     r = client.post(f"{B}/agent/upload", data={"session_id": sid},
