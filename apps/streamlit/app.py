@@ -703,20 +703,11 @@ def render_create_workspace_form():
                     help="Folder + graph dataset name. Lowercase, no spaces. Leave blank to auto-generate.",
                 )
 
-            nc_configured = bool(
-                os.environ.get("NEXTCLOUD_BASIC_USERNAME")
-                and (os.environ.get("NEXTCLOUD_BASE_URL") or os.environ.get("NEXTCLOUD_BASIC_PASSWORD"))
-            )
-            backend_choices = ["Local filesystem"] + (["NextCloud"] if nc_configured else [])
-            ws_backend = st.radio(
-                "Where to store the workspace files? *",
-                backend_choices, horizontal=True,
-                help=(
-                    "The knowledge graph is always created in the triplestore. This only chooses "
-                    "where the workspace's files live."
-                    + ("" if nc_configured else " NextCloud is disabled — set NEXTCLOUD_* env vars to enable it.")
-                ),
-            )
+            # Where files go is a property of the installation (STORAGE_BACKEND),
+            # not a per-workspace choice — say it, don't ask it.
+            from backend.workspace.storage_mode import describe_storage
+            _store = describe_storage()
+            st.caption(f"📁 Files are stored in **{_store['label']}** — `{_store['location']}`")
 
             c3, c4 = st.columns(2)
             with c3:
@@ -737,12 +728,10 @@ def render_create_workspace_form():
 
         try:
             from backend.workspace import create_workspace
-            backend_key = "nextcloud" if ws_backend == "NextCloud" else "local"
             with st.spinner("Creating workspace and provisioning its graph…"):
                 ctx = create_workspace(
                     name=ws_name.strip(),
                     workspace_id=ws_id.strip() or None,
-                    backend=backend_key,
                     description=ws_desc.strip(),
                     workspace_type=ws_type.strip(),
                     location=ws_location.strip(),
@@ -768,7 +757,7 @@ def render_create_workspace_form():
             "name": ctx.name,
             "description": ctx.description,
             "type": ws_type.strip() or "Custom",
-            "location": ws_location.strip() or ("NextCloud" if backend_key == "nextcloud" else "Local"),
+            "location": ws_location.strip() or _store["label"],
         })
 
 

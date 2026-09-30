@@ -64,7 +64,7 @@ def workspace_id_exists(ws_id: str) -> bool:
 def create_workspace(
     name: str,
     workspace_id: Optional[str] = None,
-    backend: str = "local",
+    backend: Optional[str] = None,
     description: str = "",
     tags: Optional[list] = None,
     workspace_type: str = "",
@@ -75,6 +75,9 @@ def create_workspace(
     """Create + initialise a new workspace and return its WorkspaceContext.
 
     backend: "local" (filesystem under $USECASES_DIR) or "nextcloud" (WebDAV).
+    Default: the installation's store (``STORAGE_BACKEND`` — see
+    :mod:`backend.workspace.storage_mode`); there is no per-workspace choice in
+    the UI.
     """
     name = (name or "").strip()
     if not name:
@@ -84,7 +87,8 @@ def create_workspace(
     if not ws_id:
         raise ValueError("Could not derive a valid workspace id from the name.")
 
-    backend = (backend or "local").lower()
+    from .storage_mode import storage_backend
+    backend = (backend or storage_backend()).lower()
     # NextCloud workspace folders get a clear `workspace_` prefix so they stand
     # out among the user's other NextCloud folders (matches the original
     # platform). Discovery finds them by their workspace_meta regardless, but the

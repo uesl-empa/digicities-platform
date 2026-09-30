@@ -344,8 +344,10 @@ def load_registry(strict: bool = False) -> WorkspaceRegistry:
     Behaviour:
 
     - If a workspaces.yaml exists, every entry in it is registered.
-    - In addition, any folder under USECASES_DIR that looks like a workspace
-      (and isn't already in the YAML) is registered as a local workspace.
+    - In addition, the installation's store is discovered (STORAGE_BACKEND):
+      with ``local`` every folder under USECASES_DIR that looks like a workspace;
+      with ``nextcloud`` every workspace on the NextCloud server (the local
+      folders are then only its working copies).
 
     Set `strict=True` to skip auto-discovery and only honour the YAML.
     """
@@ -373,15 +375,20 @@ def load_registry(strict: bool = False) -> WorkspaceRegistry:
             seen_ids.add(ctx.id)
 
     if not strict:
-        for ctx in _autodiscover_local_workspaces(_usecases_dir()):
-            if ctx.id not in seen_ids:
-                contexts.append(ctx)
-                seen_ids.add(ctx.id)
-
-        # NextCloud-backed workspaces, discovered live from the server whenever
-        # NextCloud is configured (env or the GUI connector). The server is the
-        # source of truth, so these need no workspaces.yaml entry.
-        for ctx in _autodiscover_nextcloud_workspaces():
+        # ONE store per installation (backend.workspace.storage_mode). With
+        # NextCloud, the folders under USECASES_DIR are the server's working
+        # copies of NextCloud workspaces (backend.workspace.mirror) — registering
+        # them as local workspaces took a NextCloud workspace over as soon as the
+        # agent had written its first build folder, and from then on its changes
+        # silently stopped reaching NextCloud.
+        from .storage_mode import storage_backend
+        if storage_backend() == "nextcloud":
+            # Discovered live from the server — the source of truth, no YAML
+            # needed; a transient failure serves the last good list.
+            discovered = _autodiscover_nextcloud_workspaces()
+        else:
+            discovered = _autodiscover_local_workspaces(_usecases_dir())
+        for ctx in discovered:
             if ctx.id not in seen_ids:
                 contexts.append(ctx)
                 seen_ids.add(ctx.id)
