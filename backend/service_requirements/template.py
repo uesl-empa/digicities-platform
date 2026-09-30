@@ -90,6 +90,15 @@ def build_service_template(
     instances by a field of its own (``room_id: "101"``) gets it. The root's
     ``name`` stays (it marks the block as a component when parsed back); a
     nested block, which otherwise carries no label, gains the field.
+
+    A ROOT entry that carries a ``link_pattern`` (``CL.Building.Room``) is a
+    top-level block reached through a component link: the payload keeps it
+    side by side with its source block (``building`` and ``rooms`` both at the
+    top level), and only the instances linked to a source instance are sent.
+    It is written as ``link`` + ``template`` at the top level (``name``/``uri``
+    inside the template), so the contract states the link the model needs
+    without nesting one block in the other; the converter and the scenario
+    builder's requirement extraction read it like any other link.
     """
     if not service_name:
         return {}
@@ -117,7 +126,16 @@ def build_service_template(
 
         for entry in entries:
             if entry.parent_path == parent_path:
-                if entry.level == 1:
+                linked_root = entry.level == 1 and bool(entry.link_pattern)
+                if linked_root:
+                    entry_structure = {
+                        'link': entry.link_pattern,
+                        'template': {
+                            'name': f'{entry.component_type}.label',
+                            'uri': f'{entry.component_type}.URI'
+                        }
+                    }
+                elif entry.level == 1:
                     entry_structure = {
                         'name': f'{entry.component_type}.label',
                         'uri': f'{entry.component_type}.URI'
@@ -134,7 +152,7 @@ def build_service_template(
                 id_field = (custom_names.get(f"{entry.path}|label|Static")
                             if use_custom_names else None)
                 if id_field and id_field not in ('name', 'label', 'uri'):
-                    target = (entry_structure if entry.level == 1
+                    target = (entry_structure if entry.level == 1 and not linked_root
                               else entry_structure['template'])
                     target[id_field] = f'{entry.component_type}.label'
 
@@ -149,7 +167,7 @@ def build_service_template(
                         field_name = get_field_name(
                             default_field_name, entry.path, attr_name, attr_type)
 
-                        if entry.level == 1:
+                        if entry.level == 1 and not linked_root:
                             entry_structure[field_name] = reference
                         else:
                             entry_structure['template'][field_name] = reference
@@ -195,8 +213,14 @@ def list_template_fields(
     return fields
 
 
+def _root_link(component_type: str, source_type: Optional[str]) -> str:
+    """``CL.<Source>.<Type>`` for a root block reached through a link, else ''."""
+    return f"CL.{pascal_case(source_type)}.{component_type}" if source_type else ""
+
+
 def entries_from_path_tree(
     specs: Iterable[Tuple[str, str, Optional[str], Any]],
+    links_from: Optional[Dict[str, str]] = None,
 ) -> List[ComponentEntry]:
     """Component entries from (component_type, path, parent_path, attributes)
     rows — the path-keyed shape of the Streamlit builder, where the YAML path
@@ -208,6 +232,10 @@ def entries_from_path_tree(
     other row is kept but unreachable (the generator drops it), and a parent
     cycle terminates instead of recursing forever — same contract as
     :func:`entries_from_type_tree`.
+
+    ``links_from`` maps a ROOT row's path to the component type it is reached
+    through (``{"rooms": "Building"}`` -> ``link: CL.Building.Room`` on the
+    top-level ``rooms`` block; see :func:`build_service_template`).
     """
     def flavored(attrs: Any) -> Dict[str, List[str]]:
         if isinstance(attrs, dict):
@@ -226,13 +254,15 @@ def entries_from_path_tree(
             return 2  # orphan or cycle: not a root, and never rendered
         return 1 + level_of(parent, seen | {path})
 
+    links_from = links_from or {}
     entries = []
     for t, p, pp, attrs in rows:
         parent_type = type_of.get(pp, "")
         entries.append(ComponentEntry(
             path=p,
             component_type=t,
-            link_pattern=f"CL.{parent_type}.{t}" if pp and parent_type else "",
+            link_pattern=(f"CL.{parent_type}.{t}" if pp and parent_type
+                          else "" if pp else _root_link(t, links_from.get(p))),
             parent_path=pp,
             level=level_of(p, frozenset()),
             configured_attributes=attrs,
@@ -242,6 +272,7 @@ def entries_from_path_tree(
 
 def entries_from_type_tree(
     specs: Iterable[Tuple[str, Optional[str], Any]],
+    links_from: Optional[Dict[str, str]] = None,
 ) -> List[ComponentEntry]:
     """Component entries from flat (component_type, parent_type, attributes) rows.
 
@@ -257,6 +288,10 @@ def entries_from_type_tree(
     A row whose parent type matches no other row is kept but unreachable, so
     the generator drops it (same as the API's old recursive builder did); a
     parent cycle terminates instead of recursing forever.
+
+    ``links_from`` maps a ROOT row's type to the type it is reached through
+    (``{"Room": "Building"}`` -> a top-level block with ``link:
+    CL.Building.Room``; see :func:`build_service_template`).
     """
     def flavored(attrs: Any) -> Dict[str, List[str]]:
         if isinstance(attrs, dict):
@@ -275,12 +310,13 @@ def entries_from_type_tree(
             return 2  # orphan or cycle: not a root, and never rendered
         return 1 + level_of(parent, seen | {component_type})
 
+    links_from = {pascal_case(k): v for k, v in (links_from or {}).items()}
     entries = []
     for t, p, attrs in rows:
         entries.append(ComponentEntry(
             path=camel_case(t),
             component_type=t,
-            link_pattern=f"CL.{p}.{t}" if p else "",
+            link_pattern=f"CL.{p}.{t}" if p else _root_link(t, links_from.get(t)),
             parent_path=camel_case(p) if p else "",
             level=level_of(t, frozenset()),
             configured_attributes=attrs,

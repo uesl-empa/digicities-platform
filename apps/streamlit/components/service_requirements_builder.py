@@ -690,6 +690,23 @@ def service_requirements_builder(client=None):
                                     st.success(f"Made {entry.path} a root component")
                                     st.rerun()
 
+                                # A root block can stay top-level (side by side in the
+                                # payload) yet be REACHED THROUGH another root's
+                                # component link: `link: CL.<Other>.<Type>` at the top level.
+                                other_roots = [e for e in st.session_state.component_entries
+                                               if e.level == 1 and e.path != entry.path
+                                               and not e.parent_path]
+                                if entry.level == 1 and other_roots:
+                                    st.write("**Or keep it top-level, reached through a link from:**")
+                                    for j, src in enumerate(other_roots):
+                                        pattern = f"CL.{src.component_type}.{entry.component_type}"
+                                        if entry.link_pattern != pattern and st.button(
+                                                f"↔ {src.path} ({src.component_type})",
+                                                key=f"linkfrom_{i}_{j}"):
+                                            st.session_state.component_entries[i].link_pattern = pattern
+                                            st.success(f"{entry.path} is reached through {pattern}")
+                                            st.rerun()
+
                                 if potential_parents:
                                     st.write("**Or choose new parent:**")
                                     for j, parent_entry in enumerate(potential_parents):
