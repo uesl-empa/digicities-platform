@@ -72,6 +72,7 @@ def render_forms_content(api_client, form_type: str):
         "addComponent": render_add_component_form,
         "removeComponent": render_remove_component_form,
         "changeParent": render_change_parent_form,
+        "renameComponent": render_rename_component_form,
         "addAttribute": render_add_attribute_form,
         "removeAttribute": render_remove_attribute_form,
         "linkAttribute": render_link_attribute_form,
@@ -196,6 +197,30 @@ def render_change_parent_form(api_client):
 
                 if success:
                     st.success("✅ Parent changed successfully!")
+                    st.session_state.ontology_components = api_client.fetch_components(
+                        st.session_state.ontology_selected_extension
+                    )
+                    st.session_state.ontology_active_form = None
+                    st.rerun()
+
+
+def render_rename_component_form(api_client):
+    """Rename a component of this extension and the terms generated for it."""
+    st.markdown("#### ✏️ Rename Component")
+    st.caption("Renames the class, its attribute structure, the properties generated for it "
+               "and link properties named after it. Class names are PascalCase; a core "
+               "class can't be renamed here.")
+
+    with st.form("rename_component_form"):
+        component = render_component_selector("Select Component", "rename_component_comp")
+        new_label = st.text_input("New name", key="rename_component_new")
+        submitted = st.form_submit_button("✅ Rename", type="primary")
+
+        if submitted and new_label.strip():
+            with st.spinner("Renaming..."):
+                success = api_client.rename_component(
+                    st.session_state.ontology_selected_extension, component, new_label)
+                if success:
                     st.session_state.ontology_components = api_client.fetch_components(
                         st.session_state.ontology_selected_extension
                     )

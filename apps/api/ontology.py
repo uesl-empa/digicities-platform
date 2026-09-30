@@ -32,6 +32,8 @@ class AddAttribute(BaseModel):
     unit: str = ""
     unit_y: str = ""
     x_unit: str = ""
+    temporal_precision: str = ""      # required for Event attributes
+    parent: str = ""                  # optional superclass (e.g. DynamicAttribute)
 
 
 class LinkAttribute(BaseModel):
@@ -49,6 +51,12 @@ class Reparent(BaseModel):
     extension: str
     uri: str
     new_parent: str
+
+
+class Rename(BaseModel):
+    extension: str
+    uri: str
+    new_label: str
 
 
 class CreateExtension(BaseModel):
@@ -149,7 +157,37 @@ def add_attribute(body: AddAttribute, ctx: WorkspaceContext = Depends(get_ctx)):
     of.load_extension_and_update(body.extension)
     return _apply(*of.add_attribute(
         body.extension, body.attribute_type, body.label,
-        qudt_unit=body.unit, y_qudt_unit=body.unit_y, x_unit=body.x_unit))
+        qudt_unit=body.unit, y_qudt_unit=body.unit_y, x_unit=body.x_unit,
+        temporal_precision=body.temporal_precision, parent_property=body.parent))
+
+
+@router.post("/component/rename")
+def rename_component(body: Rename, ctx: WorkspaceContext = Depends(get_ctx)):
+    """Rename an extension class and the terms generated for it (naming rules apply)."""
+    of = _funcs(ctx)
+    of.load_extension_and_update(body.extension)
+    return _apply(*of.rename_component(body.extension, body.uri, body.new_label))
+
+
+@router.get("/tree")
+def component_tree(extension: str, root: str = "Component",
+                   ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """The component class tree (core + extension) below ``root``."""
+    return _funcs(ctx).component_tree(extension, root)
+
+
+@router.get("/parents/suggest")
+def suggest_parents(extension: str, text: str,
+                    ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+    """Existing classes that could be the parent of a new class described by ``text``."""
+    return _funcs(ctx).suggest_parents(extension, text)
+
+
+@router.get("/names/check")
+def check_name(extension: str, label: str,
+               ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """The class name a label would get, and what the naming rules say about it."""
+    return _funcs(ctx).check_component_name(extension, label)
 
 
 @router.post("/link")
