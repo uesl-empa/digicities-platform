@@ -111,27 +111,74 @@ def _tokens(s: str) -> Set[str]:
     return {t.lower() for t in _TOK.findall(str(s or "")) if len(t) > 2}
 
 
+# Words that end a noun phrase: "electricity flow FROM the grid to a building" is a flow.
+_PREP = {"from", "to", "of", "for", "in", "into", "with", "at", "on", "by", "via", "per",
+         "backing", "under", "over", "between", "inside", "within", "through"}
+_STOP = {"the", "and", "any", "all", "one", "two", "each", "such", "its", "their", "this",
+         "that", "new"}
+
+
+def _stem(t: str) -> str:
+    """A crude singular: ``buildings`` -> ``building`` (``class`` stays ``class``)."""
+    return t[:-1] if len(t) > 3 and t.endswith("s") and not t.endswith("ss") else t
+
+
+def _head(phrase: str):
+    """``(head noun, modifiers)`` of one noun phrase: "a building heating load" ->
+    (load, {building, heating}); "electricity flow from the grid to a building" ->
+    (flow, {electricity}); "WindTurbine" -> (turbine, {wind})."""
+    toks = []
+    for t in _TOK.findall(str(phrase or "")):
+        t = t.lower()
+        if t in _PREP:
+            break
+        if len(t) > 2 and t not in _STOP:
+            toks.append(_stem(t))
+    return (toks[-1], set(toks[:-1])) if toks else (None, set())
+
+
+def _phrases(text: str) -> List[str]:
+    return [x for x in re.split(r"[,;]|\band\b|\bor\b", str(text or ""), flags=re.I) if x.strip()]
+
+
 def parent_candidates(g: Graph, text: str, limit: int = 5,
                       root: str = "Component") -> List[Dict]:
-    """Classes under ``root`` whose name, label, alternative labels or examples share
-    words with ``text`` ('horizontal axis wind turbine' → ``WindTurbine``,
-    ``Turbine``), best first — a shortlist to OFFER the user, never an automatic
-    choice. Deeper (more specific) classes win ties."""
-    want = _tokens(text)
-    if not want:
+    """Classes under ``root`` that could be a parent of the thing ``text`` names
+    ('horizontal axis wind turbine' → ``Turbine``), best first — a shortlist to
+    OFFER the user, never an automatic choice.
+
+    Compared as noun phrases, by their HEAD noun: the head of ``text``'s first
+    phrase must be the head of the class's name, label, alternative label or of
+    one of its example phrases ("Buildings, turbines, …"). When that phrase of the
+    class also has modifiers ("EV charging station"), one of them must be in
+    ``text`` too ("weather station" is not one). A word used only as a modifier
+    ("a building heating load", "Building Management System") or after a
+    preposition ("… flow from the grid to a building") is no evidence: that put
+    CompositeWeatherObservation, LiquidFuel and Controller on a Building's list.
+    Name/label matches beat example matches; more shared modifiers, then deeper
+    (more specific) classes win."""
+    first = next(iter(_phrases(text)), "")
+    qhead, qmods = _head(first)
+    if not qhead:
         return []
     scored = []
     for n in classes(g):
-        if n.endswith("Attribute") or not is_subclass_of(g, n, root):
+        if n.endswith("Attribute") or n == root or not is_subclass_of(g, n, root):
             continue
         u = DICI[n]
-        words = _tokens(n)
-        for p in (RDFS.label, SKOS.altLabel, SKOS.example):
-            for o in g.objects(u, p):
-                words |= _tokens(o)
-        hit = want & words
-        if hit:
-            scored.append((len(hit), len(ancestors(g, n)), n, sorted(hit)))
+        named = [n] + [str(o) for p in (RDFS.label, SKOS.altLabel) for o in g.objects(u, p)]
+        examples = [ph for o in g.objects(u, SKOS.example) for ph in _phrases(o)]
+        best, matched = 0, set()
+        for weight, phrases in ((3, named), (2, examples)):
+            for ph in phrases:
+                h, m = _head(ph)
+                if h != qhead or (m and not m & qmods):
+                    continue
+                score = weight + len(m & qmods)
+                if score > best:
+                    best, matched = score, {h} | (m & qmods)
+        if best:
+            scored.append((best, len(ancestors(g, n)), n, sorted(matched)))
     scored.sort(key=lambda x: (-x[0], -x[1], x[2]))
     return [{"name": n, "matched": m, "path": list(reversed(ancestors(g, n))) + [n]}
             for _s, _d, n, m in scored[:limit]]

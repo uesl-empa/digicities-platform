@@ -108,6 +108,33 @@ def test_core_tree_queries(core):
     assert any(c["name"] == "Turbine" for c in _walk(t))
 
 
+@pytest.mark.parametrize("text,noise", [
+    # "building" occurs in the core only as a modifier or after a preposition
+    ("Building", ["CompositeWeatherObservation", "LiquidFuel", "Flow", "EnergyConsumer",
+                  "Location", "Controller"]),
+    ("weather station", ["EnergyConsumer"]),          # its example is an EV charging station
+])
+def test_parent_candidates_are_matched_by_head_noun(core, text, noise):
+    names = [c["name"] for c in hierarchy.parent_candidates(core, text)]
+    assert not set(names) & set(noise), names
+    assert "Component" not in names                   # the root is the default, not a choice
+
+
+def test_parent_candidates_still_find_by_name_label_and_example(core):
+    assert hierarchy.parent_candidates(core, "wind turbines")[0]["name"] == "Turbine"
+    assert "Turbine" not in [c["name"] for c in hierarchy.parent_candidates(core, "gas pipe")]
+
+
+def test_noun_phrase_heads():
+    from backend.ontology_manager.hierarchy import _head
+    assert _head("A building heating load") == ("load", {"building", "heating"})
+    assert _head("Electricity flow from the grid to a building") == ("flow", {"electricity"})
+    assert _head("Building Management System") == ("system", {"building", "management"})
+    assert _head("WindTurbine") == ("turbine", {"wind"})
+    assert _head("Buildings") == ("building", set())
+
+
+
 def _walk(node):
     yield node
     for c in node["children"]:
