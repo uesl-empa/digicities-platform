@@ -208,6 +208,29 @@ def _start_workspace_cache() -> None:
         pass
     from .registry_cache import start_background
     start_background()
+    # Publish any change that never reached NextCloud (a push that didn't run, a
+    # workspace that was mis-registered as local) — in the background, so a slow
+    # NextCloud never delays startup.
+    import threading
+
+    def _catch_up() -> None:
+        try:
+            from backend.workspace import mirror
+            from .registry_cache import all_contexts
+            mirror.push_all(all_contexts())
+        except Exception as exc:                       # never take startup down
+            print(f"[mirror] startup catch-up skipped: {exc}")
+
+    threading.Thread(target=_catch_up, name="mirror-catch-up", daemon=True).start()
+
+
+def _storage_kind(ctx) -> str:
+    """How a workspace is stored, for its card: the bundled demo ships in the image."""
+    from backend.workspace.registry import BUNDLED_DEMO_IDS
+    if ctx.id in BUNDLED_DEMO_IDS:
+        return "bundled"
+    proto = getattr(getattr(ctx, "storage", None), "protocol", "file")
+    return "local" if proto == "file" else "nextcloud"
 
 
 # ── models ────────────────────────────────────────────────────────────────────
@@ -219,6 +242,7 @@ class WorkspaceSummary(BaseModel):
     updated_at: float | None = None  # epoch seconds; the landing page sorts by this
     created_date: str = ""  # "created_date" from workspace_meta/metadata.json (YYYY-MM-DD; often absent)
     protected: bool = False  # bundled demo — delete refuses these
+    storage: str = ""  # 'nextcloud' | 'local' | 'bundled' — where its files live
 
 
 class WorkspaceListPage(BaseModel):
@@ -304,7 +328,7 @@ def list_workspaces(
             graphdb_repository=c.graphdb_repository or "",
             description=c.description or "",
             updated_at=s["updated_at"], created_date=s["created_date"],
-            protected=c.id in BUNDLED_DEMO_IDS,
+            protected=c.id in BUNDLED_DEMO_IDS, storage=_storage_kind(c),
         ))
     _sort_workspaces(out, sort)
     if page is None and page_size is None:
@@ -326,7 +350,7 @@ class CreateWorkspace(BaseModel):
 @app.post("/api/workspaces", response_model=WorkspaceSummary, tags=["workspaces"])
 def create_workspace(body: CreateWorkspace,
                      user: dict | None = Depends(current_user_optional)) -> WorkspaceSummary:
-    """Create a new local workspace (folder + graph dataset). A signed-in user becomes the
+    """Create a new workspace (files in the installation's store + graph dataset). A signed-in user becomes the
     owner and picks private/shared; with auth off it stays unowned + shared (as today)."""
     if user is None and auth_required():
         raise HTTPException(status_code=401, detail="Sign in to create a workspace.")
@@ -340,10 +364,8 @@ def create_workspace(body: CreateWorkspace,
             description=body.description,
             workspace_type=body.workspace_type,
             location=body.location,
-            # Cloud tier: STORAGE_BACKEND=nextcloud means new workspaces are
-            # born on the durable store, not the server's local disk.
-            backend=("nextcloud" if os.getenv("STORAGE_BACKEND", "").lower() == "nextcloud"
-                     else "local"),
+            # No per-workspace choice: the installation's store (STORAGE_BACKEND —
+            # NextCloud on a deployment, a local folder for testing).
             provision_graph=True,
         )
     except Exception as exc:
@@ -359,8 +381,17 @@ def create_workspace(body: CreateWorkspace,
     return WorkspaceSummary(
         id=ctx.id, name=ctx.name,
         graphdb_repository=ctx.graphdb_repository or "",
-        description=ctx.description or "",
+        description=ctx.description or "", storage=_storage_kind(ctx),
     )
+
+
+@app.get("/api/storage", tags=["workspaces"])
+def storage_info() -> dict[str, str]:
+    """Where this installation keeps workspace files — shown when creating a workspace.
+    ``{backend: nextcloud|local, label, location}``: the NextCloud host (never
+    credentials), or the folder on your drive when testing locally."""
+    from backend.workspace.storage_mode import describe_storage
+    return describe_storage()
 
 
 class ShareBody(BaseModel):

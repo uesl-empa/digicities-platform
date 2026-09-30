@@ -51,6 +51,16 @@ EXCLUDE_NAMES = {MANIFEST_NAME, ".agent-keys.json", "__pycache__", ".DS_Store"}
 
 _lock = threading.Lock()
 _last_pull: dict[str, float] = {}          # workspace id -> monotonic seconds
+# One push at a time per workspace: pushes run in threads (the write middleware's
+# threadpool, the agent's turn worker, the startup catch-up), and two overlapping
+# pushes each load, upload and save the manifest — the later save dropping the
+# other's entries.
+_push_locks: dict[str, threading.Lock] = {}
+
+
+def _push_lock(ws_id: str) -> threading.Lock:
+    with _lock:
+        return _push_locks.setdefault(ws_id, threading.Lock())
 
 
 def _pull_ttl() -> float:
@@ -175,10 +185,28 @@ def push(ctx: WorkspaceContext) -> dict:
     if not enabled(ctx):
         return {"pushed": [], "deleted": [], "skipped": True}
     try:
-        return _push(ctx)
+        with _push_lock(ctx.id):
+            return _push(ctx)
     except Exception as exc:
         print(f"[mirror] push({ctx.id}) failed: {type(exc).__name__}: {exc}")
         return {"pushed": [], "deleted": [], "error": str(exc)}
+
+
+def push_all(contexts) -> dict:
+    """Publish every remote-backed workspace's pending local changes — the startup
+    catch-up, so a change that never reached NextCloud (a push that didn't run, a
+    workspace that was mis-registered as local) is published without waiting for
+    the next write to that workspace. ``{workspace id: files pushed}``; never raises."""
+    out = {}
+    for ctx in contexts:
+        if not enabled(ctx):
+            continue
+        res = push(ctx)
+        n = len(res.get("pushed", [])) + len(res.get("deleted", []))
+        if n:
+            print(f"[mirror] catch-up {ctx.id}: published {n} pending change(s)")
+        out[ctx.id] = n
+    return out
 
 
 def _push(ctx: WorkspaceContext) -> dict:

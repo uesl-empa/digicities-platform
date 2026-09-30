@@ -1512,6 +1512,11 @@
             "title": "Protected",
             "type": "boolean"
           },
+          "storage": {
+            "default": "",
+            "title": "Storage",
+            "type": "string"
+          },
           "updated_at": {
             "anyOf": [
               {
@@ -1854,6 +1859,32 @@
         ]
       }
     },
+    "/api/storage": {
+      "get": {
+        "description": "Where this installation keeps workspace files — shown when creating a workspace.\n``{backend: nextcloud|local, label, location}``: the NextCloud host (never\ncredentials), or the folder on your drive when testing locally.",
+        "operationId": "storage_info_api_storage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Storage Info Api Storage Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Storage Info",
+        "tags": [
+          "workspaces"
+        ]
+      }
+    },
     "/api/workspaces": {
       "get": {
         "description": "The workspaces the caller may see (their own + shared + granted).\n\nWith no signed-in user (auth off) this is every workspace — unchanged behaviour.\n``updated_at`` is the same activity-aware stamp the Streamlit landing page sorts by,\nread from the background-refreshed cache (not recomputed per request — see\n``registry_cache``, whose per-workspace disk/network cost made this endpoint slow\nonce there were dozens of workspaces).\n\nPass NO ``page``/``page_size`` (the default) to get the plain, full, sorted list —\nthe shape every existing caller (incl. the sidebar workspace switcher) expects.\nPass both to get a ``{items, total, page, page_size}`` page instead — what the\nWorkspaces landing page uses so it doesn't have to hold everyone's workspaces\nin the DOM/state at once.",
@@ -1945,7 +1976,7 @@
         ]
       },
       "post": {
-        "description": "Create a new local workspace (folder + graph dataset). A signed-in user becomes the\nowner and picks private/shared; with auth off it stays unowned + shared (as today).",
+        "description": "Create a new workspace (files in the installation's store + graph dataset). A signed-in user becomes the\nowner and picks private/shared; with auth off it stays unowned + shared (as today).",
         "operationId": "create_workspace_api_workspaces_post",
         "requestBody": {
           "content": {
