@@ -679,7 +679,7 @@ class UnifiedGraphDBClient:
         """Begin a GraphDB transaction."""
         return Transaction(self)
 
-    def get_named_graph_contents_rest(self, graph_uri="http://scenarios/wind_forecasting",
+    def get_named_graph_contents_rest(self, graph_uri,
                                       return_format="df",
                                       save_to_file=False,
                                       file_path=None,

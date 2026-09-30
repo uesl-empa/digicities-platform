@@ -270,7 +270,7 @@ def render_scenario_selection_tab():
                             validation = validate_payload(converted, template_content)
 
                             if clean_missing:
-                                converted = clean_placeholder_values(converted)
+                                converted = clean_placeholder_values(converted, template_content)
 
                             results[filename] = {
                                 'success': True,

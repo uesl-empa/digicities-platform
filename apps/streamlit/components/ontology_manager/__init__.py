@@ -154,6 +154,7 @@ def show_form_dialog(api_client, form_type):
         "addComponent": "➕ Add Component",
         "removeComponent": "🗑️ Remove Component",
         "changeParent": "↕️ Change Parent",
+        "renameComponent": "✏️ Rename Component",
         "addAttribute": "➕ Add Attribute",
         "removeAttribute": "🗑️ Remove Attribute",
         "linkAttribute": "🔗 Link Attribute",
@@ -630,6 +631,9 @@ def render_classes_tab(api_client):
     with col10:
         if st.button("↕️ Change Parent", key="change_parent_btn"):
             st.session_state.ontology_active_form = "changeParent"
+            st.rerun()
+        if st.button("✏️ Rename Component", key="rename_component_btn"):
+            st.session_state.ontology_active_form = "renameComponent"
             st.rerun()
     with col11:
         if st.button("🗑️ Remove Attribute", key="remove_attribute_btn"):

@@ -15,6 +15,16 @@
             "title": "Label",
             "type": "string"
           },
+          "parent": {
+            "default": "",
+            "title": "Parent",
+            "type": "string"
+          },
+          "temporal_precision": {
+            "default": "",
+            "title": "Temporal Precision",
+            "type": "string"
+          },
           "unit": {
             "default": "",
             "title": "Unit",
@@ -793,6 +803,29 @@
         "title": "RemoveUri",
         "type": "object"
       },
+      "Rename": {
+        "properties": {
+          "extension": {
+            "title": "Extension",
+            "type": "string"
+          },
+          "new_label": {
+            "title": "New Label",
+            "type": "string"
+          },
+          "uri": {
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "extension",
+          "uri",
+          "new_label"
+        ],
+        "title": "Rename",
+        "type": "object"
+      },
       "Reparent": {
         "properties": {
           "extension": {
@@ -1123,6 +1156,11 @@
       },
       "SubmitReq": {
         "properties": {
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          },
           "payload": {
             "additionalProperties": true,
             "title": "Payload",
@@ -3987,6 +4025,59 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/ontology/component/rename": {
+      "post": {
+        "description": "Rename an extension class and the terms generated for it (naming rules apply).",
+        "operationId": "rename_component_api_workspaces__workspace_id__ontology_component_rename_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Rename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Component",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/ontology/component/reparent": {
       "post": {
         "operationId": "reparent_api_workspaces__workspace_id__ontology_component_reparent_post",
@@ -4926,6 +5017,139 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/ontology/names/check": {
+      "get": {
+        "description": "The class name a label would get, and what the naming rules say about it.",
+        "operationId": "check_name_api_workspaces__workspace_id__ontology_names_check_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "extension",
+            "required": true,
+            "schema": {
+              "title": "Extension",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "label",
+            "required": true,
+            "schema": {
+              "title": "Label",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Check Name Api Workspaces  Workspace Id  Ontology Names Check Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Name",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/ontology/parents/suggest": {
+      "get": {
+        "description": "Existing classes that could be the parent of a new class described by ``text``.",
+        "operationId": "suggest_parents_api_workspaces__workspace_id__ontology_parents_suggest_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "extension",
+            "required": true,
+            "schema": {
+              "title": "Extension",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "text",
+            "required": true,
+            "schema": {
+              "title": "Text",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Suggest Parents Api Workspaces  Workspace Id  Ontology Parents Suggest Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Parents",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/ontology/publish": {
       "post": {
         "description": "Update the temp working graph and export it (the Publish action).",
@@ -5046,6 +5270,72 @@
           }
         },
         "summary": "Component Range",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/ontology/tree": {
+      "get": {
+        "description": "The component class tree (core + extension) below ``root``.",
+        "operationId": "component_tree_api_workspaces__workspace_id__ontology_tree_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "extension",
+            "required": true,
+            "schema": {
+              "title": "Extension",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "root",
+            "required": false,
+            "schema": {
+              "default": "Component",
+              "title": "Root",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Component Tree Api Workspaces  Workspace Id  Ontology Tree Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Component Tree",
         "tags": [
           "ontology"
         ]

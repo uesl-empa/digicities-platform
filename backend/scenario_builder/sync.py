@@ -25,12 +25,45 @@ from datetime import datetime
 from typing import Any, Optional
 
 
-def attach_graph_attributes(client, comps: list[dict[str, Any]]) -> None:
+class _ReadRecorder:
+    """Graph-client wrapper that notices failed reads.
+
+    The query helpers never raise — they turn a network/SPARQL error into an
+    empty result, and the client itself returns None after its retries — so
+    an unreachable graph looks exactly like "this component has no
+    attributes". The sync must tell the two apart before it prunes anything,
+    so every read goes through here and a raise or a None is recorded.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.failures: list[str] = []
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def sparql_api_query(self, *args, **kwargs):
+        try:
+            result = self._inner.sparql_api_query(*args, **kwargs)
+        except Exception as exc:
+            self.failures.append(type(exc).__name__)
+            raise
+        if result is None:
+            self.failures.append("no response")
+        return result
+
+
+def attach_graph_attributes(client, comps: list[dict[str, Any]]) -> list[str]:
     """Fill in ``attributes``/``nested_properties`` from the workspace graph
     for components that didn't bring their own (a draft only holds
     uri/type/label). Grouped per type so each type is one graph round-trip.
     Client-first twin of the REST layer's helper; failures leave the
-    components as they were (the gate then reports them missing)."""
+    components as they were (the gate then reports them missing).
+
+    Returns the reads that FAILED (empty list = the graph answered), e.g.
+    ``["Building (ConnectionError)"]``, so a caller about to act on "missing"
+    attributes can tell a real gap from a graph it could not read.
+    """
     from backend.explorer import (
         get_component_data_unified,
         get_component_types_with_instances,
@@ -42,22 +75,38 @@ def attach_graph_attributes(client, comps: list[dict[str, Any]]) -> None:
         if not c.get("attributes") and not c.get("nested_properties") and c.get("type"):
             todo.setdefault(c["type"], []).append(c)
     if not todo:
-        return
+        return []
+    if client is None:
+        return ["no graph client"]
+    reader = _ReadRecorder(client)
     try:
         # The explorer queries key on the display label ("Wind Turbine"); the
         # drafts hold class local names ("WindTurbine") — map between them.
-        types_df = get_component_types_with_instances(client)
+        types_df = get_component_types_with_instances(reader)
         label_by_local = {}
         if types_df is not None and not types_df.empty:
             for r in types_df.itertuples():
                 local = str(r.componentType).rstrip("/#").rsplit("#", 1)[-1].rsplit("/", 1)[-1]
                 label_by_local[local] = str(r.componentName)
-    except Exception:
-        return
+    except Exception as exc:
+        return [f"component types ({type(exc).__name__})"]
+    if reader.failures:
+        return [f"component types ({reader.failures[0]})"]
+    if not label_by_local:
+        # Components are referenced but the graph lists no component instance
+        # at all: the replica isn't loaded, so nothing can be judged missing.
+        return ["component types (graph holds no component instances)"]
+
+    failures: list[str] = []
     for type_name, members in todo.items():
+        seen = len(reader.failures)
         try:
-            _, attrs = get_component_data_unified(client, label_by_local.get(type_name, type_name))
-        except Exception:
+            _, attrs = get_component_data_unified(reader, label_by_local.get(type_name, type_name))
+        except Exception as exc:
+            failures.append(f"{type_name} ({type(exc).__name__})")
+            continue
+        if len(reader.failures) > seen:
+            failures.append(f"{type_name} ({reader.failures[seen]})")
             continue
         structured = structured_instance_attributes(attrs)
         for c in members:
@@ -65,6 +114,7 @@ def attach_graph_attributes(client, comps: list[dict[str, Any]]) -> None:
             if found:
                 c["attributes"] = found["attributes"]
                 c["nested_properties"] = found["nested_properties"]
+    return failures
 
 
 def _workspace_id_from_ttl(ttl_text: str, scenario_uri: str) -> str:
@@ -100,6 +150,12 @@ def sync_scenarios_for_service(storage, client, service_file: str,
     Graph updates are best-effort (a failed push is reported in ``detail``,
     the file change stands); parse failures skip the scenario rather than
     taking the sync down.
+
+    Pruning only ever happens on a successful graph read: if reading the
+    components' attributes from the graph failed (unreachable, query error,
+    nothing loaded), the scenario is reported ``"skipped"`` with the reason
+    (``graph read failed (...)``) and left exactly as it is — a graph outage
+    must never archive, thin or delete a baseline.
     """
     import yaml
 
@@ -147,7 +203,13 @@ def sync_scenarios_for_service(storage, client, service_file: str,
         comps = [{"uri": c["uri"], "type": c.get("type"), "label": c.get("label") or c["uri"],
                   "attributes": {}, "nested_properties": {}}
                  for c in draft.get("components", [])]
-        attach_graph_attributes(client, comps)
+        read_failures = attach_graph_attributes(client, comps)
+        if read_failures:
+            entry.update(action="skipped",
+                         detail=f"graph read failed ({'; '.join(read_failures)}); "
+                                f"scenario left untouched")
+            report["scenarios"].append(entry)
+            continue
         # URI/label are synthetic identity attributes (templates reference
         # them as Type.URI) — same injection the REST validation does.
         for c in comps:

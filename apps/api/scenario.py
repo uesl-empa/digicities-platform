@@ -141,9 +141,13 @@ def materialized(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[st
         client = graph_client(ctx)
     except Exception:
         client = None
-    ttl = materialize_against_workspace(getattr(ctx, "storage", None), source, client)
+    skipped: list[dict[str, str]] = []
+    ttl = materialize_against_workspace(getattr(ctx, "storage", None), source, client,
+                                        skipped=skipped)
     return {"name": name, "ttl": ttl, "chars": len(ttl),
-            "materialized": ttl != source}
+            "materialized": ttl != source,
+            # Replica files that did not parse (their data is missing above).
+            "skipped_files": skipped}
 
 
 class PushReq(BaseModel):

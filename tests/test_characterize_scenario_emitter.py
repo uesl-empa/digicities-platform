@@ -138,14 +138,20 @@ def test_full_ttl_golden(scenario_state):
 
 
 def test_completeness_filter_keeps_and_drops(scenario_state):
-    """Components missing a required attribute are silently dropped; note the
-    filter is truthiness-based, so a legitimate 0 value also drops a component.
-    That is current behavior and this test pins it."""
+    """Components missing a required attribute are silently dropped. A legitimate
+    zero value is PRESENT, not missing: the old truthiness filter dropped
+    TurbulenceIntensity-0.0 components and converted their payload blocks hollow
+    (the wind-forecasting empty-payload bug, fixed 2026-09-24)."""
     kept = sbs.get_filtered_components_for_ttl()
     assert [c["label"] for c in kept] == ["Turbine One", "Demand Profile One"]
 
-    # Zero-valued required attribute -> component excluded (truthiness check).
+    # Zero-valued required attribute -> component KEPT (zero is a value).
     st.session_state.scenario_components[0]["attributes"]["hubHeight"]["value"] = 0
+    kept = sbs.get_filtered_components_for_ttl()
+    assert [c["label"] for c in kept] == ["Turbine One", "Demand Profile One"]
+
+    # A genuinely absent value still drops the component.
+    st.session_state.scenario_components[0]["attributes"]["hubHeight"]["value"] = None
     kept = sbs.get_filtered_components_for_ttl()
     assert [c["label"] for c in kept] == ["Demand Profile One"]
 
