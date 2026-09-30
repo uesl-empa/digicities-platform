@@ -101,6 +101,10 @@ class SvcEntry(BaseModel):
     # of a request must then carry a path; parent is matched by parent_path.
     path: str | None = None
     parent_path: str | None = None
+    # A ROOT entry reached through a component link: the type it is linked
+    # from. The block stays top-level in the payload (side by side with that
+    # type's block) but the contract states the link: `link: CL.<link_from>.<Type>`.
+    link_from: str | None = None
 
 
 def _entries(spec_entries: list[SvcEntry]):
@@ -112,10 +116,14 @@ def _entries(spec_entries: list[SvcEntry]):
         if len(set(paths)) != len(paths):
             raise HTTPException(status_code=400, detail="Entry paths must be unique.")
         return entries_from_path_tree(
-            (e.component_type, e.path or "", e.parent_path, e.attributes)
-            for e in spec_entries)
+            ((e.component_type, e.path or "", e.parent_path, e.attributes)
+             for e in spec_entries),
+            links_from={e.path: e.link_from for e in spec_entries
+                        if e.link_from and not e.parent_path})
     return entries_from_type_tree(
-        (e.component_type, e.parent, e.attributes) for e in spec_entries)
+        ((e.component_type, e.parent, e.attributes) for e in spec_entries),
+        links_from={e.component_type: e.link_from for e in spec_entries
+                    if e.link_from and not e.parent})
 
 
 class TemplateSpec(BaseModel):
@@ -276,6 +284,10 @@ def parse(req: ParseReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, 
             "parent_path": e.parent_path or None,
             "level": e.level,
             "link": e.link_pattern or None,
+            # a root reached through a link: the type it is linked from
+            "link_from": (e.link_pattern.split(".")[1]
+                          if e.level == 1 and e.link_pattern.startswith("CL.")
+                          and len(e.link_pattern.split(".")) == 3 else None),
             "attributes": e.configured_attributes,
         } for e in entries],
     }

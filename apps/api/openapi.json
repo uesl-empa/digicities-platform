@@ -1221,6 +1221,17 @@
             "title": "Component Type",
             "type": "string"
           },
+          "link_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link From"
+          },
           "parent": {
             "anyOf": [
               {

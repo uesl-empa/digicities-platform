@@ -532,6 +532,28 @@ def test_service_template_path_keyed_multi_instance(client, ws):
     assert by_path["homes"]["link"] == "CL.Location.Building"
 
 
+def test_service_template_root_reached_through_a_link(client, ws):
+    """A root entry with link_from stays top-level but carries its link
+    (`link: CL.Site.Unit`), and /parse gives link_from back for the builder."""
+    r = client.post(f"{B}/service/template", json={
+        "service_name": "SideBySide",
+        "entries": [
+            {"component_type": "Site", "path": "site", "attributes": ["Capacity"]},
+            {"component_type": "Unit", "path": "units", "link_from": "Site",
+             "attributes": ["Area"]},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    import yaml as _yaml
+    sd = _yaml.safe_load(r.json()["yaml"])["scenario_data"]
+    assert sd["units"]["link"] == "CL.Site.Unit" and "units" not in sd["site"]
+
+    got = client.post(f"{B}/service/parse", json={"file": r.json()["saved"]}).json()
+    by_path = {e["path"]: e for e in got["entries"]}
+    assert by_path["units"]["link_from"] == "Site" and by_path["units"]["parent_path"] is None
+    assert by_path["site"]["link_from"] is None
+
+
 def test_service_template_path_mode_validation(client, ws):
     base = {"service_name": "Bad", "entries": [
         {"component_type": "A", "path": "a", "attributes": ["x"]},
