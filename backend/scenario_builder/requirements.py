@@ -79,8 +79,15 @@ def drop_optional_requirements(yaml_content: dict, required: dict, nested: dict 
     The onboarding agent marks an input optional when the source data has it for
     some instances but not all — requiring it would silently throw away the
     instances the data does describe. Templates without the key are unchanged.
+
+    ``derived_attributes`` are treated the same way: an aggregate such as
+    ``Tree.WeightMean`` (a statistic over the components linked to each tree)
+    is computed from the graph at convert time (``ensure_template_aggregates``),
+    so no stored instance carries it and requiring it would drop every one.
     """
-    for key in (yaml_content or {}).get("optional_attributes") or []:
+    keys = list((yaml_content or {}).get("optional_attributes") or []) \
+        + list((yaml_content or {}).get("derived_attributes") or [])
+    for key in keys:
         comp_type, _, attr = str(key).partition(".")
         if not attr or comp_type not in required:
             continue

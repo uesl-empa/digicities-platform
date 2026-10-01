@@ -349,6 +349,56 @@ def test_component_grouping_projects_mean_as_attribute():
     assert (D.FloorAreaMean, rdflib.RDFS.subClassOf, D.AggregateAttribute) in g
 
 
+def test_template_aggregates_of_one_attribute_are_projected_together():
+    """A service asking for the mean AND the standard deviation (and the count)
+    of one attribute per container gets all three. Ensuring them one by one
+    replaced the shared collection each time, so only the last one survived
+    and the others converted to null."""
+    schema_target = pd.DataFrame({"base": [
+        "https://digicities.info/ontology#Weight",
+        "https://digicities.info/ontology#PhysicalAttribute",
+        "https://digicities.info/ontology#Attribute"]})
+    grouped = pd.DataFrame({
+        "attr": ["https://p/Apple/1/Weight", "https://p/Apple/2/Weight",
+                 "https://p/Apple/3/Weight"],
+        "numValue": ["100.0", "140.0", "180.0"],
+        "simpleValue": [None] * 3, "catValue": [None] * 3, "catLabel": [None] * 3,
+        "unit": ["http://qudt.org/vocab/unit/GM"] * 3,
+        "unitLabel": ["GM"] * 3,
+        "container": ["https://p/Tree/T01"] * 3,
+        "containerLabel": ["T01"] * 3,
+    })
+
+    class Router(FakeClient):
+        def sparql_api_query(self, query, out_format="df", **kw):
+            if "rdfs:subClassOf* dici_onto:Component" in query:
+                return pd.DataFrame({"n": [1]})
+            if "rdfs:subClassOf* ?base" in query:
+                return schema_target
+            return grouped
+
+    client = Router({})
+    template = {"scenario_data": {"tree": {
+        "uri": "Tree.URI",
+        "WeightMean": "Tree.WeightMean",
+        "WeightStandardDeviation": "Tree.WeightStandardDeviation",
+        "WeightCount": "Tree.WeightCount"}}}
+    ensured = materializer.ensure_template_aggregates(client, "ws", template)
+
+    assert len(ensured) == 1                       # one collection, one pass
+    g = _inserted_graph(client)                    # exactly one INSERT
+    QUDT = Namespace("http://qudt.org/schema/qudt/")
+    tree = "https://p/Tree/T01"
+    values = {s: float(g.value(rdflib.URIRef(f"{tree}/Weight{s}"), QUDT.value))
+              for s in ("Mean", "StandardDeviation", "Count")}
+    assert values == pytest.approx({"Mean": 140.0, "StandardDeviation": 40.0, "Count": 3})
+    gm = rdflib.URIRef("http://qudt.org/vocab/unit/GM")
+    assert g.value(rdflib.URIRef(f"{tree}/WeightMean"), QUDT.unit) == gm
+    assert g.value(rdflib.URIRef(f"{tree}/WeightStandardDeviation"), QUDT.unit) == gm
+    # a count is a number of apples, not grams
+    assert g.value(rdflib.URIRef(f"{tree}/WeightCount"), QUDT.unit) is None
+
+
 def test_component_grouping_with_no_links_fails_loudly():
     schema_target = pd.DataFrame({"base": [
         "https://digicities.info/ontology#HubHeight",

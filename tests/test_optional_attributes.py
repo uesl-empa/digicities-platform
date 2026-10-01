@@ -41,6 +41,17 @@ def test_unknown_optional_entries_are_ignored():
     assert req == {"A": ["x", "y"]}
 
 
+def test_derived_attributes_are_not_required():
+    """An aggregate is computed at convert time, never stored on the instance:
+    requiring it at scenario build would drop every instance of its type."""
+    t = {"service_name": "Orchard", "scenario_data": {"tree": {
+        "uri": "Tree.URI", "Variety": "Tree.Variety",
+        "WeightMean": "Tree.WeightMean"}},
+        "derived_attributes": ["Tree.WeightMean"]}
+    req, _ = extract_required_attributes_enhanced(t)
+    assert "Variety" in req["Tree"] and "WeightMean" not in req["Tree"]
+
+
 def test_sync_keeps_an_instance_missing_an_optional_value():
     from backend.scenario_builder.emitter import get_filtered_components_for_ttl
     t = dict(TEMPLATE, optional_attributes=["RoadSegment.VehicleCount"])

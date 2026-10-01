@@ -464,9 +464,10 @@ def materialize_component_grouped_set(client, workspace_id: str,
             # and the converter treats decimal/double/float identically.
             g.add((node, QUDT.value,
                    Literal(float(stats[stat]), datatype=XSD.double)))
-            if container in units:
+            # A count is a number of members, not a quantity in the members' unit.
+            if container in units and stat != "count":
                 g.add((node, QUDT.unit, URIRef(units[container])))
-            if container in unit_labels:
+            if container in unit_labels and stat != "count":
                 g.add((node, dici_onto.hasUnitLabel, Literal(unit_labels[container])))
             g.add((node, dici_onto.aggregateOf, member_set))
             g.add((node, dici_onto.statisticUsed, Literal(stat)))
@@ -510,6 +511,11 @@ def ensure_template_aggregates(client, workspace_id: str, template) -> List[str]
     statistic. Never raises — an unmaterializable aggregate (e.g. no links)
     just stays unresolved, exactly as before.
 
+    All the statistics a template asks of one attribute per one component
+    (``Tree.WeightMean`` and ``Tree.WeightStandardDeviation``) share ONE
+    collection, so they are projected in one pass: materializing them one by
+    one replaced the collection each time and kept only the last statistic.
+
     Returns the collection IRIs that were ensured.
     """
     refs: set = set()
@@ -528,15 +534,21 @@ def ensure_template_aggregates(client, workspace_id: str, template) -> List[str]
 
     _walk(template)
 
-    ensured: List[str] = []
+    wanted: Dict[Tuple[str, str], List[str]] = {}     # (comp, base) -> stats
     for comp, attr in sorted(refs):
-        stat = next((s for suf, s in _STAT_SUFFIXES.items() if attr.endswith(suf)
-                     and len(attr) > len(suf)), None)
-        if stat is None:
+        suf = next((s for s in _STAT_SUFFIXES
+                    if attr.endswith(s) and len(attr) > len(s)), None)
+        if suf is None:
             continue
-        base = attr[: -len([s for s, v in _STAT_SUFFIXES.items() if v == stat][0])]
+        stats = wanted.setdefault((comp, attr[: -len(suf)]), [])
+        if _STAT_SUFFIXES[suf] not in stats:
+            stats.append(_STAT_SUFFIXES[suf])
+
+    ensured: List[str] = []
+    for (comp, base), stats in sorted(wanted.items()):
         base_iri = f"{dici_onto}{base}"
         comp_iri = f"{dici_onto}{comp}"
+        names = ", ".join(f"{comp}.{base}{s[0].upper()}{s[1:]}" for s in stats)
         try:
             if not queries.base_types_of(client, base_iri):
                 continue                       # not an attribute class here
@@ -544,10 +556,10 @@ def ensure_template_aggregates(client, workspace_id: str, template) -> List[str]
                 continue                       # not a component class here
             ensured.append(materialize_component_grouped_set(
                 client, workspace_id, base_iri, comp_iri,
-                project_statistics=(stat,)))
+                project_statistics=tuple(stats)))
         except CollectionError as exc:
-            print(f"[collections] template aggregate {comp}.{attr} not "
+            print(f"[collections] template aggregate(s) {names} not "
                   f"materializable: {exc}")
         except Exception as exc:
-            print(f"[collections] template aggregate {comp}.{attr} skipped: {exc}")
+            print(f"[collections] template aggregate(s) {names} skipped: {exc}")
     return ensured
