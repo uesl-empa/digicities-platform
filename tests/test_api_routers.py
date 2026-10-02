@@ -712,6 +712,31 @@ def test_submission_convert_materializes_thin_scenarios(client, ws):
                                 "x_unit": "M-PER-SEC", "y_unit": "KiloW"}
 
 
+def test_submission_convert_ensures_template_aggregates(client, ws, monkeypatch):
+    """The API convert (the React app's path) materializes the aggregates a
+    template asks for before merging, like the Streamlit Convert tab — else
+    `Tree.WeightMean` converts to null for every tree."""
+    import apps.api.submission as sub
+    import backend.collections as coll
+
+    graph = object()
+    seen = []
+    monkeypatch.setattr(sub, "graph_client", lambda ctx: graph)
+    monkeypatch.setattr(coll, "ensure_template_aggregates",
+                        lambda c, ws_id, tmpl: seen.append((c, ws_id, tmpl)) or [])
+    (ws / "services").mkdir(exist_ok=True)
+    (ws / "services" / "Agg.yaml").write_text(yaml.safe_dump({
+        "service_name": "Agg",
+        "scenario_data": {"tree": {"uri": "Tree.URI", "WeightMean": "Tree.WeightMean"}},
+    }), encoding="utf-8")
+    (ws / "scenarios").mkdir(exist_ok=True)
+    (ws / "scenarios" / "S.ttl").write_text("", encoding="utf-8")
+    client.post(f"{B}/submission/convert",
+                json={"template_file": "Agg.yaml", "scenario_file": "S.ttl"})
+    assert seen and seen[0][0] is graph
+    assert seen[0][2]["scenario_data"]["tree"]["WeightMean"] == "Tree.WeightMean"
+
+
 def test_payload_validation_walks_implicit_root_lists():
     """The authoritative generator emits roots as plain blocks (no link:);
     the converter expands them into lists — the validator must walk the

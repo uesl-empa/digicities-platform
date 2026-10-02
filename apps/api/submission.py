@@ -106,6 +106,14 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
         client = graph_client(ctx)
     except Exception:
         client = None
+    # Aggregates the template asks for (District.FloorAreaMean) are DERIVED:
+    # materialize them before the merge, as the Streamlit Convert tab does.
+    if client is not None:
+        try:
+            from backend.collections import ensure_template_aggregates
+            ensure_template_aggregates(client, ctx.id, template)
+        except Exception:
+            pass                      # an unresolved aggregate is reported by validation
     skipped_files: list[dict[str, str]] = []
     ttl_text = materialize_against_workspace(getattr(ctx, "storage", None),
                                              scen.read_text(encoding="utf-8"), client,
