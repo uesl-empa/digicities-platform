@@ -225,6 +225,9 @@ def workspace_attribute_types(client) -> pd.DataFrame:
       ?attr a ?attrType .
       ?attrType rdfs:subClassOf+ dici_onto:Attribute .
       OPTIONAL {{ ?attrType rdfs:label ?label . }}
+      # A model's settings (boundary conditions of its runs) are not data
+      # about the components: no statistics over them.
+      FILTER NOT EXISTS {{ ?attrType rdfs:subClassOf* dici_onto:ConfigurationAttribute . }}
       FILTER NOT EXISTS {{
         ?attr a ?moreSpecific .
         ?moreSpecific rdfs:subClassOf+ ?attrType .

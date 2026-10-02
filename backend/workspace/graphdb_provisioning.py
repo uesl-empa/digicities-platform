@@ -23,6 +23,8 @@ Layout inside each workspace's dataset:
     <http://system_description>   ← component-to-component links (replica-built; NOT
                                     written here, so re-provisioning never wipes them)
     <http://scenarios>            ← workspace's scenarios/*.ttl
+    <http://services>             ← workspace's services/*.ttl (requirements +
+                                    configuration profiles)
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ from backend.graphdb.graphs import (
     CLASSES_AND_ATTRIBUTES_GRAPH,
     SCENARIOS_GRAPH,
     COLLECTIONS_GRAPH,
+    SERVICES_GRAPH,
 )
 
 from .context import WorkspaceContext
@@ -351,6 +354,12 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     scenarios = rdflib.Graph()
     _parse_glob(scenarios, "scenarios/*.ttl", "scenario")
 
+    # Services → <services>: requirements and configuration profiles. Closed
+    # under the schema like the instances (an extension's ModelType ⊑
+    # ConfigurationAttribute types its parameter nodes), minus the schema.
+    services_raw = rdflib.Graph()
+    _parse_glob(services_raw, "services/*.ttl", "service")
+
     # --- Materialize the RDFS-Plus closure and split it across the two graphs so
     #     each is self-sufficient AND inferred *instance* triples (e.g.
     #     `inst a dici_onto:Component`, derived from `inst a WindTurbine` +
@@ -383,6 +392,16 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     # Instance graph = merged closure minus the schema closure (rdflib set diff).
     instances = merged - schema
 
+    services = rdflib.Graph()
+    if len(services_raw):
+        services += schema_raw
+        services += services_raw
+        try:
+            materialize(services, profile="rdfs-plus")
+        except Exception as exc:
+            print(f"[graphdb_provisioning] services inference skipped: {exc}")
+        services = services - schema
+
     # Keep the default graph empty. Earlier (pre-named-graph) provisioning runs
     # dumped the full merged graph into the default graph; clear it so no reader
     # can pick up stale data and the dataset stays cleanly partitioned across
@@ -409,6 +428,7 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     for graph_iri, graph in (
         (CLASSES_AND_ATTRIBUTES_GRAPH, instances),
         (SCENARIOS_GRAPH, scenarios),
+        (SERVICES_GRAPH, services),
     ):
         try:
             if not upload_ttl_to_graph(repo_id, graph_iri, graph.serialize(format="turtle"), replace=True):

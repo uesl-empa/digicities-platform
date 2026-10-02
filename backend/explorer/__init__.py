@@ -41,6 +41,11 @@ from backend.explorer.instances import (
     get_component_instances,
     get_component_types_with_instances,
 )
+from backend.explorer.configuration import (
+    attach_configuration,
+    get_component_configuration,
+    get_service_configurations,
+)
 from backend.explorer.provenance import (
     SOURCE_COLUMN,
     SOURCE_META_COLUMN,
@@ -53,6 +58,9 @@ from backend.explorer.provenance import (
 )
 
 __all__ = [
+    "attach_configuration",
+    "get_component_configuration",
+    "get_service_configurations",
     "AttributeProcessor",
     "CURVE_META_PREFIX",
     "SERIES_META_PREFIX",

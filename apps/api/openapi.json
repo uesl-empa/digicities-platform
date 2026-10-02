@@ -3217,6 +3217,56 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/configurations": {
+      "get": {
+        "description": "Every service configuration profile in the workspace: its service, the\ncomponents it applies to, and its parameters (the settings each model needs\nto run).",
+        "operationId": "service_configurations_api_workspaces__workspace_id__configurations_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Service Configurations Api Workspaces  Workspace Id  Configurations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Service Configurations",
+        "tags": [
+          "explorer"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/data-products": {
       "get": {
         "description": "Available data products (workspace-private + open/global) with fast\nmetadata — no TTL parsing, same as the tab's listing pass.",

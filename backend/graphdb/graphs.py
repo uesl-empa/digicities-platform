@@ -34,6 +34,9 @@ Layout inside each workspace's dataset
 - ``COLLECTIONS_GRAPH``           DERIVED sets/statistics over attribute values
   (materialized by ``backend.collections``; wiped on every data reload — never
   authored, always recomputable)
+- ``SERVICES_GRAPH``              registered services (``services/*.ttl``): their
+  requirements and configuration profiles (``ServiceConfiguration`` with its
+  ``ConfigurationAttribute`` parameters)
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ CLASSES_AND_ATTRIBUTES_GRAPH = "http://classes_and_attributes"
 SYSTEM_DESCRIPTION_GRAPH = "http://system_description"
 SCENARIOS_GRAPH = "http://scenarios"
 COLLECTIONS_GRAPH = "http://collections"
+SERVICES_GRAPH = "http://services"
 
 # Convenience groupings for common query scopes.
 SCHEMA_GRAPHS = (ONTOLOGY_GRAPH,)
@@ -59,6 +63,7 @@ ALL_GRAPHS = (
     CLASSES_AND_ATTRIBUTES_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
     SCENARIOS_GRAPH,
+    SERVICES_GRAPH,
 )
 
 
