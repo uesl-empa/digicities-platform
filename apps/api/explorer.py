@@ -70,6 +70,8 @@ def component_table(
         get_visible_columns,
         curve_columns,
         get_catalogue_instance_uris,
+        attach_configuration,
+        get_component_configuration,
     )
 
     client = graph_client(ctx)
@@ -77,12 +79,24 @@ def component_table(
         client, name, most_specific_only=not all_levels)
     if not instances:
         return {"columns": [], "rows": [], "curves": {}, "series": {}, "sources": {},
-                "has_sources": False, "catalogue": [], "has_catalogue": False}
+                "has_sources": False, "catalogue": [], "has_catalogue": False,
+                "config_columns": [], "configuration": {}, "has_config": False}
 
     df = process_enhanced_component_data(instances, attributes)
     df = attach_sources(df, get_component_sources(client, name))
     columns = get_visible_columns(df)
     ccols = curve_columns(df)
+
+    # Configuration parameters of the services' profiles that apply to these
+    # instances: settings a model needs to run, NOT properties of the component.
+    # Extra columns the UI hides behind a toggle, like the data sources.
+    df, config_columns, config_per_uri = attach_configuration(
+        df, get_component_configuration(client, name))
+    columns = columns + [c for c in config_columns if c not in columns]
+    configuration = {
+        str(row.get("instance_id")): config_per_uri[str(row.get("URI"))]
+        for _, row in df.iterrows() if str(row.get("URI")) in config_per_uri
+    }
 
     # Per-instance provenance for the "Data sources" panel (keyed by instance id).
     sources: dict[str, Any] = {}
@@ -140,4 +154,17 @@ def component_table(
         "has_sources": has_sources,
         "catalogue": catalogue,
         "has_catalogue": bool(catalogue),
+        "config_columns": config_columns,
+        "configuration": configuration,
+        "has_config": bool(config_columns),
     }
+
+
+@router.get("/configurations")
+def service_configurations(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
+    """Every service configuration profile in the workspace: its service, the
+    components it applies to, and its parameters (the settings each model needs
+    to run)."""
+    from backend.explorer import get_service_configurations
+
+    return get_service_configurations(graph_client(ctx))
