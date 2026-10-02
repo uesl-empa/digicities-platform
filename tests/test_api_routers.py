@@ -1136,6 +1136,57 @@ def test_agent_stream_emits_tokens_then_result_then_done(client, agent_env):
     assert events[-2:] == ["result", "done"]
 
 
+def test_agent_upload_does_not_freeze_the_api(client, agent_env):
+    """The upload's proposal (the model maps the folder, the harvest reads it)
+    runs for minutes. Run on the event loop, it froze EVERY request: the health
+    probe timed out, Kubernetes killed the container, and every chat session in
+    memory was lost ("Stream error — is the API running?" until the module was
+    reopened). Live 2026-10-02. The API must keep answering while it runs."""
+    import threading
+    import time
+
+    sid = _start_session(client)
+    sess = _FakeAgentSession.instances[-1]
+    started, release = threading.Event(), threading.Event()
+
+    def slow_propose(folder):
+        started.set()
+        release.wait(5)
+        return {"messages": [], "stage": "gates", "error": None}
+
+    sess.propose = slow_propose
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("r", client.post(
+        f"{B}/agent/upload", data={"session_id": sid},
+        files={"file": ("guide.txt", b"description: x", "text/plain")})))
+    t.start()
+    try:
+        assert started.wait(5), "the upload never reached the proposal"
+        t0 = time.monotonic()
+        health = client.get("/health")
+        took = time.monotonic() - t0
+        still_running = not release.is_set()
+    finally:
+        release.set()
+        t.join(10)
+    assert health.status_code == 200
+    assert still_running and took < 2, f"/health waited {took:.1f}s for the upload"
+    assert out["r"].status_code == 200
+
+
+def test_no_route_runs_on_the_event_loop(api_app):
+    """Every route is a plain ``def`` so FastAPI runs it in a worker thread. An
+    ``async def`` route doing blocking work (an upload's minutes-long proposal,
+    a workbook conversion, an ontology parse) stalls the single event loop:
+    health probes time out and Kubernetes restarts the API, losing every chat
+    session. Truly async code belongs in a helper awaited off the loop."""
+    import inspect
+    from fastapi.routing import APIRoute
+    offenders = sorted(f"{sorted(r.methods)} {r.path}" for r in api_app.routes
+                       if isinstance(r, APIRoute) and inspect.iscoroutinefunction(r.endpoint))
+    assert not offenders, f"async routes block the event loop: {offenders}"
+
+
 def test_agent_upload_single_file_makes_one_file_folder(client, agent_env):
     from pathlib import Path
     sid = _start_session(client)

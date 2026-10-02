@@ -263,7 +263,7 @@ def _working_folder(sess) -> str | None:
 
 
 @router.post("/upload")
-async def upload(
+def upload(
     session_id: str = Form(...),
     file: UploadFile = File(...),
     ctx: WorkspaceContext = Depends(get_ctx),
@@ -272,12 +272,17 @@ async def upload(
     in the session, more data ACCUMULATES into it: a second .zip is nested under a subfolder, a
     single file is dropped in (e.g. an onboarding guide, or a file a previous read missed) — then
     the folder is re-read. With no prior folder, the upload becomes the working folder (a .zip's
-    contents, or a one-file folder). Start fresh = New chat. The agent proposes a mapping."""
+    contents, or a one-file folder). Start fresh = New chat. The agent proposes a mapping.
+
+    A plain ``def`` on purpose, like every other agent endpoint: FastAPI runs it
+    in a worker thread. The proposal takes minutes; as ``async def`` it ran on
+    the event loop and froze EVERY request meanwhile — the health probe timed
+    out, Kubernetes restarted the container, and every chat session was lost."""
     sess = _get(session_id, ctx)
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file was uploaded")
     name = Path(file.filename).name            # basename only — no path traversal
-    data = await file.read()
+    data = file.file.read()
 
     # ── a .zip → extract (with a zip-slip guard) ────────────────────────────────
     if name.lower().endswith(".zip"):

@@ -86,7 +86,7 @@ def replica_model(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
 
 
 @router.post("/import")
-async def import_workbook(
+def import_workbook(
     file: UploadFile = File(...),
     ctx: WorkspaceContext = Depends(get_ctx),
 ) -> dict[str, Any]:
@@ -102,7 +102,7 @@ async def import_workbook(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     xlsx_path = in_dir / file.filename
-    xlsx_path.write_bytes(await file.read())
+    xlsx_path.write_bytes(file.file.read())
     ttl_path = out_dir / f"{ctx.id}.ttl"
 
     from backend.replica_builder.utils.create_class_and_attribute_graph import process_excel_to_ttl

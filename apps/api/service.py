@@ -186,14 +186,14 @@ def fields(spec: FieldsSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> list[d
 
 
 @router.post("/ontology/upload")
-async def ontology_upload(file: UploadFile = File(...),
+def ontology_upload(file: UploadFile = File(...),
                           ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Parse an uploaded ontology file (.ttl/.rdf/.owl/.n3) into component
     classes + their attributes, to supplement the builder's palette — for
     partner components that exist in an ontology but not in this workspace."""
     from backend.service_requirements.ontology import parse_ontology_content
 
-    content = await file.read()
+    content = file.file.read()
     components, attributes = parse_ontology_content(content)
     if not components and not attributes:
         raise HTTPException(status_code=400,
