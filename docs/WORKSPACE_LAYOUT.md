@@ -27,7 +27,7 @@ This is the v0.2 contract. Earlier versions diverged between NextCloud and local
 │   ├── input/               # source Excel workbooks (.xlsx)
 │   └── output/              # converted TTL files
 ├── scenarios/               # scenario TTLs (one per scenario)
-├── services/                # service YAML definitions
+├── services/                # service templates (YAML) + requirements and configuration (TTL)
 ├── queries/                 # SPARQL templates (one per .rq file)
 ├── private_data_products/   # data product manifests + bundled resources
 │   └── <product_name>/
@@ -47,7 +47,7 @@ Every subfolder above is **always present**, even if empty. The platform may aut
 
 - **`ontology/`**: schema is conceptually one thing. Grouping its subdirs reflects that.
 - **`ingestion/`**: separates "raw input" (Excel) from "ontology-typed output" (TTL). The output is the canonical, queryable form. The input is the human-edited source.
-- **`scenarios/`, `services/`, `queries/`**: three flat dirs, one file per item. No subdirectories, to keep navigation simple.
+- **`scenarios/`, `services/`, `queries/`**: three flat dirs, one file per item. No subdirectories, to keep navigation simple. A service has a `<Name>.yaml` template (the payload it wants) and a `<Name>.ttl` with its requirements and its configuration profiles (the settings its model runs with); the TTL is loaded into the workspace's `<http://services>` graph when the workspace opens.
 - **`private_data_products/`**: each data product is a folder so its manifest and resources stay together. "Private" distinguishes from `global/open_data_products/` on NextCloud (publicly shared).
 - **`timeseries/`**: large CSVs that data products reference. Separated so the data-product folder itself stays small.
 - **`workspace_meta/`**: anything that's *about* the workspace rather than *in* it.
@@ -83,6 +83,18 @@ The Digicities platform's local-mode bootstrap (`services/graphdb/init.sh` and t
 ```
 
 `workspace_meta/image.png` (or `.jpg`): optional thumbnail rendered in the workspace switcher. About 400 by 300 px.
+
+The onboarding agent keeps its own records here too, so a later chat (or a restarted server) can pick up where the last one left off:
+
+| File | What it holds |
+|---|---|
+| `onboarding_chats/*.json` | Saved agent conversations, including the mapping and the decisions. Reopening a chat restores them. |
+| `onboarding_source/` | The uploaded working folder, kept so files can be added after a restart. |
+| `service_identity.json` | The registered service's name and any payload field renames. |
+| `service_io.json` | The service's streams and their direction (what it reads, what it writes). |
+| `service_config.json` | Configuration files the agent read, recorded as found (secrets redacted). Settings that became configuration profiles are in `services/<Name>.ttl`. |
+| `service_contract.json` | The running service's request shape, when the folder shipped one. |
+| `payload_check.json` | The last completeness check of the baseline payload. |
 
 ## Backends honouring this layout
 

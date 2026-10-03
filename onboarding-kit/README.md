@@ -35,7 +35,8 @@ Builder, Scenario Builder, API Data Submission). Full recipe:
 
 The agent will **ask you to confirm the consequential modelling decisions** — for
 example where a new class sits under the core ontology, whether an attribute is
-categorical or physical, a unit, or how two entities link. Expect questions about
+categorical or physical, a unit, how two entities link, or whether a value is a
+setting of your model rather than a fact about the system. Expect questions about
 what your model's inputs *mean* and their units; the model is the source of truth
 and you know it best.
 

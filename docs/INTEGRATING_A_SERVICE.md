@@ -107,6 +107,60 @@ scenario_data:
 means "the Buildings linked to each Location". `Building.GroundFloorArea` resolves that
 building's GroundFloorArea value.
 
+### Inputs that are statistics over linked components
+
+Some models want a statistic rather than the raw records: the mean and standard deviation
+of the apple weights on each tree, the total floor area of the buildings in a district. No
+file states these, so do not add them as columns. Record the individual components (each
+apple, linked to its tree) and request the statistic as `<Container>.<Attribute><Statistic>`,
+where the statistic is one of `Mean`, `Median`, `Sum`, `MinValue`, `MaxValue`, `Count`,
+`StandardDeviation`. List each one under `derived_attributes`:
+
+```yaml
+scenario_data:
+  tree:
+    uri: Tree.URI
+    WeightMean: Tree.WeightMean                              # mean of Apple.Weight per Tree
+    WeightStandardDeviation: Tree.WeightStandardDeviation
+    WeightCount: Tree.WeightCount                            # how many apples
+derived_attributes:
+  - Tree.WeightMean
+  - Tree.WeightStandardDeviation
+  - Tree.WeightCount
+```
+
+At convert time the platform computes them from the components linked to each tree
+(the Collections module, `ensure_template_aggregates`) and the converter reads them like
+any attribute. `derived_attributes` tells the Scenario Builder not to require them on the
+stored instances, since they only exist once computed. A Count carries no unit; a
+statistic of a group with too few members (a standard deviation of one value) is left out.
+
+### Settings the model needs: configuration, not data
+
+A value that sets a **boundary condition of the model run** (a model or algorithm choice,
+a calibration constant, a run name or frequency, a stream address) is configuration, not a
+property of a component. Do not model a config file as a component, and do not put such a
+value on a component as an attribute. Record it as a `ConfigurationAttribute` in a
+`ServiceConfiguration` profile of the service, in `services/<service>.ttl` next to the
+requirements; `appliesTo` names the components a profile is tuned for:
+
+```turtle
+<.../services/WindForecast> a dici_onto:Service ;
+    dici_onto:hasConfiguration <.../services/WindForecast/config/simulation_alkmaar> .
+<.../services/WindForecast/config/simulation_alkmaar> a dici_onto:ServiceConfiguration ;
+    dici_onto:appliesTo <.../WindPark/Alkmaar> ;
+    dici_onto:hasConfigurationParameter <.../config/simulation_alkmaar/WakeDecayConstant> .
+<.../config/simulation_alkmaar/WakeDecayConstant>
+    a dici_onto:WakeDecayConstant, dici_onto:ConfigurationAttribute ;
+    dici_onto:hasAttributeValue "0.0324555" .
+```
+
+The parameter class (`WakeDecayConstant`) goes in your extension under its value kind and
+`ConfigurationAttribute`. The file is loaded into the workspace's `<http://services>` graph;
+the React Explorer shows a component's configuration behind its **Show config parameters**
+toggle, and API Submission lists every profile per service. The onboarding agent writes
+these profiles for you. Configuration does not go into the payload today.
+
 ## Step 4 - Provide a demo scenario
 
 Add a self-contained scenario in `scenarios/<name>.ttl`. The converter reads only this
@@ -169,6 +223,10 @@ click Submit. You should get the model's result back.
 - Scenario links are `dici_onto:ComponentLink` nodes with `dici_onto:hasInputEntity` and
   `dici_onto:linksInputyEntityTo`.
 - Keep model-specific mapping in the adapter or the template. Digicities stays generic.
+- A statistic over linked components is requested as `<Container>.<Attribute><Statistic>`
+  and listed under `derived_attributes`, never stored as a column.
+- A model setting (a boundary condition of the run) is configuration in the service TTL,
+  never a component or a component attribute.
 - Endpoint URLs from the running app use `host.docker.internal`, not `localhost`.
 - After changing an extension, re-open the workspace so its database re-provisions.
 
@@ -179,6 +237,7 @@ click Submit. You should get the model's result back.
 | Attribute and component classes | `ontology/extensions/*.ttl` | Describe what the data means |
 | Sample instances | `ingestion/output/*.ttl` | Show the component in the UI |
 | Service requirements template | `services/*.yaml` | Map ontology -> the service payload |
+| Service requirements + configuration profiles | `services/*.ttl` | What the service needs and how it runs (loaded into `<http://services>`) |
 | Demo scenario | `scenarios/*.ttl` | A ready-to-submit example |
 | Transport adapter (if needed) | the service's own repo | Map and deliver to the model |
 | Endpoint registration | API Submission -> Config (in-app) | Where to send it |

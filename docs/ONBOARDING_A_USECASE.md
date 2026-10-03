@@ -50,6 +50,13 @@ Before touching Digicities, answer (from the model's code + its data files):
    ambiguous; the code is the ground truth.
 3. **What payload does the model expect, and how do you talk to it?** HTTP JSON,
    a Redis stream, a CLI? What does a successful result look like?
+4. **Which values are settings of the model, not facts about the system?** A value
+   that sets a boundary condition of the model run (a model choice, a calibration
+   constant, a run name, a stream address) is configuration of the service, not an
+   attribute of a component. A config file is never a component.
+5. **Does the model want statistics over a population?** A mean or count over the
+   records linked to each container (the apples on each tree) is derived by the
+   platform from those records, not stored as a column.
 
 Write these down. They drive every step.
 
@@ -194,12 +201,20 @@ scenario_data:
 You can build this visually in **Service Requirements Builder** (load an existing
 template to see the shape), or hand-write it.
 
+Two special kinds of input have their own rules, both in
+[`INTEGRATING_A_SERVICE.md`](INTEGRATING_A_SERVICE.md) step 3: **statistics over
+linked components** (request `Tree.WeightMean` and list it under
+`derived_attributes`) and **model settings** (a configuration profile in
+`services/<service>.ttl`, never a component).
+
 ## Step 5 — Create scenarios
 
 In the **Scenario Builder**, pick components from your replica and derive a
-scenario (baseline, or with assumptions applied). It writes `scenarios/<name>.ttl`
-for you — a self-contained `Scenario` + components + attributes + `ComponentLink`
-nodes. To ship a ready-made demo you can hand-write one
+scenario (baseline, or with assumptions applied), or start from a saved scenario
+and edit it. It writes `scenarios/<name>.ttl` for you: a `Scenario` with its
+`ComponentLink` nodes that references the replica's components and carries only
+overrides (a thin scenario; the replica values are merged in at convert time). To
+ship a ready-made demo you can hand-write one
 ([`INTEGRATING_A_SERVICE.md`](INTEGRATING_A_SERVICE.md) step 4).
 
 ## Step 6 — Wire the transport and register
@@ -233,3 +248,5 @@ model's result back.
 - Re-open the workspace after ontology edits.
 - `host.docker.internal`, not `localhost`, from the running app.
 - Keep model-specific logic in the template/adapter; Digicities stays generic.
+- Model settings are service configuration, never components; statistics over
+  linked components are derived, never columns.
