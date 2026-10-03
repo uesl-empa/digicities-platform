@@ -27,6 +27,7 @@ extension, a replica, scenarios, and a service template.
 |---|---|
 | `apps/streamlit/app.py` | The Streamlit UI entry point |
 | `apps/streamlit/components/` | UI modules (Replica Builder, Scenario Builder, Service Requirements Builder, Assumptions, API Submission, …) — thin shells over `backend/` |
+| `apps/api/` | The REST API the React frontend (`digicities-frontend`) and the onboarding agent's chat use; also thin over `backend/` (see `apps/api/README.md`) |
 | `backend/` | Pure-Python core (no Streamlit): `graphdb/` (triplestore client + SPARQL), `triplestore/` (Fuseki/GraphDB backends), `replica_builder/`, `assumptions/`, `api_submission/` (incl. `ttl_converter.py`, the scenario→payload converter), `workspace/` (provisioning, registry) |
 | `data/ontology/` | The core ontology (`dici_onto_core.ttl`) used in local mode |
 | `data/global_services/` | Bundled service templates (`demo_energy_simulator.yaml`, `flexibility_optimizer.yaml`) — the canonical shape for a `services/*.yaml` |
@@ -75,6 +76,22 @@ extension, a replica, scenarios, and a service template.
   still yields a complete scenario. Serialise any new attribute value through the
   canonical helper (`backend/replica_builder/utils/ttl_attribute_helpers.py`), never
   a bespoke emitter, or you'll drop units/data-paths/categorical values.
+- **Model settings are configuration, never components.** A value that sets a
+  boundary condition of a model run (a model choice, a calibration constant, a run
+  name, a stream address) is a `dici_onto:ConfigurationAttribute` in a
+  `dici_onto:ServiceConfiguration` profile of the service, in `services/<Name>.ttl`
+  (loaded into `<http://services>`). See `docs/INTEGRATING_A_SERVICE.md` step 3.
+- **Statistics over linked components are derived, never stored.** A service asks
+  for `<Container>.<Attribute><Statistic>` (e.g. `Tree.WeightMean`) and lists it
+  under `derived_attributes` in its template; the Collections module computes it at
+  convert time.
+- **Query the named graphs.** Each workspace's data lives in named graphs
+  (`backend/graphdb/graphs.py`) and the default graph is empty: name them with
+  `FROM` clauses (`from_clause(...)`), or a query returns nothing on Fuseki.
+- **API routes are plain `def`, never `async def`.** FastAPI runs them in a worker
+  thread. An `async def` route doing blocking work stalls the single event loop,
+  the health probe times out, and the restart loses every in-memory agent session
+  (a test enforces this).
 - Default triplestore is **Fuseki** on `:3030` (`TRIPLESTORE_BACKEND=fuseki`);
   Fuseki needs HTTP Basic admin auth for **writes** (reads are open). GraphDB is
   an optional overlay on `:7201`.

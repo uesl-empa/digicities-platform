@@ -98,6 +98,11 @@ the graph.
 Why it matters: this is the other half of "connect raw data to services", done without
 turning the knowledge graph into a timeseries database (which it should never be).
 
+Progress: the configuration half is now explicit. A value that sets a boundary
+condition of a model run (a model choice, a calibration constant, a stream address)
+is a `ConfigurationAttribute` in a `ServiceConfiguration` profile owned by the
+service, kept apart from the components' own attributes (core ontology v0.5.0).
+
 ## P2 - Bring results back into the graph
 
 Today results come back as JSON and are displayed or filed. To act as the brain,
@@ -113,6 +118,8 @@ Why it matters: it closes the loop. Inputs and outputs live in the same describe
 We already share service definitions through `service_catalog`. Extend that into a
 proper registry of available models and what each one needs, so a user can ask "what
 can I run on this building?" and the platform can answer, and tell them what is missing.
+A first step is in place: each workspace's service requirements and configuration
+profiles are loaded into its `<http://services>` graph, so they are queryable.
 
 ## P3 - Lint the ontology and example scenarios in CI
 

@@ -263,8 +263,11 @@ When `open_workspace` is called for the first time, the platform creates a tripl
 | Named graph | Source |
 |---|---|
 | `<http://ontology_dici_onto>` | platform's vendored `services/graphdb/ontology/dici_onto_core.ttl` plus workspace's `ontology/extensions/*.ttl` |
-| `<http://instance_data>` | workspace's `ingestion/output/*.ttl` |
+| `<http://classes_and_attributes>` | workspace's `ingestion/output/*.ttl` |
 | `<http://scenarios>` | workspace's `scenarios/*.ttl` |
+| `<http://services>` | workspace's `services/*.ttl` (service requirements and configuration profiles) |
+| `<http://system_description>` | component links written by the Replica Builder (not reloaded from files) |
+| `<http://collections>` | derived sets and statistics (computed; cleared when the replica changes) |
 
 Re-opening a workspace re-uploads the current TTLs. File edits show up in SPARQL queries without manual re-provisioning. Auto-provisioning failures degrade gracefully. File-based modules keep working. Only SPARQL needs the repo.
 

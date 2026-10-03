@@ -49,7 +49,8 @@ The tutorial notebooks under `tutorial/` exercise this directly — they import 
 | `backend/assumptions/` | `components/assumptions/` | **Mostly thin.** The assumption/manual-modification engines and thin-scenario TTL generation (`thin_scenario_ttl.py`, emitting `supersedesAttribute` overrides) live in backend; the UI shell is the load-baseline / apply / export forms. |
 | `backend/data_products/` | `components/data_products/` | **Medium.** TTL parsing is in backend; NextCloud I/O and path resolution are in the UI shell. |
 | `backend/api_submission/` | `components/api_submission_module/` | **Medium.** Generic HTTP/Redis transports + the TTL→payload converter are in backend (`transports.py`, `ttl_converter.py`); the UI inlines service registration and result rendering. |
-| `backend/explorer/` | `components/component_explorer.py` | **Thin shell.** Instance fetching, attribute processing, curve parsing, unit/currency mapping and provenance live in backend; the UI renders the table, plots and debug panels. The REST API (`apps/api`) consumes the same backend package. |
+| `backend/explorer/` | `components/component_explorer.py` | **Thin shell.** Instance fetching, attribute processing, curve parsing, unit/currency mapping, provenance and the service configuration that applies to an instance (`configuration.py`) live in backend; the UI renders the table, plots and debug panels. The REST API (`apps/api`) consumes the same backend package. |
+| `backend/collections/` | `components/collections_explorer.py` | **Thin shell.** Sets, grouped sets and descriptive statistics, and the aggregates a service template asks for (`ensure_template_aggregates`, e.g. `Tree.WeightMean`), are computed in backend and written to the `<http://collections>` graph. |
 
 ## UI-only modules (no backend twin, by design)
 
@@ -75,6 +76,25 @@ You can replace `apps/streamlit/` wholesale today for the modules with a clear b
 
 The `tutorial/` notebooks are the reference for what "using the backend without the UI" looks like.
 
+## Graph layout per workspace
+
+Each workspace has its own triplestore dataset, partitioned into named graphs
+(defined once in `backend/graphdb/graphs.py`; the default graph stays empty):
+
+| Named graph | Holds | Written by |
+|---|---|---|
+| `<http://ontology_dici_onto>` | core ontology + workspace extensions | provisioning, from `ontology/extensions/*.ttl` |
+| `<http://classes_and_attributes>` | component instances and their attributes | provisioning, from `ingestion/output/*.ttl` |
+| `<http://system_description>` | component-to-component links | the Replica Builder |
+| `<http://scenarios>` | scenarios | provisioning, from `scenarios/*.ttl` |
+| `<http://services>` | service requirements and configuration profiles | provisioning, from `services/*.ttl` |
+| `<http://collections>` | derived sets, statistics and aggregates | `backend/collections` (cleared when the replica changes) |
+
+Data about the system (components and their attributes) and the settings a model
+runs with are kept apart on purpose. A value that sets a boundary condition of a
+model run is a `ConfigurationAttribute` in a `ServiceConfiguration` profile of the
+service, in `<http://services>`, never an attribute of a component.
+
 ## Runtime layout
 
 | Component | Where it runs | Default port |
@@ -82,6 +102,7 @@ The `tutorial/` notebooks are the reference for what "using the backend without 
 | Fuseki (default triplestore) | Docker (`docker-compose.yml`) | 3030 |
 | GraphDB (optional overlay) | Docker (`docker-compose.graphdb.yml`) | 7201 |
 | Streamlit | Docker (`docker-compose.yml`) | 8501 |
+| REST API (`apps/api`, used by the React frontend) | Docker (`docker-compose.yml`, `api` service) | 8000 |
 | NextCloud (optional) | Docker (`docker-compose.nextcloud.yml` overlay) | 8080 |
 | Keycloak (optional) | external; off by default via `AUTH_DISABLED=true` | — |
 

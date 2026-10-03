@@ -49,7 +49,8 @@ All workspace-scoped paths start with `/api/workspaces/{id}`, shortened to `…`
 | GET  | `…/info` | workspace metadata + activity stamp for the sidebar |
 | POST | `…/provision` | `ensure_workspace_repo` |
 | POST | `…/query` | `UnifiedGraphDBClient.sparql_api_query` |
-| GET  | `…/components`, `…/components/{name}` | Digital Replica Explorer reads |
+| GET  | `…/components`, `…/components/{name}` | Digital Replica Explorer reads; the table also returns `config_columns` / `configuration` / `has_config` (service configuration parameters that apply to the instances, hidden behind a toggle in the UI) |
+| GET  | `…/configurations` | every service configuration profile: its service, the components it applies to, its parameters |
 | GET  | `…/recommendations` | Instance Inspector recommendations |
 | *    | `…/ontology/…` (24 routes) | `OntologyFunctions` — extensions, components, attributes, links, categories, named individuals, mappings, export, publish, upload |
 | GET  | `…/replica/config`, `…/replica/ttl` | replica project URI / current TTL |
@@ -59,9 +60,11 @@ All workspace-scoped paths start with `/api/workspaces/{id}`, shortened to `…`
 | POST | `…/service/requirements` | requirements TTL → `services/{Name}.ttl` |
 | POST | `…/service/template` | service-template YAML → `services/{Name}.yaml` |
 | GET  | `…/scenario/instances`, `…/scenario/list`, `…/scenario/ttl` | scenario palette / saved scenarios |
+| GET  | `…/scenario/draft`, `…/scenario/materialized` | a saved scenario as a builder draft (load it back to edit) / as a self-contained TTL |
+| DELETE | `…/scenario` | delete a saved scenario (file + its triples) |
 | POST | `…/scenario/build` | `backend.scenario_builder.build_scenario_ttl` |
 | GET  | `…/submission/templates`, `…/submission/scenarios` | submission inputs |
-| POST | `…/submission/convert` | `backend.api_submission.ttl_converter.convert_scenario` |
+| POST | `…/submission/convert` | `ensure_template_aggregates` (derived statistics the template asks for), then merge the scenario with the replica + collections and `convert_scenario` |
 | POST | `…/submission/submit` | HTTP submit to the service endpoint |
 | GET  | `…/collections`, `…/collections/options`, `…/collections/{name}` | `backend.collections` reads |
 | POST | `…/collections` | `materialize_set` / `materialize_grouped_set` |
@@ -84,9 +87,16 @@ All workspace-scoped paths start with `/api/workspaces/{id}`, shortened to `…`
 - **No backend changes.** Endpoints call `backend.*` exactly as the Streamlit
   components and the onboarding agent do — this repo adds a layer, it doesn't
   fork the backend.
+- **Routes are plain `def`, never `async def`.** FastAPI runs a `def` route in a
+  worker thread. An `async def` route that does blocking work (an upload's
+  minutes-long proposal, a workbook conversion) stalls the single event loop: the
+  health probe times out and the API is restarted. `tests/test_api_routers.py`
+  fails on any coroutine route.
 - **Agent sessions are in-memory and single-process.** One uvicorn worker only;
-  sessions are lost on reload. A turn that fails reports `result["error"]`
-  alongside the transcript. Known limits (see the separation plan, Phase 7):
-  session eviction, multi-worker support, SSE message via POST body.
+  sessions are lost on a restart or redeploy, and the LRU cap
+  (`AGENT_SESSION_CAP`) evicts the oldest. The React chat recovers: on a stream
+  error it checks `…/agent/state`, and a 404 reopens the chat from its saved
+  conversation. A turn that fails reports `result["error"]` alongside the
+  transcript. Multi-worker support is not built.
 - **CORS is dev-open** (`allow_origins=["*"]`). Tighten to the deployed
   frontend origin before this leaves a laptop.
