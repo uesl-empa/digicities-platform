@@ -81,6 +81,17 @@ its data. There is no prescribed answer.
    Give every new term the same annotations (`rdfs:comment` at minimum; ideally
    `skos:altLabel` / `skos:example`) so the next mapping over your extension
    works too — `tools/validate_extension.py` in the ontology repo enforces this.
+   Two kinds of value are not component attributes:
+   - **Settings of the model.** A value that sets a boundary condition of the
+     model run (a model or algorithm choice, a calibration constant, a run name
+     or frequency, a stream address) is configuration of the service: a
+     `ConfigurationAttribute` in a `ServiceConfiguration` profile in
+     `services/<Name>.ttl`. A config file is never a component.
+   - **Statistics over a population.** A mean, standard deviation or count over
+     the records linked to each container (the apples on each tree) is derived
+     by the platform. Record the individual records with their link, and request
+     the statistic in the template (`Tree.WeightMean`, listed under
+     `derived_attributes`). See `docs/INTEGRATING_A_SERVICE.md` step 3.
 5. **Build the replica.** Load the actual instances with the **Replica Builder**
    (Excel import is usually fastest).
 6. **Describe the payload.** Build the service requirements template with the
@@ -107,7 +118,9 @@ it**. In particular, propose your reasoning and get explicit sign-off before:
   parent), or creating a **new hierarchy branch** under the core ontology;
 - choosing a **kind** for an attribute (physical vs categorical vs dynamic vs …);
 - fixing the **allowed values** of a categorical, or the **unit** of a quantity;
-- deciding **how entities link** to each other and to the scenario.
+- deciding **how entities link** to each other and to the scenario;
+- treating a value as a **setting of the model** (configuration) rather than a
+  property of a component, and which components a set of settings applies to.
 
 If the data or the model is ambiguous about meaning or units, don't paper over it —
 ask. Silent guesses on any of the above change what the data *means*.

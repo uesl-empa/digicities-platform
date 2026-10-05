@@ -8,17 +8,18 @@ How the platform turns the asserted RDF in a workspace into the *queryable* RDF 
 
 When a workspace is opened, the platform's `ensure_workspace_repo` (in `backend/workspace/graphdb_provisioning.py`) does this:
 
-1. Merges core ontology + workspace's `ontology/extensions/*.ttl` + `ingestion/output/*.ttl` + `scenarios/*.ttl` into an in-memory rdflib graph.
-2. Runs an **RDFS-Plus closure** via `owlrl` (see `backend/workspace/inference.py`).
-3. Writes the closed graph (asserted + inferred triples) to the active triplestore's default graph.
+1. Reads the core ontology + the workspace's `ontology/extensions/*.ttl` (the schema), `ingestion/output/*.ttl` (the instances), `scenarios/*.ttl` and `services/*.ttl` into in-memory rdflib graphs.
+2. Runs an **RDFS-Plus closure** via `owlrl` (see `backend/workspace/inference.py`): once over the schema, once over schema + instances, and once over schema + services.
+3. Writes each section to its own **named graph**: the schema closure to `<http://ontology_dici_onto>`, the instances (closure minus schema) to `<http://classes_and_attributes>`, the services (closure minus schema) to `<http://services>`, the scenarios as authored to `<http://scenarios>`. The default graph is kept empty.
 
 The default `rdfs-plus` profile materialises:
 
 - `rdfs:subClassOf` transitive closure. `?inst a dici_onto:Component` catches every `WindTurbine`, `Building`, `EnergyConverter` instance without the query knowing the class hierarchy.
 - `rdfs:subPropertyOf` transitive closure. `?inst dici_onto:hasAttribute ?attr` catches every typed attribute predicate (e.g. `hasBuildingGrossFloorArea`).
-- `rdfs:domain` and `rdfs:range` propagation.
 - `owl:equivalentClass`, `owl:equivalentProperty`, `owl:inverseOf` propagation.
-- `owl:sameAs` and basic OWL property characteristics (`TransitiveProperty`, `SymmetricProperty`).
+- `owl:sameAs` (between distinct terms) and basic OWL property characteristics (`TransitiveProperty`, `SymmetricProperty`).
+
+Deliberately **not** materialised: `rdfs:domain` / `rdfs:range` propagation. In OWL these are typing rules, so "domain Location" would retype whatever uses the predicate as a Location. The platform's rule is that using a link never changes what a thing is, so domain and range are kept as metadata (documentation for people and tools) and set aside during reasoning. The provisioning log says so: `[inference] N domain/range declaration(s) kept as metadata, excluded from reasoning`.
 
 The closure runs **once per workspace open**, not per query. A one-time cost amortised over the session.
 
@@ -33,7 +34,7 @@ The platform supports two triplestore backends:
 
 Materialising at write time means the same query returns the same results on either backend. Fuseki's lack of native inference becomes invisible. It also means workspace TTLs stay portable: nothing about the on-disk format is tied to a particular triplestore.
 
-All triples land in the **default graph**. This sidesteps Fuseki's "default-graph only" SPARQL semantics vs GraphDB's "union of default + named graphs". A simple `?s ?p ?o` query returns the same rows on either.
+Every section lands in its **own named graph**, and queries name the graphs they read with `FROM` clauses (see `backend/graphdb/graphs.py`, `from_clause`). Naming the graphs explicitly sidesteps the backends' different default-graph semantics (Fuseki's default graph is only the default graph; GraphDB's is the union of all graphs), so a query returns the same rows on either. It also lets the platform replace one section (for example the ontology) without touching the others. Derived collections live in `<http://collections>` and are recomputed, not inferred.
 
 ## What this means for queries
 
@@ -43,10 +44,16 @@ The platform ships pre-written SPARQL with each module (Component Explorer, Data
 PREFIX dici_onto: <https://digicities.info/ontology#>
 
 # Catches WindTurbine, Building, EnergyConverter, anything subClassOf* Component
-SELECT ?inst WHERE { ?inst a dici_onto:Component }
+SELECT ?inst
+FROM <http://ontology_dici_onto>
+FROM <http://classes_and_attributes>
+WHERE { ?inst a dici_onto:Component }
 
 # Catches every typed hasXAttribute predicate
-SELECT ?attr WHERE { ?inst dici_onto:hasAttribute ?attr }
+SELECT ?attr
+FROM <http://ontology_dici_onto>
+FROM <http://classes_and_attributes>
+WHERE { ?inst dici_onto:hasAttribute ?attr }
 ```
 
 Avoid vendor-specific extensions if you want your queries to remain portable across backends:
@@ -90,7 +97,8 @@ If you need them:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Query returns rows on GraphDB, 0 on Fuseki | Query relies on GraphDB-default UNION semantics | Drop the `GRAPH` clause. Rely on the default graph. |
+| Query returns rows on GraphDB, 0 on Fuseki | Query relies on GraphDB's union default graph | Name the graphs with `FROM <http://ontology_dici_onto>` / `FROM <http://classes_and_attributes>` (and `<http://services>`, `<http://scenarios>`, `<http://collections>` as needed). |
+| An instance is suddenly typed as something it is not | Expecting `rdfs:domain` / `rdfs:range` to type instances | They are metadata here, never reasoning. Type the instance explicitly. |
 | Query returns 0 even after inference | Predicate has no `subPropertyOf` chain to `hasAttribute` | Add the chain in your extension TTL. Fix the model, not the query. |
 | Subclass inference seems missing | `subClassOf` declaration on the class is itself missing | Same. Fix the extension. |
 | Provisioning takes > 10 s on a small workspace | Closure is expensive for the data shape | Lower profile to `rdfs` or `none`. |

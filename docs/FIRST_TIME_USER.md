@@ -118,7 +118,7 @@ The workspace ships with a few:
 - **Heat pump retrofit** — the same building with its **HeatingSupply** and **DHWSupply** overridden (an electrified retrofit).
 - **Town block** — three buildings together.
 
-Open one and notice the overrides sit *on top of* the baseline values without changing them.
+Open one with **Load Existing** and notice the overrides sit *on top of* the baseline values without changing them.
 
 > 🧠 **What you're seeing**: how Digicities models change. A retrofit doesn't overwrite your data — it layers a new attribute that *supersedes* the old one, so you can compare before and after.
 

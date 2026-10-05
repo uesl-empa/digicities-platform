@@ -6,9 +6,26 @@ This document describes the RDF triple patterns produced by the Digicities Repli
 
 ## Graph Model
 
-The platform materializes **all** asserted and inferred triples into the triplestore's **default graph**. Queries therefore use plain triple patterns — do **not** wrap them in a `GRAPH` clause. This is consistent with `docs/INFERENCE.md`, and keeps a simple `?s ?p ?o` query returning identical rows on either the default Fuseki backend or the optional GraphDB overlay.
+Each workspace's dataset keeps its data in **named graphs**, and the default graph is left empty (provisioning clears it). The graph names are defined once in `backend/graphdb/graphs.py`:
 
-Internally, the replica builder authors data under logical graph names (`classes_and_attributes` for component instances, attribute resources, and TimeSeries resources; `system_description` for relationships between instances; `ontology_dici_onto` for ontology class definitions and attribute schema). On load, however, everything is flattened into the default graph, so SPARQL must **not** reference these names via `GRAPH`.
+| Named graph | What it holds |
+|---|---|
+| `<http://ontology_dici_onto>` | Core ontology + the workspace's extensions (the schema) |
+| `<http://classes_and_attributes>` | Component instances, their attribute nodes and TimeSeries resources |
+| `<http://system_description>` | Component-to-component relationships |
+| `<http://scenarios>` | Scenarios |
+| `<http://services>` | Registered services: their requirements and configuration profiles (from `services/*.ttl`) |
+| `<http://collections>` | Derived sets, statistics and projected aggregates (computed, never authored) |
+
+**Name the graphs a query reads with `FROM` clauses.** That makes their union the query's default graph and returns the same rows on Fuseki and GraphDB. A query with no `FROM` (and no `GRAPH` pattern) reads the empty default graph and returns nothing on Fuseki. The examples below leave the `FROM` lines out for brevity; add these to each:
+
+```sparql
+FROM <http://ontology_dici_onto>
+FROM <http://classes_and_attributes>
+FROM <http://system_description>
+```
+
+(Platform code builds the same block with `backend.graphdb.graphs.from_clause(...)`.)
 
 ---
 
@@ -574,7 +591,69 @@ Add this to any query to retrieve provenance.
 
 ---
 
-## 16. Summary: Property Reference
+## 16. Service configuration
+
+A value that sets a boundary condition of a model run (a model choice, a calibration constant, a run name, a stream address) is **configuration**, not a property of a component. It is a `dici_onto:ConfigurationAttribute` node in a `dici_onto:ServiceConfiguration` profile owned by a `dici_onto:Service`, held in `<http://services>`:
+
+```turtle
+<{service_uri}> a dici_onto:Service ;
+    dici_onto:hasConfiguration <{service_uri}/config/{profile}> .
+<{service_uri}/config/{profile}> a dici_onto:ServiceConfiguration ;
+    dici_onto:appliesTo <{component_uri}> ;                 # optional: the components it is tuned for
+    dici_onto:hasConfigurationParameter <{service_uri}/config/{profile}/{Param}> .
+<{service_uri}/config/{profile}/{Param}> a dici_onto:{Param}, dici_onto:ConfigurationAttribute ;
+    qudt:value 0.0324555 .                                  # or hasAttributeValue / hasCategoricalValue
+```
+
+### Query: Configuration parameters that apply to one component
+
+```sparql
+PREFIX dici_onto: <https://digicities.info/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+SELECT ?service ?profile ?paramClass ?num ?simple ?cat
+FROM <http://ontology_dici_onto>
+FROM <http://services>
+WHERE {
+    ?profile dici_onto:appliesTo <{component_uri}> ;
+             dici_onto:hasConfigurationParameter ?param .
+    OPTIONAL { ?service dici_onto:hasConfiguration ?profile }
+    ?param a ?paramClass .
+    ?paramClass rdfs:subClassOf* dici_onto:ConfigurationAttribute .
+    FILTER(?paramClass != dici_onto:ConfigurationAttribute)
+    OPTIONAL { ?param qudt:value ?num }
+    OPTIONAL { ?param dici_onto:hasAttributeValue ?simple }
+    OPTIONAL { ?param dici_onto:hasCategoricalValue ?cat }
+}
+```
+
+---
+
+## 17. Derived aggregates (statistics over linked components)
+
+A statistic over the components linked to a container (the mean apple weight per tree, say) is computed by the Collections module and projected onto the container as an attribute node in `<http://collections>`: `{container_uri}/{Attr}{Stat}`, typed `dici_onto:{Attr}{Stat}` and `dici_onto:AggregateAttribute`, valued with `qudt:value`, and linked back to the Set it summarises with `dici_onto:aggregateOf`. `{Stat}` is one of `Mean`, `Median`, `Sum`, `MinValue`, `MaxValue`, `Count`, `StandardDeviation`. A service template requests it as `{Container}.{Attr}{Stat}` (for example `Tree.WeightMean`).
+
+### Query: Derived aggregates on each container
+
+```sparql
+PREFIX dici_onto: <https://digicities.info/ontology#>
+PREFIX qudt: <http://qudt.org/schema/qudt/>
+
+SELECT ?container ?aggregate ?statistic ?value
+FROM <http://collections>
+WHERE {
+    ?container dici_onto:hasAttribute ?aggregate .
+    ?aggregate a dici_onto:AggregateAttribute ;
+               dici_onto:statisticUsed ?statistic ;
+               qudt:value ?value .
+}
+ORDER BY ?container ?aggregate
+```
+
+---
+
+## 18. Summary: Property Reference
 
 | Attribute type | `rdf:type` (in addition to `dici_onto:{AttrName}`) | Value predicate | Unit predicate | Notes |
 |---|---|---|---|---|

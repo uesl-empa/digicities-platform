@@ -112,7 +112,7 @@ Guided workflow (the two pipelines use these):
 - **Digital Replica Explorer** - browse the buildings/instances in the workspace graph.
 - **Ontology Manager** - view/extend the vocabulary (no triplestore needed).
 - **Replica Builder** - build building instances from a spreadsheet or by hand.
-- **Scenario Builder** - assemble a scenario (pick components, add overrides).
+- **Scenario Builder** - start from a saved scenario, or assemble a new one (pick components, add overrides).
 - **API Data Submission** - register a service, convert a scenario to its payload, submit, and view results.
 
 Archived / under development (not covered here): Query Manager, Data Viewer and Uploader,
