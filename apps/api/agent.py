@@ -242,12 +242,28 @@ def state(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     return _get(session_id, ctx).snapshot()
 
 
+def _continuing(sess) -> bool:
+    """Is this chat in the middle of an onboarding? Its own upload exists (even
+    if a restart wiped the temp dir), or it carries a mapping (a chat restored
+    after a restart). Only then does a new upload ADD to the working folder. A
+    fresh chat on a workspace that was onboarded before starts a fresh folder:
+    nested into the previous onboarding's kept copy, the agent's "replace" would
+    onboard old and new together (and wipe the new upload with the old copy)."""
+    if getattr(sess, "_upload_folder", None):
+        return True
+    st = getattr(sess, "state", None)
+    return bool(getattr(st, "oa_spec", None)) \
+        or getattr(st, "oa_stage", "start") not in ("start", None)
+
+
 def _working_folder(sess) -> str | None:
     """The folder this chat reads, if it still exists. The upload's temp dir is
     wiped by a server restart; the agent keeps a copy of the folder inside the
     workspace and names it (``working_folder``, absent on older agents), so an
     upload that ADDS a file after a restart lands next to the data it belongs
     with instead of starting a one-file folder."""
+    if not _continuing(sess):
+        return None
     existing = getattr(sess, "_upload_folder", None)
     if existing and Path(existing).is_dir():
         return existing
