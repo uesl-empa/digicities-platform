@@ -1275,6 +1275,30 @@ def test_a_restored_chat_with_a_mapping_still_adds_to_the_kept_folder(client, ag
     assert (kept / "guide.md").exists() and sess.proposed == str(kept)
 
 
+def test_upload_can_defer_the_mapping_to_a_stream(client, agent_env):
+    """Mapping a folder takes minutes and sends nothing meanwhile; networks cut
+    requests that stay silent that long (live: 60 s), so the browser's upload
+    errored while the server carried on. With propose=false the upload only
+    stores the folder and returns at once; the mapping then runs over
+    /propose/stream, which keeps the connection alive like the chat stream."""
+    sid = _start_session(client)
+    sess = _FakeAgentSession.instances[-1]
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid, "propose": "false"},
+                    files={"file": ("guide.txt", b"description: x", "text/plain")})
+    assert r.status_code == 200, r.text
+    assert r.json()["pending_propose"] is True
+    assert sess.proposed is None                       # nothing mapped yet
+
+    r = client.get(f"{B}/agent/propose/stream", params={"session_id": sid})
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/event-stream")
+    events = [line.split(": ", 1)[1] for line in r.text.splitlines() if line.startswith("event: ")]
+    assert events == ["result", "done"]
+    assert sess.proposed and sess.proposed.endswith("x")   # the stored folder was mapped
+    # nothing left waiting: a second stream is refused, not re-run
+    assert client.get(f"{B}/agent/propose/stream", params={"session_id": sid}).status_code == 409
+
+
 def test_agent_upload_rejects_empty_filename(client, agent_env):
     sid = _start_session(client)
     r = client.post(f"{B}/agent/upload", data={"session_id": sid},
