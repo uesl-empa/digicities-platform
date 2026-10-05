@@ -1233,6 +1233,48 @@ def test_agent_upload_after_a_restart_adds_to_the_kept_folder(client, agent_env,
     assert not Path(sess._upload_folder).exists()
 
 
+def test_a_fresh_chat_upload_starts_a_fresh_folder(client, agent_env, tmp_path):
+    """Live 2026-10-05: a zip uploaded to a NEW chat on a workspace onboarded
+    before was nested into the previous onboarding's kept copy. The agent's
+    "replace" then wiped it with the old copy, and "append" re-read the old data
+    with the new. A chat that is not in the middle of an onboarding gets a fresh
+    folder, and the agent asks append-or-replace about the new upload alone."""
+    import io, zipfile
+    from pathlib import Path
+    sid = _start_session(client)
+    sess = _FakeAgentSession.instances[-1]
+    kept = tmp_path / "ws" / "workspace_meta" / "onboarding_source"
+    kept.mkdir(parents=True)
+    (kept / "old.csv").write_text("a,1")
+    sess.working_folder = lambda: str(kept)            # what a fresh session finds
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("new/onboarding_guide.md", "description: x")
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid},
+                    files={"file": ("new.zip", buf.getvalue(), "application/zip")})
+    assert r.status_code == 200, r.text
+    folder = Path(sess.proposed)
+    assert kept not in folder.parents and folder != kept
+    assert (folder / "onboarding_guide.md").exists()
+    assert not (kept / "new").exists()                  # the old copy is untouched
+
+
+def test_a_restored_chat_with_a_mapping_still_adds_to_the_kept_folder(client, agent_env, tmp_path):
+    """The other side: a chat restored after a restart carries its mapping, so a
+    file it adds (a missing guide) belongs with that data."""
+    sid = _start_session(client)
+    sess = _FakeAgentSession.instances[-1]
+    kept = tmp_path / "ws" / "workspace_meta" / "onboarding_source"
+    kept.mkdir(parents=True)
+    sess.state.oa_spec = {"components": []}
+    sess.state.oa_stage = "gates"
+    sess.working_folder = lambda: str(kept)
+    r = client.post(f"{B}/agent/upload", data={"session_id": sid},
+                    files={"file": ("guide.md", b"inputs: Room", "text/markdown")})
+    assert r.status_code == 200, r.text
+    assert (kept / "guide.md").exists() and sess.proposed == str(kept)
+
+
 def test_agent_upload_rejects_empty_filename(client, agent_env):
     sid = _start_session(client)
     r = client.post(f"{B}/agent/upload", data={"session_id": sid},
