@@ -172,6 +172,12 @@ def message(body: Message, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
 
 
 def _stream_response(sess, text: str, ctx: WorkspaceContext):
+    return _sse(lambda: sess.send_stream(text), ctx)
+
+
+def _sse(produce, ctx: WorkspaceContext):
+    """Server-sent events for one agent step: ``produce()`` yields ``(kind, data)``
+    pairs (``token``, ``result``); a ``done`` event ends the stream."""
     import json as _json
     import logging
     import queue as _queue
@@ -190,7 +196,7 @@ def _stream_response(sess, text: str, ctx: WorkspaceContext):
 
     def worker():
         try:
-            for kind, data in sess.send_stream(text):
+            for kind, data in produce():
                 q.put((kind, data))
         except Exception:
             logging.getLogger("digicities.agent").exception("agent turn failed")
@@ -235,6 +241,36 @@ def message_stream(session_id: str, text: str, ctx: WorkspaceContext = Depends(g
 def message_stream_post(body: Message, ctx: WorkspaceContext = Depends(get_ctx)):
     """Same SSE stream, message in the request body (fetch + ReadableStream)."""
     return _stream_response(_get(body.session_id, ctx), body.text, ctx)
+
+
+def _propose_or_defer(sess, folder, propose: bool) -> dict[str, Any]:
+    """Map the uploaded folder now, or (``propose=false``) only record it and
+    return at once: the client then runs the mapping over ``/propose/stream``.
+    Mapping takes minutes and sends nothing meanwhile, and networks cut
+    requests that stay silent that long (seen live at 60 s): the upload
+    errored in the browser while the server carried on. The stream sends a
+    keepalive every 15 s instead."""
+    if propose:
+        return sess.propose(Path(folder))
+    sess._pending_propose = str(folder)
+    return {**sess.snapshot(), "pending_propose": True}
+
+
+@router.get("/propose/stream")
+def propose_stream(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)):
+    """Server-sent events: map the folder recorded by ``upload(propose=false)``,
+    then ``result`` with the full state and ``done``. 409 when there is nothing
+    waiting to be mapped."""
+    sess = _get(session_id, ctx)
+    folder = getattr(sess, "_pending_propose", None)
+    if not folder:
+        raise HTTPException(status_code=409, detail="no uploaded folder is waiting to be mapped")
+    sess._pending_propose = None
+
+    def produce():
+        yield "result", sess.propose(Path(folder))
+
+    return _sse(produce, ctx)
 
 
 @router.get("/state")
@@ -282,6 +318,7 @@ def _working_folder(sess) -> str | None:
 def upload(
     session_id: str = Form(...),
     file: UploadFile = File(...),
+    propose: bool = Form(True),
     ctx: WorkspaceContext = Depends(get_ctx),
 ) -> dict[str, Any]:
     """Upload a working folder as a .zip, OR a single file. When a working folder already exists
@@ -339,7 +376,7 @@ def upload(
             shutil.copytree(content, dest)
             shutil.rmtree(scratch, ignore_errors=True)
             sess.state.oa_messages.append(("user", f"📦 Added `{name}` to the working folder"))
-            return sess.propose(Path(existing))
+            return _propose_or_defer(sess, Path(existing), propose)
 
         # a fresh working folder (no prior upload in this session)
         prev = getattr(sess, "_upload_tmp", None)
@@ -348,14 +385,14 @@ def upload(
         sess._upload_tmp = str(scratch)
         sess._upload_folder = str(content)
         sess.state.oa_messages.append(("user", f"📦 Uploaded `{name}`"))
-        return sess.propose(content)
+        return _propose_or_defer(sess, content, propose)
 
     # ── a single file added to the current working folder → re-read it ───────────
     existing = _working_folder(sess)
     if existing:
         (Path(existing) / name).write_bytes(data)
         sess.state.oa_messages.append(("user", f"📎 Added `{name}` to the working folder"))
-        return sess.propose(Path(existing))
+        return _propose_or_defer(sess, Path(existing), propose)
 
     # ── a single file with no prior folder → a one-file working folder ───────────
     prev = getattr(sess, "_upload_tmp", None)
@@ -368,4 +405,4 @@ def upload(
     (folder / name).write_bytes(data)
     sess._upload_folder = str(folder)
     sess.state.oa_messages.append(("user", f"📄 Uploaded `{name}`"))
-    return sess.propose(folder)
+    return _propose_or_defer(sess, folder, propose)

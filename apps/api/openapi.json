@@ -220,6 +220,11 @@
             "title": "File",
             "type": "string"
           },
+          "propose": {
+            "default": true,
+            "title": "Propose",
+            "type": "boolean"
+          },
           "session_id": {
             "title": "Session Id",
             "type": "string"
@@ -2545,6 +2550,58 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/agent/propose/stream": {
+      "get": {
+        "description": "Server-sent events: map the folder recorded by ``upload(propose=false)``,\nthen ``result`` with the full state and ``done``. 409 when there is nothing\nwaiting to be mapped.",
+        "operationId": "propose_stream_api_workspaces__workspace_id__agent_propose_stream_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Propose Stream",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/agent/session": {
       "post": {
         "description": "Open a conversation — fresh, or load a persisted chat_id; optional model.",
@@ -2713,7 +2770,7 @@
     },
     "/api/workspaces/{workspace_id}/agent/upload": {
       "post": {
-        "description": "Upload a working folder as a .zip, OR a single file. When a working folder already exists\nin the session, more data ACCUMULATES into it: a second .zip is nested under a subfolder, a\nsingle file is dropped in (e.g. an onboarding guide, or a file a previous read missed) — then\nthe folder is re-read. With no prior folder, the upload becomes the working folder (a .zip's\ncontents, or a one-file folder). Start fresh = New chat. The agent proposes a mapping.",
+        "description": "Upload a working folder as a .zip, OR a single file. When a working folder already exists\nin the session, more data ACCUMULATES into it: a second .zip is nested under a subfolder, a\nsingle file is dropped in (e.g. an onboarding guide, or a file a previous read missed) — then\nthe folder is re-read. With no prior folder, the upload becomes the working folder (a .zip's\ncontents, or a one-file folder). Start fresh = New chat. The agent proposes a mapping.\n\nA plain ``def`` on purpose, like every other agent endpoint: FastAPI runs it\nin a worker thread. The proposal takes minutes; as ``async def`` it ran on\nthe event loop and froze EVERY request meanwhile — the health probe timed\nout, Kubernetes restarted the container, and every chat session was lost.",
         "operationId": "upload_api_workspaces__workspace_id__agent_upload_post",
         "parameters": [
           {
