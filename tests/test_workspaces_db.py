@@ -60,3 +60,62 @@ def test_registry_cache_reads_and_falls_back(monkeypatch):
     assert RC.by_id("a").name == "A"                     # from the cache
     assert {c.id for c in RC.all_contexts()} == {"a", "b"}
     assert RC.by_id("zzz") is None                       # miss → registry fallback → None
+
+
+def _fake_registry(monkeypatch, ids):
+    import apps.api.registry_cache as RC
+
+    class _Ctx:
+        def __init__(self, i):
+            self.id = i; self.name = i.upper(); self.graphdb_repository = i
+            self.description = ""; self.tags = []; self.storage = None
+
+    class _Reg(list):
+        def by_id(self, i):
+            return next((c for c in self if c.id == i), None)
+
+    monkeypatch.setattr(RC, "load_registry", lambda: _Reg([_Ctx(i) for i in ids]))
+    monkeypatch.setattr(RC, "_compute_summary", lambda c: {"updated_at": None, "created_date": ""})
+    monkeypatch.setattr(RC, "_sync_db", lambda contexts: None)
+    RC._loaded = False; RC._by_id = {}; RC._contexts = []; RC._deleted.clear()
+    return RC
+
+
+def test_a_deleted_workspace_leaves_the_listing_at_once(monkeypatch):
+    """Live 2026-10-05: deleted workspaces stayed listed, and openable, for a
+    minute or two. Discovery (NextCloud, cached for a minute) still returned them
+    and the delete never touched the API's cache."""
+    RC = _fake_registry(monkeypatch, ["a", "gone"])
+    assert {c.id for c in RC.all_contexts()} == {"a", "gone"}
+    RC.forget("gone")
+    assert {c.id for c in RC.all_contexts()} == {"a"}
+    assert RC.by_id("gone") is None
+    RC.refresh()                                   # stale discovery still lists it
+    assert {c.id for c in RC.all_contexts()} == {"a"}
+    assert RC.by_id("gone") is None
+
+
+def test_a_refresh_under_way_cannot_bring_it_back(monkeypatch):
+    """The delete lands while a refresh is listing/summarising: the refresh
+    must not store the stale list it started with."""
+    RC = _fake_registry(monkeypatch, ["a", "gone"])
+    RC.all_contexts()
+    fired = []
+
+    def summary(c):
+        if not fired:
+            fired.append(1)
+            RC.forget("gone")                      # the delete, mid-refresh
+        return {"updated_at": None, "created_date": ""}
+
+    monkeypatch.setattr(RC, "_compute_summary", summary)
+    RC.refresh()
+    assert {c.id for c in RC.all_contexts()} == {"a"}
+
+
+def test_recreating_the_id_brings_it_back(monkeypatch):
+    RC = _fake_registry(monkeypatch, ["a", "gone"])
+    RC.forget("gone")
+    RC.revive("gone")                              # created again under the same id
+    RC.refresh()
+    assert RC.by_id("gone") is not None

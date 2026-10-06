@@ -28,6 +28,38 @@ _by_id: dict = {}
 _contexts: list = []
 _summaries: dict = {}
 _loaded = False
+# Workspaces deleted in this process: id -> time.monotonic() of the delete. A
+# refresh that began BEFORE the delete (NextCloud discovery is slow, and its own
+# listing is cached for a minute) would otherwise put the deleted workspace back
+# into the listing, still openable, for a minute or two.
+_deleted: dict = {}
+_DELETED_HOLD_S = 300.0
+
+
+def _is_deleted(ws_id: str) -> bool:
+    t = _deleted.get(ws_id)
+    if t is None:
+        return False
+    if time.monotonic() - t > _DELETED_HOLD_S:
+        _deleted.pop(ws_id, None)
+        return False
+    return True
+
+
+def forget(ws_id: str) -> None:
+    """A workspace was deleted: drop it from the cache now and keep any refresh
+    that is already under way from bringing it back."""
+    global _contexts
+    with _lock:
+        _deleted[ws_id] = time.monotonic()
+        _by_id.pop(ws_id, None)
+        _contexts = [c for c in _contexts if c.id != ws_id]
+
+
+def revive(ws_id: str) -> None:
+    """A workspace was created (perhaps under the id of one deleted moments ago)."""
+    with _lock:
+        _deleted.pop(ws_id, None)
 
 
 def _compute_summary(ctx) -> dict:
@@ -68,6 +100,9 @@ def refresh() -> None:
     # rather than serve another workspace's stale value for the same id.
     summaries = {id(c): _compute_summary(c) for c in contexts}
     with _lock:
+        # Filtered under the same lock that stores the result: a delete that lands
+        # while this refresh was listing or summarising must still win.
+        contexts = [c for c in contexts if not _is_deleted(c.id)]
         _contexts = contexts
         _by_id = {c.id: c for c in contexts}
         _summaries = summaries
@@ -87,6 +122,8 @@ def by_id(ws_id: str):
     (covers a just-created workspace before the next refresh). None if unknown."""
     _ensure_loaded()
     with _lock:
+        if _is_deleted(ws_id):
+            return None
         ctx = _by_id.get(ws_id)
     if ctx is None:
         ctx = load_registry().by_id(ws_id)      # fallback: never miss a real workspace
