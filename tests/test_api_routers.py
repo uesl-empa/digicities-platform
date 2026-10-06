@@ -1401,6 +1401,20 @@ def test_delete_workspace_wraps_backend_and_reports(client, ws, monkeypatch):
     assert calls["drop_dataset"] is False
 
 
+def test_delete_workspace_drops_it_from_the_listing_cache(client, ws, monkeypatch):
+    """The listing and lookups read the API's cache; a delete must update it
+    at once (create already refreshes it), not at the next background refresh."""
+    import apps.api.registry_cache as RC
+    monkeypatch.setattr("backend.workspace.delete_workspace",
+                        lambda ws_id, *, drop_dataset=True, ctx=None: {
+                            "files_removed": True, "dataset_dropped": True,
+                            "registry_entry_removed": False})
+    forgotten = []
+    monkeypatch.setattr(RC, "forget", forgotten.append)
+    assert client.delete(f"{B}").status_code == 200
+    assert forgotten == ["testws"]
+
+
 def test_delete_workspace_protected_demo_is_403(client, ws, monkeypatch):
     from backend.workspace import WorkspaceProtected
 

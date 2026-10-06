@@ -371,7 +371,8 @@ def create_workspace(body: CreateWorkspace,
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Create failed: {exc}") from exc
     try:                                    # so the new workspace is visible immediately
-        from .registry_cache import refresh
+        from .registry_cache import refresh, revive
+        revive(ctx.id)                      # it may reuse the id of one just deleted
         refresh()
         if user:                            # record ownership + chosen visibility
             from backend.db import workspaces_repo
@@ -526,6 +527,9 @@ def delete_workspace(drop_dataset: bool = True,
             detail=f"Could not remove the files of '{ctx.id}' — "
                    "they may be open in another program.",
         )
+    # Gone from the listing (and from lookups) now, not at the next refresh.
+    from .registry_cache import forget
+    forget(ctx.id)
     return {"workspace": ctx.id, **result}
 
 
