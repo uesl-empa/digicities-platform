@@ -221,8 +221,9 @@ def _stub_triplestore(monkeypatch, prov, uploads):
     monkeypatch.setattr(prov, "_core_ttl_path", lambda: Path("no-such-core.ttl"))
     monkeypatch.setattr(prov, "clear_default_graph", lambda repo_id, base_url=None: True)
     monkeypatch.setattr(prov, "clear_graph", lambda repo_id, graph_iri, base_url=None: True)
-    monkeypatch.setattr(prov, "_collections_fingerprint", lambda repo_id: None)
-    monkeypatch.setattr(prov, "_stamp_collections_fingerprint", lambda repo_id, fp: None)
+    monkeypatch.setattr(prov, "_collections_fingerprint", lambda repo_id, *pred: None)
+    monkeypatch.setattr(prov, "_stamp_collections_fingerprint", lambda repo_id, fp, *pred: None)
+    monkeypatch.setattr(prov, "_materialize_populations", lambda ctx, repo, url: None)
 
     def upload(repo_id, graph_iri, ttl_content, replace=True, base_url=None):
         uploads[graph_iri] = ttl_content

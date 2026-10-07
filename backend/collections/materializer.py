@@ -340,7 +340,8 @@ def materialize_component_grouped_set(client, workspace_id: str,
                                       target_attribute_class_iri: str,
                                       grouping_component_class_iri: str,
                                       dataset_iri: Optional[str] = None,
-                                      project_statistics=("mean",)) -> str:
+                                      project_statistics=("mean",),
+                                      touch: bool = True) -> str:
     """Materialize a component-grouped GroupedSet: the target attribute's
     values partitioned by the instances of a component class the owners are
     linked to (e.g. HubHeight per WindPark). One group Set per container
@@ -354,7 +355,8 @@ def materialize_component_grouped_set(client, workspace_id: str,
     via ``hasAttribute`` + ``has<Class><Attr><Stat>Attribute``, valued with
     ``qudt:value``/``qudt:unit`` — so a service template can request e.g.
     ``District.FloorAreaMean`` exactly like any Component.attribute. Pass an
-    empty tuple to skip projection."""
+    empty tuple to skip projection. ``touch=False`` leaves the workspace's
+    activity stamp to the caller (a batch stamps it once)."""
     if not queries.is_component_class(client, grouping_component_class_iri):
         raise CollectionError(
             f"{_local(grouping_component_class_iri)} is not a Component "
@@ -483,7 +485,8 @@ def materialize_component_grouped_set(client, workspace_id: str,
                Literal(f"{attr_local} {stat} (aggregate)")))
 
     _replace_collection(client, str(gset_iri), g)
-    _touch_activity(workspace_id)
+    if touch:
+        _touch_activity(workspace_id)
     return str(gset_iri)
 
 
@@ -563,3 +566,42 @@ def ensure_template_aggregates(client, workspace_id: str, template) -> List[str]
         except Exception as exc:
             print(f"[collections] template aggregate(s) {names} skipped: {exc}")
     return ensured
+
+
+def materialize_populations(client, workspace_id: str, limit: int = 50) -> List[str]:
+    """Materialize every linked population in the workspace as a
+    component-grouped set: per container instance, the distribution of a
+    numeric attribute over the components linked to it (the apple weights per
+    tree, the hub heights per park). Shown in Collections whether or not a
+    service asks for a statistic of it.
+
+    Nothing is projected onto the containers: a projected ``<Attr><Stat>``
+    attribute is what a SERVICE requests (``ensure_template_aggregates``). A
+    collection that already exists is left as it is, so one a service template
+    made, with its projections, is never replaced by a bare one. At most
+    ``limit`` populations, in query order. Never raises.
+
+    Returns the collection IRIs that were materialized."""
+    try:
+        found = queries.linked_populations(client)
+        existing = {str(c) for c in queries.list_collections(client)["collection"]}
+    except Exception as exc:
+        print(f"[collections] population discovery failed: {exc}")
+        return []
+    base = _collections_base(workspace_id)
+    made: List[str] = []
+    for _, row in found.head(limit).iterrows():
+        attr_iri, comp_iri = str(row["attrType"]), str(row["containerType"])
+        if f"{base}/{_local(attr_iri)}By{_local(comp_iri)}" in existing:
+            continue
+        try:
+            made.append(materialize_component_grouped_set(
+                client, workspace_id, attr_iri, comp_iri,
+                project_statistics=(), touch=False))
+        except Exception as exc:
+            print(f"[collections] population {_local(attr_iri)} per "
+                  f"{_local(comp_iri)} skipped: {exc}")
+    if len(found) > limit:
+        print(f"[collections] {len(found) - limit} more population(s) not "
+              f"materialized (limit {limit}); build them from the Collections view")
+    return made

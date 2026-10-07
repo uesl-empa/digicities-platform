@@ -174,6 +174,70 @@ def component_grouped_member_values(client, target_class_iri: str,
                    "unit", "unitLabel", "container", "containerLabel"])
 
 
+def linked_populations(client) -> pd.DataFrame:
+    """Every numeric attribute type whose records form a POPULATION per linked
+    component: at least one instance of the container class is linked to two or
+    more components carrying that attribute (the apples on a tree, the turbines
+    of a park). Exactly what ``component_grouped_member_values`` groups, so each
+    row can be materialized as a component-grouped set.
+
+    Types are each node's MOST specific class (the closure also asserts every
+    superclass), so one population gives one row, not one per ancestor. An
+    attribute typed only by a general class (``PhysicalAttribute``, which has
+    narrower classes) is left out: its values are different quantities, and one
+    distribution over them means nothing. Service configuration is a run
+    setting, not an observation, so it never forms one.
+
+    Two bounded queries, not one: the provisioning closure has already asserted
+    every ``hasAttribute`` / ``linksComponent`` super-edge, so the first matches
+    those directly (a property path per triple timed out at a few hundred
+    records); the second types only the containers it found.
+    Columns: attrType, containerType, maxMembers, containers."""
+    cols = ["attrType", "containerType", "maxMembers", "containers"]
+    graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SYSTEM_DESCRIPTION_GRAPH)
+    groups = run_df(client, f"""
+    {_PREFIXES}
+    SELECT ?attrType ?container (COUNT(DISTINCT ?owner) AS ?n)
+    {graphs}WHERE {{
+      ?owner dici_onto:hasAttribute ?attr .
+      ?attr qudt:value ?v .
+      FILTER(isNumeric(?v))
+      {{ ?owner dici_onto:linksComponent ?container . }}
+      UNION
+      {{ ?container dici_onto:linksComponent ?owner . }}
+      FILTER(?container != ?owner)
+      ?attr a ?attrType .
+      FILTER NOT EXISTS {{ ?narrower rdfs:subClassOf ?attrType .
+                           FILTER(?narrower != ?attrType) }}
+      FILTER NOT EXISTS {{ ?attrType rdfs:subClassOf dici_onto:ConfigurationAttribute }}
+    }}
+    GROUP BY ?attrType ?container
+    """, ["attrType", "container", "n"])
+    if groups.empty:
+        return pd.DataFrame(columns=cols)
+    groups["n"] = pd.to_numeric(groups["n"], errors="coerce").fillna(0).astype(int)
+    containers = " ".join(f"<{c}>" for c in sorted(set(groups["container"].astype(str))))
+    types = run_df(client, f"""
+    {_PREFIXES}
+    SELECT ?container ?containerType
+    {graphs}WHERE {{
+      VALUES ?container {{ {containers} }}
+      ?container a ?containerType .
+      ?containerType rdfs:subClassOf dici_onto:Component .
+      FILTER NOT EXISTS {{ ?container a ?csub . ?csub rdfs:subClassOf ?containerType .
+                           FILTER(?csub != ?containerType) }}
+    }}
+    """, ["container", "containerType"])
+    if types.empty:
+        return pd.DataFrame(columns=cols)
+    df = groups.merge(types, on="container")
+    out = (df.groupby(["attrType", "containerType"])
+             .agg(maxMembers=("n", "max"), containers=("container", "nunique"))
+             .reset_index())
+    out = out[out["maxMembers"] > 1]
+    return out.sort_values(["containerType", "attrType"])[cols].reset_index(drop=True)
+
+
 def workspace_component_types(client) -> pd.DataFrame:
     """Component classes with instances in this workspace — the component-
     grouping options for the Collections builder. Only classes whose instances
