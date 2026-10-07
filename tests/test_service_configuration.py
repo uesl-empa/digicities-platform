@@ -204,8 +204,9 @@ def test_provisioning_loads_the_services_graph(tmp_path, monkeypatch):
     monkeypatch.setattr(gp, "clear_default_graph", lambda repo: True)
     monkeypatch.setattr(gp, "upload_ttl_to_graph",
                         lambda repo, g, ttl, replace=True: uploads.__setitem__(g, ttl) or True)
-    monkeypatch.setattr(gp, "_collections_fingerprint", lambda repo: None)
-    monkeypatch.setattr(gp, "_stamp_collections_fingerprint", lambda repo, fp: None)
+    monkeypatch.setattr(gp, "_collections_fingerprint", lambda repo, *pred: None)
+    monkeypatch.setattr(gp, "_stamp_collections_fingerprint", lambda repo, fp, *pred: None)
+    monkeypatch.setattr(gp, "_materialize_populations", lambda ctx, repo, url: None)
     monkeypatch.setattr(gp, "clear_graph", lambda repo, g: True)
     import backend.workspace.deletion as deletion
     monkeypatch.setattr(deletion, "touch_workspace_activity", lambda storage: None)

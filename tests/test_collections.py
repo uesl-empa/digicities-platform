@@ -399,6 +399,127 @@ def test_template_aggregates_of_one_attribute_are_projected_together():
     assert g.value(rdflib.URIRef(f"{tree}/WeightCount"), QUDT.unit) is None
 
 
+def _population_client(existing=()):
+    """A workspace with two linked populations on `Tree`: apple Weight and
+    apple Diameter. ``existing`` are collection IRIs already materialized."""
+    # per (attribute type, container): how many linked components carry it
+    groups = pd.DataFrame({
+        "attrType": [f"{D}Diameter", f"{D}Weight", f"{D}Weight"],
+        "container": ["https://p/Tree/T01", "https://p/Tree/T01", "https://p/Tree/T02"],
+        "n": ["3", "3", "1"]})
+    types = pd.DataFrame({"container": ["https://p/Tree/T01", "https://p/Tree/T02"],
+                          "containerType": [f"{D}Tree", f"{D}Tree"]})
+
+    def grouped(attr):
+        return pd.DataFrame({
+            "attr": [f"https://p/Apple/{i}/{attr}" for i in (1, 2, 3)],
+            "numValue": ["60.0", "70.0", "80.0"],
+            "simpleValue": [None] * 3, "catValue": [None] * 3, "catLabel": [None] * 3,
+            "unit": ["http://qudt.org/vocab/unit/MilliM"] * 3, "unitLabel": ["MilliM"] * 3,
+            "container": ["https://p/Tree/T01"] * 3, "containerLabel": ["T01"] * 3})
+
+    class Router(FakeClient):
+        def sparql_api_query(self, query, out_format="df", **kw):
+            if "COUNT(DISTINCT ?owner)" in query:
+                return groups
+            if "VALUES ?container" in query:
+                return types
+            if "FILTER(?kind IN" in query:
+                return pd.DataFrame({"collection": list(existing)})
+            if "rdfs:subClassOf* dici_onto:Component" in query:
+                return pd.DataFrame({"n": [1]})
+            if "rdfs:subClassOf* ?base" in query:
+                return pd.DataFrame({"base": [f"{D}PhysicalAttribute", f"{D}Attribute"]})
+            return grouped("Diameter" if "#Diameter>" in query else "Weight")
+
+    return Router({})
+
+
+def test_every_linked_population_is_materialized_without_projection():
+    """Collections shows the distribution of every attribute over the
+    components linked to each container, whether or not a service asks for a
+    statistic of it. Nothing is projected onto the container: that is what a
+    service template requests."""
+    client = _population_client()
+    made = materializer.materialize_populations(client, "ws")
+    base = materializer._collections_base("ws")
+    assert made == [f"{base}/DiameterByTree", f"{base}/WeightByTree"]
+    inserts = [u for u in client.updates if u.startswith("INSERT DATA")]
+    assert len(inserts) == 2
+    assert all("hasAttribute" not in u and "aggregateOf" not in u for u in inserts)
+
+
+def test_a_container_with_one_linked_component_is_no_population():
+    """One turbine per site, one location per tree: nothing to distribute."""
+    from backend.collections.queries import linked_populations
+
+    class OneEach(FakeClient):
+        def sparql_api_query(self, query, out_format="df", **kw):
+            if "COUNT(DISTINCT ?owner)" in query:
+                return pd.DataFrame({"attrType": [f"{D}Latitude"] * 2,
+                                     "container": ["https://p/Tree/T01", "https://p/Tree/T02"],
+                                     "n": ["1", "1"]})
+            return pd.DataFrame({"container": ["https://p/Tree/T01", "https://p/Tree/T02"],
+                                 "containerType": [f"{D}Tree"] * 2})
+    assert linked_populations(OneEach({})).empty
+
+
+def test_a_collection_a_service_made_is_not_replaced_by_its_bare_population():
+    base = materializer._collections_base("ws")
+    client = _population_client(existing=[f"{base}/WeightByTree"])
+    made = materializer.materialize_populations(client, "ws")
+    assert made == [f"{base}/DiameterByTree"]
+    assert not any("WeightByTree" in u for u in client.updates)
+
+
+def test_population_discovery_failing_never_raises():
+    class Broken(FakeClient):
+        def sparql_api_query(self, query, out_format="df", **kw):
+            raise RuntimeError("triplestore down")
+    assert materializer.materialize_populations(Broken({}), "ws") == []
+
+
+def test_provisioning_materializes_populations_once_per_replica_version(tmp_path, monkeypatch):
+    """On the first provisioning of a replica version the linked populations are
+    materialized and the version is stamped; reopening the same version does
+    not rebuild them (a population the user deleted stays deleted)."""
+    from backend.workspace import WorkspaceContext, graphdb_provisioning as gp
+    from backend.workspace.storage import WorkspaceStorage
+
+    marks: dict = {}
+    runs: list = []
+
+    class _Backend:
+        def dataset_exists(self, repo):
+            return True
+
+    monkeypatch.setattr(gp, "get_backend", lambda: _Backend())
+    monkeypatch.setattr(gp, "_publish_local_working_copy", lambda ctx: None)
+    monkeypatch.setattr(gp, "clear_default_graph", lambda repo: True)
+    monkeypatch.setattr(gp, "upload_ttl_to_graph", lambda repo, g, ttl, replace=True: True)
+    monkeypatch.setattr(gp, "clear_graph", lambda repo, g: marks.clear() or True)
+    monkeypatch.setattr(gp, "_collections_fingerprint",
+                        lambda repo, pred=gp._COLLECTIONS_META_PRED: marks.get(pred))
+    monkeypatch.setattr(gp, "_stamp_collections_fingerprint",
+                        lambda repo, fp, pred=gp._COLLECTIONS_META_PRED: marks.__setitem__(pred, fp))
+    monkeypatch.setattr(gp, "_materialize_populations", lambda ctx, repo, url: runs.append(repo))
+    import backend.workspace.deletion as deletion
+    monkeypatch.setattr(deletion, "touch_workspace_activity", lambda storage: None)
+
+    out = tmp_path / "ingestion" / "output"
+    out.mkdir(parents=True)
+    (out / "replica.ttl").write_text("", encoding="utf-8")
+    ctx = WorkspaceContext(id="ws", name="ws", storage=WorkspaceStorage.local(str(tmp_path)),
+                           graphdb_repository="ws")
+    assert gp.ensure_workspace_repo(ctx)
+    assert runs == ["ws"]
+    assert gp.ensure_workspace_repo(ctx)                 # same replica: not again
+    assert runs == ["ws"]
+    (out / "replica.ttl").write_text("# edited", encoding="utf-8")
+    assert gp.ensure_workspace_repo(ctx)                 # changed: cleared, rebuilt
+    assert runs == ["ws", "ws"]
+
+
 def test_component_grouping_with_no_links_fails_loudly():
     schema_target = pd.DataFrame({"base": [
         "https://digicities.info/ontology#HubHeight",
