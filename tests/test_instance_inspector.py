@@ -33,6 +33,7 @@ from backend.graphdb.graphs import (  # noqa: E402
     CLASSES_AND_ATTRIBUTES_GRAPH,
     ONTOLOGY_GRAPH,
     SCENARIOS_GRAPH,
+    SERVICES_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
 )
 from backend.graphdb.queries import (  # noqa: E402
@@ -147,6 +148,30 @@ SCENARIOS = f"""
 """
 
 
+# A service that needs WindTurbine.HubHeight, reads a live weather stream for
+# the turbines, and runs with a profile tuned for T1 plus a service-wide one.
+SERVICES = f"""
+@prefix d: <https://digicities.info/ontology#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<{PROJ}/services/Svc> a d:Service ;
+    d:hasConfiguration <{PROJ}/services/Svc/config/site>, <{PROJ}/services/Svc/config/run> .
+<{PROJ}/services/req_1> a d:ComponentAttributeRequirement ;
+    d:isRequiredBy <{PROJ}/services/Svc> ;
+    d:hasInputEntity d:WindTurbine ; d:hasInputAttribute d:HubHeight .
+<{PROJ}/services/req_2> a d:ComponentAttributeRequirement ;
+    d:isRequiredBy <{PROJ}/services/Svc> ;
+    d:hasInputEntity d:Weather ; d:hasInputAttribute d:WindSpeed ;
+    d:atStreamAddress "weather.feed" ; d:feedsEntity d:WindTurbine .
+<{PROJ}/services/Svc/config/site> d:configures <{PROJ}/services/Svc> ;
+    d:appliesTo <{PROJ}/WindTurbine/T1> ;
+    d:hasConfigurationParameter <{PROJ}/services/Svc/config/site/WakeDecayConstantK> .
+<{PROJ}/services/Svc/config/site/WakeDecayConstantK> d:hasAttributeValue "0.0324" .
+<{PROJ}/services/Svc/config/run> d:configures <{PROJ}/services/Svc> ;
+    d:hasConfigurationParameter <{PROJ}/services/Svc/config/run/RedisHost> .
+<{PROJ}/services/Svc/config/run/RedisHost> d:hasAttributeValue "redis" .
+"""
+
+
 class _Client:
     def __init__(self, scenarios: str = SCENARIOS):
         self.ds = rdflib.Dataset()
@@ -159,6 +184,7 @@ class _Client:
         # dereferences a FROM graph it does not know over HTTP, which a real
         # store never does. A graph only registers once it holds a triple, so
         # "no scenarios yet" is a graph with one unmatchable marker triple.
+        self.ds.graph(rdflib.URIRef(SERVICES_GRAPH)).parse(data=SERVICES, format="turtle")
         g = self.ds.graph(rdflib.URIRef(SCENARIOS_GRAPH))
         if scenarios:
             g.parse(data=scenarios, format="turtle")
@@ -192,10 +218,11 @@ def _q(key: str, uri: str = T1) -> str:
 
 # ── the recommendation set itself ─────────────────────────────────────────────
 
-def test_seven_recommendations_each_named_and_scoped():
+def test_nine_recommendations_each_named_and_scoped():
     recs = recommended_queries(T1)
     assert [r["key"] for r in recs] == [
-        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources"]
+        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources",
+        "configuration", "service_io"]
     for r in recs:
         assert r["name"] and r["description"]
         assert T1 in r["sparql"] and "FROM" in r["sparql"]
@@ -277,9 +304,11 @@ def test_catalogue_derivation_both_ways(client):
 
 
 def test_ask_preflight_hides_only_the_empty_recommendations(client):
-    # T1 has links, attributes, a catalogue entry, sources and peers: all seven.
+    # T1 has links, attributes, a catalogue entry, sources, peers, a service's
+    # configuration and its inputs: all nine.
     assert [r["key"] for r in available_recommendations(client, T1)] == [
-        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources"]
+        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources",
+        "configuration", "service_io"]
     # The pump has none of that: no attributes, no links, no catalogue, no
     # sources, no same-class peers. Its overview (it exists) and its cousins
     # (Turbine and Location instances beside Pump under Component) remain.
@@ -292,7 +321,7 @@ def test_ask_preflight_fails_open_when_ask_cannot_run(client):
         def sparql_api_query(self, query, out_format="df"):
             raise RuntimeError("no ASK support")
     # Hiding must never lose a working query: with ASK unavailable, everything stays.
-    assert len(available_recommendations(_Broken(), T1)) == 7
+    assert len(available_recommendations(_Broken(), T1)) == 9
 
 
 def test_sources_are_references_never_the_catalogue_link(client):
@@ -313,7 +342,8 @@ def test_workspace_queries_named_scoped_and_askable():
     recs = workspace_queries()
     assert [r["key"] for r in recs] == [
         "all_components", "class_counts", "component_links", "attribute_values",
-        "scenarios", "data_sources", "catalogue_instances"]
+        "scenarios", "data_sources", "catalogue_instances", "service_configuration",
+        "service_io"]
     for r in recs:
         assert r["name"] and r["description"]
         assert "FROM" in r["sparql"] and "ASK" in r["ask"]
@@ -376,3 +406,26 @@ def test_shared_platform_queries_exclude_dual_typed_attribute_nodes(client):
     counts = get_component_types_with_instances(client)
     wt = counts[counts["componentName"] == "Wind Turbine"]
     assert int(wt.iloc[0]["instanceCount"]) == 3      # T1, T2, Cat1 — not the TypeTag
+
+
+def test_service_queries_read_the_services_graph():
+    """Configuration and streams live in <http://services>: a query without it
+    shows none of them (James inspected a wind park and saw no settings)."""
+    for r in recommended_queries(T1) + workspace_queries():
+        if r["key"] in ("configuration", "service_io", "service_configuration"):
+            assert "FROM <http://services>" in r["sparql"], r["key"]
+
+
+def test_configuration_shows_the_instance_profile_and_the_service_wide_one(client):
+    df = client.run(_q("configuration"))
+    got = {(r["scope"], r["parameter"], str(r["value"])) for _, r in df.iterrows()}
+    assert got == {("this instance", "WakeDecayConstantK", "0.0324"),
+                   ("the whole service", "RedisHost", "redis")}
+
+
+def test_service_io_shows_the_live_stream_that_feeds_the_class(client):
+    df = client.run(_q("service_io"))
+    rows = {(r["direction"], str(r["attribute"]).rsplit("#", 1)[-1], str(r["stream"]))
+            for _, r in df.iterrows()}
+    assert ("input (live stream)", "WindSpeed", "weather.feed") in rows
+    assert ("input", "HubHeight", "None") in rows or ("input", "HubHeight", "nan") in rows

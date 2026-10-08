@@ -191,3 +191,27 @@ def test_custom_path_names_rename_block_keys():
     # parses back cleanly with the renamed key as the path
     name, parsed = parse_yaml_to_components(yaml.safe_dump(doc, sort_keys=False))
     assert {e.path for e in parsed} == {"location", "buildings"}
+
+
+def test_requirements_ttl_states_an_input_stream_and_what_it_feeds():
+    """An input read from a live stream (a weather feed) is a requirement with
+    its stream address and the component type it belongs to. Before, only
+    outputs carried a stream: the input existed in no graph."""
+    ttl = requirements_ttl(
+        "Svc", "", [("WindTurbine", ["HubHeight"])], [], BASE,
+        stream_inputs=[("Weather", ["windspeed forecast"], "weather.forecasts.x", "WindPark")])
+    g = rdflib.Graph()
+    g.parse(data=ttl, format="turtle")
+    D = rdflib.Namespace(DICI)
+    (req,) = list(g.subjects(D.atStreamAddress, rdflib.Literal("weather.forecasts.x")))
+    assert (req, rdflib.RDF.type, D.ComponentAttributeRequirement) in g
+    assert (req, D.hasInputEntity, D.Weather) in g
+    assert (req, D.hasInputAttribute, D.WindspeedForecast) in g
+    assert (req, D.feedsEntity, D.WindPark) in g
+    assert (req, D.isRequiredBy, rdflib.URIRef(f"{BASE}Svc")) in g
+
+
+def test_requirements_ttl_without_stream_inputs_is_unchanged():
+    a = requirements_ttl("Svc", "", [("B", ["x"])], [], BASE)
+    b = requirements_ttl("Svc", "", [("B", ["x"])], [], BASE, stream_inputs=[])
+    assert a == b and "feedsEntity" not in a
