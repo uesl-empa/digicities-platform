@@ -328,7 +328,14 @@ def put_connection(req: ConnectionReq, ctx: WorkspaceContext = Depends(get_ctx))
     if not p.exists() or not req.template_file.endswith((".yaml", ".yml")):
         raise HTTPException(status_code=404, detail="service template not found")
     template = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    template["connection"] = req.connection
+    conn = dict(req.connection)
+    # The input streams the service reads are part of its contract, not of how
+    # it is called: the editor manages the transport fields only, so a save
+    # must not erase them.
+    prev = (template.get("connection") or {}).get("input_streams")
+    if prev and "input_streams" not in conn:
+        conn["input_streams"] = prev
+    template["connection"] = conn
     p.write_text(yaml.safe_dump(template, sort_keys=False, default_flow_style=False),
                  encoding="utf-8")
-    return {"file": req.template_file, "connection": req.connection}
+    return {"file": req.template_file, "connection": conn}
