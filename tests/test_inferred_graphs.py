@@ -3,8 +3,8 @@
 """Inferred triples live in their own graph; one switch decides what a query reads.
 
 A wind-shaped workspace on the REAL vendored core: the user links each turbine
-to its park with ``hasLocation``. The closure adds ``locatedIn`` /
-``locationOf`` / ``linksComponent`` / ``a Component`` / ``hasAttribute``; those
+to its park with ``hasLocation``. The closure adds ``locationOf`` /
+``linksComponent`` / ``a Component`` / ``hasAttribute``; those
 must land in the inferred companion, never next to the link the user chose,
 while every reader that relied on them still finds them.
 """
@@ -99,10 +99,12 @@ def test_one_switch_decides_the_scope():
 def test_the_link_the_user_chose_stays_alone(sections):
     asserted, inferred = sections[CLASSES_AND_ATTRIBUTES_GRAPH], sections[CA_INF]
     assert (T1, D.hasLocation, PARK) in asserted
-    for triple in ((T1, D.locatedIn, PARK), (PARK, D.locationOf, T1),
+    for triple in ((PARK, D.locationOf, T1),
                    (T1, D.linksComponent, PARK), (T1, rdflib.RDF.type, D.Component)):
         assert triple not in asserted
         assert triple in inferred
+    # locatedIn has its own inverse in core v0.6.0: hasLocation no longer implies it
+    assert (T1, D.locatedIn, PARK) not in asserted and (T1, D.locatedIn, PARK) not in inferred
     # what was asserted is not repeated in the companion, and no schema leaks in
     assert (T1, D.hasLocation, PARK) not in inferred
     assert (D.WindTurbine, rdflib.RDFS.subClassOf, D.Turbine) not in asserted
@@ -116,12 +118,12 @@ def test_readers_see_inference_by_default_and_assertions_on_request(sections):
     mine = set(store.sparql_api_query(ask.format(
         scope=from_clause(CLASSES_AND_ATTRIBUTES_GRAPH, inferred=False)))["p"])
     assert mine == {str(D.hasLocation)}
-    assert {str(D.hasLocation), str(D.locatedIn), str(D.linksComponent)} <= both
+    assert {str(D.hasLocation), str(D.linksComponent)} <= both and str(D.locatedIn) not in both
 
     from backend.graphdb.queries.system_description import query_links_with_subproperty
     links = query_links_with_subproperty(store)
     t1 = links[(links["source"] == str(T1)) & (links["target"] == str(PARK))]
-    assert set(t1["linkProperty"]) >= {str(D.hasLocation), str(D.locatedIn)}
+    assert str(D.hasLocation) in set(t1["linkProperty"])
     assert str(D.WindTurbine) in set(t1["sourceType"])
 
 
@@ -149,7 +151,7 @@ def test_refresh_recomputes_only_the_companions(sections, monkeypatch):
     assert gp.refresh_inferred(_Client())
     assert set(written) == set(INFERRED_OF.values())
     again = rdflib.Graph().parse(data=written[CA_INF], format="turtle")
-    assert (T1, D.locatedIn, PARK) in again and (T1, D.hasLocation, PARK) not in again
+    assert (PARK, D.locationOf, T1) in again and (T1, D.hasLocation, PARK) not in again
 
 
 def test_provisioning_writes_asserted_and_inferred_apart(tmp_path, monkeypatch):
@@ -186,5 +188,5 @@ def test_provisioning_writes_asserted_and_inferred_apart(tmp_path, monkeypatch):
     assert set(INFERRED_OF) | set(INFERRED_OF.values()) <= set(uploads)
     data = rdflib.Graph().parse(data=uploads[CLASSES_AND_ATTRIBUTES_GRAPH], format="turtle")
     inferred = rdflib.Graph().parse(data=uploads[CA_INF], format="turtle")
-    assert (T1, D.hasLocation, PARK) in data and (T1, D.locatedIn, PARK) not in data
-    assert (T1, D.locatedIn, PARK) in inferred
+    assert (T1, D.hasLocation, PARK) in data and (PARK, D.locationOf, T1) not in data
+    assert (PARK, D.locationOf, T1) in inferred
