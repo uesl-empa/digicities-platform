@@ -30,7 +30,7 @@ try:
     RDFLIB_AVAILABLE = True
 
     from backend.ontology_kinds import (
-        AttributeKind, core_graph, in_dici_namespace, is_attribute_class,
+        AttributeKind, category_code, core_graph, in_dici_namespace, is_attribute_class,
         is_attribute_node, is_attribute_predicate, is_component_link_class,
         is_scenario_class, is_subproperty_of, is_time_series_reference_predicate,
         kind_of_node, superclasses,
@@ -591,7 +591,10 @@ class RobustTTL2YAMLProcessor:
         the template asked for (``attr_name``; needed when the caller passed no
         workspace schema, so the extension's attribute classes are unknown)."""
         for value in self.g.objects(attr_uri, self.DICI.hasCategoricalValue):
-            return self._extract_name(str(value))
+            # A declared value sends the code it has in the data (its
+            # skos:notation) or its label, which is what the model reads; a
+            # value written before values were declared sends its name.
+            return category_code(self.view, value) or self._extract_name(str(value))
         want = self._term(attr_name) if attr_name else None
         for t in self.g.objects(attr_uri, RDF.type):
             if t == want or not in_dici_namespace(t) or is_attribute_class(self.view, t):

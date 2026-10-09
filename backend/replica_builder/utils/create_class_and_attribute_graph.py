@@ -174,6 +174,27 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             link_cache[key] = f"<{pred}>"
         return link_cache[key]
 
+    from backend.ontology_kinds import (categorical_individuals as _individuals,
+                                        resolve_category as _resolve_category)
+    category_cache = {}
+
+    def declared_category(sheet, attr_name, value):
+        """The declared value (named individual) a categorical cell names, by its
+        stated data code or label. A value the ontology does not declare is an
+        error: a category IRI is never minted from cell text."""
+        key = (attr_name, str(value).strip())
+        if key not in category_cache:
+            found = _resolve_category(_schema, _DICI[attr_name], value)
+            if found is None:
+                declared = sorted(str(i) for i in _individuals(_schema, _DICI[attr_name]))
+                raise ValueError(
+                    f"{sheet}.{attr_name}: the value `{value}` is not a declared value of "
+                    f"`{attr_name}` (matched by its data code or label; declared: "
+                    f"{', '.join(declared) or 'none'}). Add it as a value of the attribute "
+                    "with that code, or correct the cell")
+            category_cache[key] = f"<{found}>"
+        return category_cache[key]
+
     def add_specific_attr_uri(sheet, attr_name, attr_uri, specific_attr_list):
         s_attr_uri = f"{specific_predicate(sheet, attr_name)} {attr_uri}"
         if s_attr_uri not in specific_attr_list:
@@ -917,20 +938,18 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         continue
 
                     elif kind is AttributeKind.CATEGORICAL:
-                        # Handle categorical attributes - use the value as the category type.
-                        # Categorical attributes classify instances, not measured quantities,
-                        # so no unit label is needed.
+                        # Categorical attributes classify instances, not measured
+                        # quantities, so no unit label is needed.
                         if attr_uri not in instance_attr_uris:
                             instance_attr_uris.add(attr_uri)
                             attr_uri_list.append(attr_uri)
                         add_specific_attr_uri(sheet_name, attr_name, attr_uri, specific_attr_uri_list)
 
-                        # The category is an IRI (the named individual the
-                        # Ontology Manager declared), stated with
-                        # hasCategoricalValue, never as an extra rdf:type. Written
-                        # as a safe dici_onto: term (see dici_term) so a value
-                        # with spaces or punctuation can't break the whole file.
-                        category = dici_term(value)
+                        # The category is the named individual the Ontology
+                        # Manager declared for this value (found by its data code
+                        # or label), stated with hasCategoricalValue, never as an
+                        # extra rdf:type.
+                        category = declared_category(sheet_name, attr_name, value)
                         attr_lines = [
                             f"{attr_uri} a dici_onto:{attr_name} ;",
                             f"\ta dici_onto:CategoricalAttribute ;",

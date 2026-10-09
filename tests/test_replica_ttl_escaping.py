@@ -127,12 +127,14 @@ def test_reference_literals_round_trip_and_ids_are_encoded(graph):
     assert str(_one(graph, ref, "http://www.w3.org/2000/01/rdf-schema#label")) == REF_DESC
 
 
-def test_categorical_values_become_valid_ontology_terms(graph):
-    # Whitespace removed the way the Ontology Manager names individuals.
+def test_categorical_values_are_the_declared_values(graph):
+    # The cell text names the value the Ontology Manager declared (by its
+    # label); the IRI is that value's, never one minted from the cell text,
+    # so odd characters cannot break the file.
     assert _one(graph, URIRef(f"{M1}/Heating"), DICI + "hasCategoricalValue") \
-        == URIRef(DICI + "Electricallyheated")
+        == URIRef(DICI + "ElectricallyHeated")
     odd = _one(graph, URIRef(f"{M1}/Odd"), DICI + "hasCategoricalValue")
-    assert odd == URIRef(DICI + "A/B%3Codd%3E%22x%22")
+    assert odd == URIRef(DICI + "ABOddX")
     assert (URIRef(f"{M1}/Odd"), rdflib.RDF.type, odd) not in graph
 
 

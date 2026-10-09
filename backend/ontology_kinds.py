@@ -26,7 +26,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional, Set
 
-from rdflib import RDF, RDFS, Graph, Namespace, URIRef
+from rdflib import OWL, RDF, RDFS, Graph, Namespace, URIRef
 from rdflib.graph import ReadOnlyGraphAggregate
 
 DICI = Namespace("https://digicities.info/ontology#")
@@ -230,6 +230,48 @@ def in_dici_namespace(iri) -> bool:
 def dici_local_name(iri) -> Optional[str]:
     """The local name of a ``dici_onto:`` term, else None."""
     return str(iri)[len(str(DICI)):] if in_dici_namespace(iri) else None
+
+
+SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
+
+
+def categorical_individuals(g: Graph, attr_class: URIRef) -> Set[URIRef]:
+    """The declared values of a categorical attribute class: the named
+    individuals typed with it or with a subclass of it."""
+    attr_class = URIRef(attr_class)
+    return {s for s in g.subjects(RDF.type, OWL.NamedIndividual)
+            if isinstance(s, URIRef)
+            and any(is_subclass_of(g, t, attr_class) for t in g.objects(s, RDF.type)
+                    if isinstance(t, URIRef))}
+
+
+def resolve_category(g: Graph, attr_class: URIRef, value) -> Optional[URIRef]:
+    """The declared value of ``attr_class`` that a data value names: the one
+    individual whose ``skos:notation`` (the code it has in the data) equals the
+    value exactly, else the one whose ``rdfs:label`` does. None when no declared
+    value, or more than one, carries it. Record values are data, so exact
+    equality on a stated notation or label is the match; the IRI is never read
+    for it."""
+    text = str(value).strip()
+    candidates = categorical_individuals(g, attr_class)
+    for prop in (SKOS.notation, RDFS.label):
+        hits = {i for i in candidates if any(str(o) == text for o in g.objects(i, prop))}
+        if len(hits) == 1:
+            return hits.pop()
+        if hits:
+            return None
+    return None
+
+
+def category_code(g: Graph, individual: URIRef) -> Optional[str]:
+    """What a payload sends for a declared value: its one ``skos:notation`` (the
+    code the source data and the model use), else its one ``rdfs:label``. None
+    when the graph states neither (data written before values were declared)."""
+    for prop in (SKOS.notation, RDFS.label):
+        values = {str(o) for o in g.objects(URIRef(individual), prop)}
+        if len(values) == 1:
+            return values.pop()
+    return None
 
 
 def _register_yaml() -> None:

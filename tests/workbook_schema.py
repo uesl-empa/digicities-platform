@@ -59,9 +59,22 @@ def _attribute_op(name: str, col_type, unit, unit_y) -> dict:
     return op
 
 
+def _data_rows(ws) -> list:
+    """The instance rows below the header block (six header rows, seven when
+    the sheet carries the LinkedClassObjectType row)."""
+    rows = list(ws.iter_rows(values_only=True))
+    seventh = rows[6] if len(rows) > 6 else ()
+    first = 7 if "LinkedClassObjectType" in [str(v).strip() for v in seventh if v] else 6
+    return [r for r in rows[first:] if r and r[0] not in (None, "")]
+
+
 def declare_workbook(xlsx, workspace_dir) -> Graph:
     """Declare every class and attribute link ``xlsx`` uses in a fresh
-    extension under ``workspace_dir``; return that extension graph."""
+    extension under ``workspace_dir``, and each categorical cell value as a
+    value of its attribute labelled with the cell text (as the template import
+    does); return that extension graph."""
+    from backend.ontology_manager.naming import class_name
+
     wb = openpyxl.load_workbook(xlsx, read_only=True, data_only=True)
     ops, seen = [], set()
     try:
@@ -70,6 +83,7 @@ def declare_workbook(xlsx, workspace_dir) -> Graph:
                 continue
             header = list(ws.iter_rows(min_row=1, max_row=4, values_only=True))
             names, types, units, units_y = (list(r) for r in header + [()] * (4 - len(header)))
+            data = _data_rows(ws)
             ops.append({"op": "add_component", "name": ws.title})
             for i, name in enumerate(names):
                 if i == 0 or not name:
@@ -84,6 +98,14 @@ def declare_workbook(xlsx, workspace_dir) -> Graph:
                                              units[i] if i < len(units) else None,
                                              units_y[i] if i < len(units_y) else None))
                 ops.append({"op": "link_attribute", "component": ws.title, "attribute": name})
+                if col_type is AttributeKind.CATEGORICAL:
+                    for value in sorted({str(r[i]).strip() for r in data
+                                         if i < len(r) and r[i] not in (None, "")}):
+                        if ("value", value) not in seen:
+                            seen.add(("value", value))
+                            ops.append({"op": "add_named_individual",
+                                        "name": class_name(value), "attribute": name,
+                                        "annotations": {"label": value}})
     finally:
         wb.close()
     root = Path(workspace_dir)

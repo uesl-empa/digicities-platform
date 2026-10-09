@@ -433,6 +433,13 @@ class _Executor:
         for ex in ann.get("examples") or []:
             if ex:
                 g.add((uri, SKOS.example, Literal(ex, lang="en")))
+        if "notation" in ann:
+            # The codes a categorical value has in the source data ("S" for
+            # OrientationSouth), replaced as a set, so a rerun changes nothing.
+            for old in list(g.objects(uri, SKOS.notation)):
+                g.remove((uri, SKOS.notation, old))
+            for code in ann.get("notation") or []:
+                g.add((uri, SKOS.notation, Literal(str(code))))
         if ann.get("default_unit"):
             for old in list(g.objects(uri, dici_onto.hasDefaultUnit)):
                 g.remove((uri, dici_onto.hasDefaultUnit, old))
@@ -486,9 +493,27 @@ class _Executor:
         self._record(op, "applied" if ok else "error", msg)
 
     def add_named_individual(self, op: Dict[str, Any]) -> None:
-        name = op["name"]
-        if (dici_onto[name], RDF.type, OWL.NamedIndividual) in self._graph():
-            self._record(op, "skipped", "individual already in extension")
+        from .naming import class_name
+        # The Ontology Manager names the individual from its label
+        # (``class_name``: `steel_316L` becomes `Steel316L`); everything below
+        # addresses that IRI, so the label and data codes land on the value
+        # that is declared.
+        name = class_name(_label_for(op["name"])) or op["name"]
+        g = self._graph()
+        if (dici_onto[name], RDF.type, OWL.NamedIndividual) in g:
+            # The same value can belong to more than one categorical attribute
+            # (OilHeated for both HeatingSupply and DHWSupply): it is a declared
+            # value of each one that lists it. Its label and data codes follow
+            # the op, so a replay that learned a new code updates the value.
+            attribute = _uri(op["attribute"])
+            added = (dici_onto[name], RDF.type, attribute) not in g
+            if added:
+                g.add((dici_onto[name], RDF.type, attribute))
+                self._save(g)
+            self._annotate(name, op.get("annotations"))
+            self._record(op, "applied" if added else "skipped",
+                         f"existing value also declared for `{op['attribute']}`" if added
+                         else "individual already in extension")
             return
         ok, msg = self.funcs.add_named_individual(
             self.ext, _label_for(name), str(_uri(op["attribute"])))
