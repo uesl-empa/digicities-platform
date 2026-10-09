@@ -56,24 +56,30 @@ def test_core_categories_are_read_from_domain_and_range():
     g = core_graph()
     assert own_general_predicate(g, DICI.Turbine) == DICI.hasTurbineAttribute
     assert own_category(g, DICI.Turbine) == DICI.TurbineAttribute
-    # The core names this category after the label, not the class: found anyway.
-    assert own_category(g, DICI.LiquidFuel) == DICI.LiquidFuelCarrierAttribute
-    # A leaf with no scaffold of its own inherits its parent's.
-    assert own_category(g, DICI.GasMeter) is None
-    assert category_of(g, DICI.GasMeter) == DICI.MeterAttribute
-    assert general_predicate_of(g, DICI.GasMeter) == DICI.hasMeterAttribute
-    # Of a duplicate pair, the predicate that states the category is the general one.
+    # Since v0.6.0 the core's scaffold is built by the Ontology Manager: the
+    # category of LiquidFuel follows the class, the old name is a deprecated alias.
+    assert own_category(g, DICI.LiquidFuel) == DICI.LiquidFuelAttribute
+    assert (DICI.LiquidFuelCarrierAttribute, OWL.equivalentClass,
+            DICI.LiquidFuelAttribute) in g
+    assert own_category(g, DICI.GasMeter) == DICI.GasMeterAttribute
+    # The old short duplicate is an alias now; the full predicate is the general one.
     assert own_general_predicate(g, DICI.ColdCarrier) == DICI.hasColdCarrierAttribute
+    # A class with no scaffold of its own inherits its nearest ancestor's.
+    bare = Graph()
+    bare.add((DICI.OddMeter, RDFS.subClassOf, DICI.GasMeter))
+    view = ReadOnlyGraphAggregate([bare, g])
+    assert own_category(view, DICI.OddMeter) is None
+    assert category_of(view, DICI.OddMeter) == DICI.GasMeterAttribute
+    assert general_predicate_of(view, DICI.OddMeter) == DICI.hasGasMeterAttribute
 
 
-@pytest.mark.xfail(strict=True, reason="core rebuilt in step 2")
 def test_core_satisfies_the_pattern():
     assert check_pattern(core_graph()) == []
 
 
 # -- operations -----------------------------------------------------------------
 
-def test_add_component_under_a_core_leaf_mints_the_leaf_scaffold_first(funcs):
+def test_add_component_under_a_core_leaf_hangs_under_the_leaf_scaffold(funcs):
     _ok(funcs.add_component(EXT, "Smart Gas Meter", str(DICI.GasMeter)))
     v = _view(funcs)
     assert own_category(v, DICI.GasMeter) == DICI.GasMeterAttribute
@@ -307,6 +313,48 @@ def test_instructions_can_target_the_core(tmp_path, monkeypatch):
     # The core's labels carry no language tag; the replacement keeps none.
     assert list(core.objects(DICI.Turbine, RDFS.label)) == [Literal("Turbine (rotary)")]
     assert check_pattern(core, [DICI.GasMeter, DICI.SmartGasMeter]) == []
+
+
+def test_core_build_ops_alias_definitions_and_units(tmp_path, monkeypatch):
+    """The ops the core build needs: a deprecated alias (class and property),
+    dici_onto:definition, a component's default unit, a plain label."""
+    onto = tmp_path / "onto"
+    shutil.copytree(OntologyFunctions._resolve_global_ontology_dir(), onto)
+    monkeypatch.setenv("ONTOLOGY_DIR", str(onto))
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    ops = [
+        {"op": "add_component", "name": "SmartGasMeter", "parent": "GasMeter",
+         "annotations": {"label": "Smart gas meter", "label_lang": None,
+                         "dici_definition": "A gas meter that reports by itself.",
+                         "default_unit": "M3"}},
+        {"op": "add_deprecated_alias", "name": "SmartGasMeterCategory",
+         "replaced_by": "SmartGasMeterAttribute",
+         "annotations": {"label": "Smart Gas Meter Category", "comment": "Old name."}},
+        {"op": "add_deprecated_alias", "name": "hasSmartMeterAttribute",
+         "replaced_by": "hasSmartGasMeterAttribute",
+         "annotations": {"label": "has smart meter attribute", "comment": "Old name."}},
+    ]
+    for _ in range(2):                                     # a rerun changes nothing
+        report = apply_extension_instructions(
+            _instructions(ops, extension=OntologyFunctions.CORE_TARGET),
+            storage=WorkspaceStorage.local(str(ws)), workspace_id="ws")
+        assert all(r["status"] in ("applied", "skipped") for r in report["results"]), \
+            report["results"]
+    core = Graph().parse(onto / "dici_onto_core.ttl", format="turtle")
+    assert list(core.objects(DICI.SmartGasMeter, RDFS.label)) == [Literal("Smart gas meter")]
+    assert list(core.objects(DICI.SmartGasMeter, DICI.definition)) == [
+        Literal("A gas meter that reports by itself.", lang="en")]
+    assert list(core.objects(DICI.SmartGasMeter, DICI.hasDefaultUnit)) == [
+        URIRef("http://qudt.org/vocab/unit/M3")]
+    assert (DICI.SmartGasMeterCategory, OWL.equivalentClass, DICI.SmartGasMeterAttribute) in core
+    assert (DICI.SmartGasMeterCategory, OWL.deprecated, Literal(True)) in core
+    assert (DICI.hasSmartMeterAttribute, OWL.equivalentProperty,
+            DICI.hasSmartGasMeterAttribute) in core
+    # Data still using the old predicate stays under hasAttribute.
+    assert (DICI.hasSmartMeterAttribute, RDFS.subPropertyOf,
+            DICI.hasSmartGasMeterAttribute) in core
+    assert check_pattern(core, [DICI.SmartGasMeter]) == []
 
 
 # -- the replica converter ------------------------------------------------------

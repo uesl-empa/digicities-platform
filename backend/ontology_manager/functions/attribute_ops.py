@@ -223,12 +223,7 @@ class AttributeMixin:
                 precision_uri = dici_onto[temporal_precision]
                 ext_graph.add((new_attribute_uri, dici_onto.hasDefaultTemporalPrecision, precision_uri))
 
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                self.save_core_ontology(ext_graph)
-                self.update_temp_and_export_core_mod()
-            else:
-                self.save_extension(extension_filename, ext_graph)
-                self.update_temp_and_export(extension_filename)
+            self._persist(extension_filename, ext_graph)
 
             note = f" Note: {'; '.join(chk.warnings)}." if chk.warnings else ""
             return True, f"Attribute `{new_attribute}` added.{note}"
