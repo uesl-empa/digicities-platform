@@ -95,15 +95,17 @@ def _attributes():
         _binding(PV1, a, f"{DICI}yUnitLabel", "kW"),
     ]
 
-    # PV2: CategoricalAttribute MountingType = Rooftop. The value is an
-    # rdf:type; structural types, the attribute's own class, and non-dici
-    # types (rdfs:Resource, once inference materializes) must all be ignored.
+    # PV2: CategoricalAttribute MountingType = Rooftop, written as an rdf:type
+    # only. The query derives the hasCategoricalValue row from the schema
+    # (Rooftop is an individual of MountingType); the structural types and
+    # rdfs:Resource ride along and must be ignored.
     a = f"{PV2}/MountingType"
     rows += [
         _binding(PV2, a, RDF_TYPE, f"{DICI}MountingType"),
         _binding(PV2, a, RDF_TYPE, f"{DICI}CategoricalAttribute"),
         _binding(PV2, a, RDF_TYPE, f"{DICI}Rooftop"),
         _binding(PV2, a, RDF_TYPE, "http://www.w3.org/2000/01/rdf-schema#Resource"),
+        _binding(PV2, a, f"{DICI}hasCategoricalValue", f"{DICI}Rooftop"),
     ]
 
     # PV2: DynamicAttribute generation with a historic time-series reference.

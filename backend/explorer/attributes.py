@@ -18,6 +18,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+from rdflib import RDF, URIRef
 
 from backend.explorer.units import (
     curve_axis_units,
@@ -28,6 +29,9 @@ from backend.explorer.uris import (
     extract_property_name,
     extract_readable_instance_name,
     extract_uri_fragment,
+)
+from backend.ontology_kinds import (
+    AttributeKind, attribute_kind, core_graph, in_dici_namespace, is_attribute_class,
 )
 
 # Hidden column prefix carrying a curve's parsed points + units next to its
@@ -117,15 +121,15 @@ class AttributeProcessor:
 
     def __init__(self):
         self.attribute_type_handlers = {
-            'PhysicalAttribute': self._process_physical_attribute,
-            'SimpleCostAttribute': self._process_simple_cost_attribute,
-            'UnitBasedCostAttribute': self._process_unit_based_cost_attribute,
-            'CategoricalAttribute': self._process_categorical_attribute,
-            'CurveAttribute': self._process_curve_attribute,
-            'DynamicAttribute': self._process_dynamic_attribute,
-            'GeospatialAttribute': self._process_geospatial_attribute,
-            'SimpleValueAttribute': self._process_simple_value_attribute,
-            'CustomPhysicalRatioAttribute': self._process_custom_physical_ratio_attribute
+            AttributeKind.PHYSICAL: self._process_physical_attribute,
+            AttributeKind.SIMPLE_COST: self._process_simple_cost_attribute,
+            AttributeKind.UNIT_BASED_COST: self._process_unit_based_cost_attribute,
+            AttributeKind.CATEGORICAL: self._process_categorical_attribute,
+            AttributeKind.CURVE: self._process_curve_attribute,
+            AttributeKind.DYNAMIC: self._process_dynamic_attribute,
+            AttributeKind.GEOSPATIAL: self._process_geospatial_attribute,
+            AttributeKind.SIMPLE_VALUE: self._process_simple_value_attribute,
+            AttributeKind.CUSTOM_PHYSICAL_RATIO: self._process_custom_physical_ratio_attribute
         }
 
     def process_instance_attributes(self, attributes: List[Dict]) -> Dict[str, Any]:
@@ -147,10 +151,10 @@ class AttributeProcessor:
             attr_name = self._extract_attribute_name(attr_uri)
             attr_data = self._consolidate_attribute_properties(attr_properties)
 
-            attr_type = self._determine_attribute_type(attr_data)
+            kind = self._attribute_kind(attr_data)
 
-            if attr_type in self.attribute_type_handlers:
-                processed_value = self.attribute_type_handlers[attr_type](attr_data, attr_name)
+            if kind in self.attribute_type_handlers:
+                processed_value = self.attribute_type_handlers[kind](attr_data, attr_name)
                 if processed_value is not None:
                     processed[attr_name] = processed_value
             else:
@@ -196,7 +200,7 @@ class AttributeProcessor:
             prop_name = extract_property_name(prop_uri)
 
             if prop_name:
-                if prop_name == 'type' or 'type' in prop_uri.lower():
+                if prop_uri == str(RDF.type):
                     type_name = extract_uri_fragment(prop_value)
                     consolidated['types'].add(type_name)
                     consolidated['type_uris'].add(prop_value)
@@ -205,26 +209,18 @@ class AttributeProcessor:
 
         return consolidated
 
+    def _attribute_kind(self, attr_data: Dict) -> Optional[AttributeKind]:
+        """The attribute's value shape, from its rdf:type IRIs over the core
+        hierarchy (the store has materialised the closure, so a kind class is
+        among the types even when only an extension class was asserted)."""
+        return attribute_kind(core_graph(), (URIRef(t) for t in attr_data.get('type_uris', set())))
+
     def _determine_attribute_type(self, attr_data: Dict) -> str:
-        """Determine the primary attribute type from RDF types"""
-        types = attr_data.get('types', set())
-
-        priority_types = [
-            'CurveAttribute',
-            'DynamicAttribute',
-            'CustomPhysicalRatioAttribute',
-            'SimpleValueAttribute',
-            'UnitBasedCostAttribute',
-            'SimpleCostAttribute',
-            'GeospatialAttribute',
-            'PhysicalAttribute',
-            'CategoricalAttribute'
-        ]
-
-        for priority_type in priority_types:
-            if priority_type in types:
-                return priority_type
-
+        """The kind class name of an attribute this processor renders, else
+        'unknown' (events, annotations and resources render generically)."""
+        kind = self._attribute_kind(attr_data)
+        if kind in self.attribute_type_handlers:
+            return extract_uri_fragment(str(kind.class_uri))
         return 'unknown'
 
     def _process_physical_attribute(self, attr_data: Dict, attr_name: str) -> Optional[str]:
@@ -294,28 +290,24 @@ class AttributeProcessor:
     def _process_categorical_attribute(self, attr_data: Dict, attr_name: str) -> Optional[str]:
         """Process CategoricalAttribute -> the chosen category value.
 
-        The value is encoded as an rdf:type of the attribute node, e.g.
-        ``<.../BuildingType> a dici_onto:MFH``. The node also carries structural
-        types (its own class, CategoricalAttribute, the *Attribute hierarchy) and,
-        once RDFS/OWL inference is materialised, rdfs:Resource / owl:Thing. So pick
-        the dici_onto type that is NOT a structural attribute class or the
-        attribute's own class — filtering by namespace, not just local name (the
-        old local-name-only filter let rdfs:Resource through).
+        The value is the node's ``dici_onto:hasCategoricalValue``. Older data
+        states it only as an rdf:type of the node (``<.../BuildingType> a
+        dici_onto:MFH``), next to the node's own class and the attribute
+        hierarchy (and rdfs:Resource / owl:Thing once inference is
+        materialised). Then the value is the one dici_onto type the core does
+        not place under Attribute; when the attribute's own class is also
+        unknown to the core, the two cannot be told apart from the rows and no
+        value is guessed.
         """
-        DICI = "https://digicities.info/ontology#"
+        value = attr_data.get('properties', {}).get('hasCategoricalValue')
+        if value:
+            return extract_uri_fragment(value)
 
-        candidates = []
-        for type_uri in attr_data.get('type_uris', set()):
-            if not type_uri.startswith(DICI):
-                continue  # skip rdfs:Resource, owl:Thing, owl:NamedIndividual, ...
-            local = type_uri[len(DICI):]
-            if local.endswith('Attribute') or local == attr_name:
-                continue  # structural class or the attribute's own class
-            candidates.append(local)
-
-        if candidates:
-            # Normally exactly one; sort for determinism if a value carries supers.
-            return sorted(candidates)[0]
+        candidates = [t for t in attr_data.get('type_uris', set())
+                      if in_dici_namespace(t)
+                      and not is_attribute_class(core_graph(), URIRef(t))]
+        if len(candidates) == 1:
+            return extract_uri_fragment(candidates[0])
 
         return 'Unknown Category'
 
@@ -524,7 +516,7 @@ def structured_instance_attributes(component_attributes: List[Dict]) -> Dict[str
             name = processor._extract_attribute_name(attr_uri)
             data = processor._consolidate_attribute_properties(attr_properties)
             props = data.get('properties', {})
-            types = data.get('types', set())
+            kind = processor._attribute_kind(data)
             attr_type = processor._determine_attribute_type(data)
 
             entry: Dict[str, object] = {}
@@ -532,12 +524,12 @@ def structured_instance_attributes(component_attributes: List[Dict]) -> Dict[str
                 if props.get(value_prop) not in (None, ''):
                     entry['value'] = props[value_prop]
                     break
-            if 'EventAttribute' in types:
-                entry['attribute_type'] = 'EventAttribute'
+            if kind is AttributeKind.EVENT:
+                entry['attribute_type'] = extract_uri_fragment(str(kind.class_uri))
                 if props.get('hasTemporalValue') not in (None, ''):
                     entry['temporal_value'] = props['hasTemporalValue']
                     entry.setdefault('value', props['hasTemporalValue'])
-            elif attr_type == 'CategoricalAttribute':
+            elif kind is AttributeKind.CATEGORICAL:
                 entry['attribute_type'] = attr_type
                 category = processor._process_categorical_attribute(data, name)
                 if category and category != 'Unknown Category':

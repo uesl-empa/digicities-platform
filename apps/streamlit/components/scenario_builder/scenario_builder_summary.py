@@ -27,7 +27,10 @@ import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
+from backend.ontology_kinds import AttributeKind
 from backend.scenario_builder.draft import ScenarioDraft
+from backend.scenario_builder.semantics import has_time_series_data, kind_of, names_scenario_class
+from components.scenario_builder.scenario_builder_links import get_component_type_from_uri
 from backend.scenario_builder import emitter as _emitter
 from backend.scenario_builder.publish import (
     push_scenario_to_graph,
@@ -90,33 +93,24 @@ def get_component_label_by_uri(uri):
     return uri.split('/')[-1]
 
 
-def get_component_type_from_uri(uri):
-    """Extract component type from URI with Building support"""
-    if 'EnergyCarrier' in uri:
-        return 'EnergyCarrier'
-    elif 'Region' in uri and 'Profile' not in uri and 'Site' not in uri:
-        return 'Region'
-    elif 'ElectricityDemandProfile' in uri:
-        return 'ElectricityDemandProfile'
-    elif 'SolarPotentialProfile' in uri:
-        return 'SolarPotentialProfile'
-    elif 'HeatingDemandProfile' in uri:
-        return 'HeatingDemandProfile'
-    elif 'WindTurbine' in uri:
-        return 'WindTurbine'
-    elif 'GlobalWindAtlasSite' in uri:
-        return 'GlobalWindAtlasSite'
-    elif 'PV' in uri:
-        return 'PV'
-    elif 'Building' in uri:
-        return 'Building'
-    elif 'EnergyConsumer' in uri:
-        return 'EnergyConsumer'
-    elif 'EnergyGenerator' in uri:
-        return 'EnergyGenerator'
-    elif 'Location' in uri:
-        return 'Location'
-    return 'Unknown'
+def _sample_attribute_link(ttl_content: str) -> Optional[str]:
+    """One component-to-attribute link from the generated TTL, as Turtle, to show
+    the object property the chosen specificity produces. The link is found by
+    its object being an attribute node, never by the predicate's spelling."""
+    from rdflib import Graph, URIRef
+    from rdflib.namespace import RDF
+
+    from backend.ontology_kinds import is_attribute_node, with_core
+
+    graph = Graph()
+    graph.parse(data=ttl_content, format="turtle")
+    onto = with_core(graph)
+    for s, p, o in sorted(graph):
+        if p != RDF.type and isinstance(o, URIRef) and is_attribute_node(onto, o):
+            sample = Graph()
+            sample.add((s, p, o))
+            return sample.serialize(format="nt").strip()
+    return None
 
 
 def get_requirement_fulfillment_summary():
@@ -134,7 +128,7 @@ def get_requirement_fulfillment_summary():
             target_type = parts[2]
 
             # Check if this is an automatic scenario link
-            is_automatic = source_type == 'Scenario'
+            is_automatic = names_scenario_class(source_type)
 
             if is_automatic:
                 # Get automatic links for this requirement
@@ -262,7 +256,7 @@ def export_debug_component_data():
                             'data_type': attr_data.get('data_type', 'NO_DATA_TYPE'),
                             'all_keys': list(attr_data.keys()),
                             'data_structure': str(type(attr_data)),
-                            'has_time_series_props': any('TimeSeries' in k for k in attr_data.keys())
+                            'has_time_series_props': has_time_series_data(attr_data.keys())
                         }
                     else:
                         comp_debug['attributes'][attr_name] = {
@@ -293,7 +287,7 @@ def export_debug_component_data():
                             comp_debug['nested_properties'][nested_name]['properties'][prop_name] = {
                                 'value': str(prop_value),
                                 'value_type': str(type(prop_value)),
-                                'is_time_series_related': 'TimeSeries' in prop_name
+                                'is_time_series_related': has_time_series_data([prop_name])
                             }
                     else:
                         comp_debug['nested_properties'][nested_name] = {
@@ -597,7 +591,7 @@ def show_component_attribute_breakdown(component):
 
                 # NEW: Check for temporal/event attributes
                 if (category == 'temporal' or
-                        attr_data.get('attribute_type') == 'EventAttribute' or
+                        kind_of(attr_data) is AttributeKind.EVENT or
                         attr_data.get('data_type') == 'temporal'):
                     has_temporal = True
 
@@ -747,9 +741,14 @@ def show_enhanced_ttl_output():
 
         # Show sample property if components exist
         if filtered_components:
-            sample_lines = [line for line in ttl_content.split('\n') if 'dici_onto:has' in line and 'Attribute' in line]
-            if sample_lines:
-                st.code(sample_lines[0].strip(), language="turtle")
+            from rdflib.plugins.parsers.notation3 import BadSyntax
+            try:
+                sample_line = _sample_attribute_link(ttl_content)
+            except BadSyntax as exc:
+                st.warning(f"The generated TTL does not parse: {exc}")
+                sample_line = None
+            if sample_line:
+                st.code(sample_line, language="turtle")
                 st.caption("↑ Example of generated object property with current specificity")
 
         st.code(ttl_content, language="turtle")
@@ -995,11 +994,12 @@ def show_enhanced_service_requirements_summary():
                             if has_attr and req_attr in comp_attrs:
                                 attr_data = comp_attrs[req_attr]
                                 if isinstance(attr_data, dict):
-                                    if attr_data.get('attribute_type') == 'CategoricalAttribute' or attr_data.get('data_type') == 'categorical':
+                                    kind = kind_of(attr_data)
+                                    if kind is AttributeKind.CATEGORICAL or attr_data.get('data_type') == 'categorical':
                                         category_value = attr_data.get('category_value', attr_value)
                                         status = f"✅ ({category_value})"
                                     # For EventAttribute, show temporal value and precision
-                                    elif attr_data.get('attribute_type') == 'EventAttribute' or attr_data.get('data_type') == 'temporal':
+                                    elif kind is AttributeKind.EVENT or attr_data.get('data_type') == 'temporal':
                                         temporal_value = attr_data.get('temporal_value', attr_value)
                                         temporal_precision = attr_data.get('temporal_precision')
                                         if temporal_precision:

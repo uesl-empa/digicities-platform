@@ -26,6 +26,7 @@ from backend.service_requirements import (  # noqa: F401
     extract_local_name,
     parse_yaml_to_components,
 )
+from backend.ontology_kinds import DICI as _DICI
 from backend.service_requirements import ontology as _sr_ontology
 from backend.service_requirements import template as _sr_template
 from backend.service_requirements import validation as _sr_validation
@@ -518,8 +519,11 @@ def service_requirements_builder(client=None):
             st.warning("⚠️ No components available. Please load ontology data from the Data Source tab.")
             return
 
+        # Every loaded entry is a component class (rdfs:subClassOf*
+        # dici_onto:Component, see backend.service_requirements.ontology); only
+        # the root itself is not offered.
         component_options = [name for name, comp in components.items()
-                             if not name.endswith('Attribute') and name not in ['Attribute', 'Component']]
+                             if comp.uri != str(_DICI.Component)]
 
         if not component_options:
             st.warning("⚠️ No suitable components found. Please check your ontology data.")

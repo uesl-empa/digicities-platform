@@ -18,6 +18,7 @@ import streamlit as st
 from typing import Dict, List, Any, Optional
 import json
 
+from backend.ontology_kinds import AttributeKind
 from backend.replica_builder import attribute_rules as _rules
 from backend.replica_builder.attribute_rules import (  # noqa: F401
     CURRENCY_OPTIONS,
@@ -151,14 +152,14 @@ def tab_manage_attributes():
                     attr_type = attr_data.get('type', 'Unknown')
 
                     # Render file upload UI OUTSIDE form for SimpleValue and Geospatial
-                    if attr_type == "SimpleValue" and NEXTCLOUD_AVAILABLE:
+                    if attr_type == AttributeKind.SIMPLE_VALUE and NEXTCLOUD_AVAILABLE:
                         simplevalue_edit_key = f"{instance.id}_{edit_attr_name}_edit"
                         # Initialize session state for this key if not exists
                         if simplevalue_edit_key not in st.session_state:
                             st.session_state[simplevalue_edit_key] = attr_data.get('value', '')
                         render_simplevalue_file_upload(edit_attr_name, simplevalue_edit_key)
                         st.write("---")
-                    elif attr_type == "Geospatial" and NEXTCLOUD_AVAILABLE:
+                    elif attr_type == AttributeKind.GEOSPATIAL and NEXTCLOUD_AVAILABLE:
                         geospatial_edit_key = f"{instance.id}_{edit_attr_name}_edit"
                         # Initialize session state for this key if not exists
                         if geospatial_edit_key not in st.session_state:
@@ -476,17 +477,17 @@ def render_add_attribute_form(instance, available_attrs: List[str]):
         st.session_state[geospatial_key] = ""
 
     # Show file upload UI for Physical attributes BEFORE the form
-    if attr_constraints and attr_constraints.attribute_type == "Physical":
+    if attr_constraints and attr_constraints.attribute_type == AttributeKind.PHYSICAL:
         render_timeseries_file_uploads(instance.id, attr_name, historic_key, future_key, live_key)
         st.write("---")
 
     # Show file upload UI for SimpleValue attributes BEFORE the form
-    if attr_constraints and attr_constraints.attribute_type == "SimpleValue":
+    if attr_constraints and attr_constraints.attribute_type == AttributeKind.SIMPLE_VALUE:
         render_simplevalue_file_upload(attr_name, simplevalue_key)
         st.write("---")
 
     # Show file upload UI for Geospatial attributes BEFORE the form
-    if attr_constraints and attr_constraints.attribute_type == "Geospatial":
+    if attr_constraints and attr_constraints.attribute_type == AttributeKind.GEOSPATIAL:
         render_geospatial_file_upload(attr_name, geospatial_key)
         st.write("---")
 
@@ -504,7 +505,7 @@ def render_add_attribute_form(instance, available_attrs: List[str]):
         )
 
         # Datasource (optional for most types)
-        if attr_constraints and attr_constraints.attribute_type not in ["Annotation", "Identifier"]:
+        if attr_constraints and attr_constraints.attribute_type not in (AttributeKind.ANNOTATION, AttributeKind.IDENTIFIER):
             datasource = st.text_input(
                 "Data Source (optional)",
                 placeholder="e.g., sensor_system, manual_input",
@@ -528,7 +529,7 @@ def render_add_attribute_form(instance, available_attrs: List[str]):
                     attr_type = "Physical"  # Default fallback
 
                 # Handle annotations separately
-                if attr_type == "Annotation":
+                if attr_type == AttributeKind.ANNOTATION:
                     instance.annotations[attr_name] = attribute_data['text']
                 else:
                     attribute_data['type'] = attr_type
@@ -576,7 +577,7 @@ def render_attribute_type_fields_constrained(
 
     attr_type = constraints.attribute_type
 
-    if attr_type == "Physical":
+    if attr_type == AttributeKind.PHYSICAL:
         st.write("**Static Value (Optional)**")
         st.caption("ℹ️ Leave at 0 if this attribute only has time series data (no static value)")
         col1, col2 = st.columns(2)
@@ -614,7 +615,7 @@ def render_attribute_type_fields_constrained(
         if live_key and st.session_state.get(live_key):
             data['live_reference'] = st.session_state[live_key]
 
-    elif attr_type == "Categorical":
+    elif attr_type == AttributeKind.CATEGORICAL:
         # Get named individuals from ontology
         categorical_options = get_categorical_options(attr_name) if ONTOLOGY_HELPERS_AVAILABLE else []
 
@@ -632,7 +633,7 @@ def render_attribute_type_fields_constrained(
                 help="WARNING: No named individuals defined in ontology"
             )
 
-    elif attr_type == "Event":
+    elif attr_type == AttributeKind.EVENT:
         col1, col2 = st.columns(2)
         with col1:
             data['temporal_value'] = st.text_input(
@@ -646,14 +647,14 @@ def render_attribute_type_fields_constrained(
                 options=temporal_precisions
             )
 
-    elif attr_type == "SimpleCost":
+    elif attr_type == AttributeKind.SIMPLE_COST:
         col1, col2 = st.columns(2)
         with col1:
             data['value'] = st.number_input("Cost", value=0.0, format="%.2f")
         with col2:
             data['currency'] = st.selectbox("Currency", options=CURRENCY_OPTIONS, index=0)
 
-    elif attr_type == "UnitBasedCost":
+    elif attr_type == AttributeKind.UNIT_BASED_COST:
         col1, col2, col3 = st.columns(3)
         with col1:
             data['value'] = st.number_input("Cost", value=0.0, format="%.2f")
@@ -667,7 +668,7 @@ def render_attribute_type_fields_constrained(
         with col3:
             data['currency'] = st.selectbox("Currency", options=CURRENCY_OPTIONS, index=0)
 
-    elif attr_type == "Curve":
+    elif attr_type == AttributeKind.CURVE:
         # X and Y units with ontology constraints
         col1, col2 = st.columns(2)
 
@@ -692,13 +693,13 @@ def render_attribute_type_fields_constrained(
         )
         data['data_points'] = data_points_text
 
-    elif attr_type == "Resource":
+    elif attr_type == AttributeKind.RESOURCE:
         data['data_path'] = st.text_input(
             "Resource Path",
             placeholder="e.g., /data/file.csv, https://..."
         )
 
-    elif attr_type == "SimpleValue":
+    elif attr_type == AttributeKind.SIMPLE_VALUE:
         # SimpleValue can either be a text value OR a file reference
         value_type = st.radio(
             "Value Type:",
@@ -721,7 +722,7 @@ def render_attribute_type_fields_constrained(
                     help="Filename in NextCloud timeseries directory"
                 )
 
-    elif attr_type == "CustomPhysicalRatio":
+    elif attr_type == AttributeKind.CUSTOM_PHYSICAL_RATIO:
         available_units = st.session_state.get('replica_available_units', [])
         if constraints and constraints.ratio_numerator_unit and constraints.ratio_denominator_unit:
             st.caption(f"Ontology defined unit: **{constraints.ratio_numerator_unit} / {constraints.ratio_denominator_unit}**")
@@ -750,19 +751,19 @@ def render_attribute_type_fields_constrained(
                     help="No QUDT units loaded — enter manually"
                 )
 
-    elif attr_type == "Identifier":
+    elif attr_type == AttributeKind.IDENTIFIER:
         data['identifier_value'] = st.text_input(
             "Identifier Value",
             placeholder="e.g., ID-12345"
         )
 
-    elif attr_type == "Annotation":
+    elif attr_type == AttributeKind.ANNOTATION:
         data['text'] = st.text_area(
             "Annotation Text",
             placeholder="Enter annotation..."
         )
 
-    elif attr_type == "Geospatial":
+    elif attr_type == AttributeKind.GEOSPATIAL:
         # Geospatial can be a text value (coordinates, WKT, etc.) OR a file reference (GeoJSON, Shapefile, etc.)
         value_type = st.radio(
             "Geospatial Value Type:",
@@ -813,7 +814,7 @@ def render_edit_attribute_form(instance, attr_name: str):
         updated_data = render_attribute_type_fields_for_edit(attr_name, attr_data, attr_constraints)
 
         # Datasource (optional)
-        if attr_type not in ["Annotation", "Identifier"]:
+        if attr_type not in (AttributeKind.ANNOTATION, AttributeKind.IDENTIFIER):
             datasource = st.text_input(
                 "Data Source (optional)",
                 value=attr_data.get('datasource', ''),
@@ -843,7 +844,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
     data = {}
     attr_type = current_data.get('type', 'Unknown')
 
-    if attr_type == "Physical":
+    if attr_type == AttributeKind.PHYSICAL:
         st.write("**Static Value (Optional)**")
         st.caption("ℹ️ Leave at 0 if this attribute only has time series data (no static value)")
         col1, col2 = st.columns(2)
@@ -918,7 +919,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
                     help="API endpoint or live data source"
                 )
 
-    elif attr_type == "Categorical":
+    elif attr_type == AttributeKind.CATEGORICAL:
         current_category = current_data.get('category_value', '')
         if constraints and ONTOLOGY_HELPERS_AVAILABLE:
             category_options = get_categorical_options(attr_name)
@@ -930,7 +931,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
         else:
             data['category_value'] = st.text_input("Category Value", value=current_category)
 
-    elif attr_type == "Event":
+    elif attr_type == AttributeKind.EVENT:
         if constraints and ONTOLOGY_HELPERS_AVAILABLE:
             precisions = get_temporal_precisions()
             current_precision = current_data.get('temporal_precision', 'Date')
@@ -948,14 +949,14 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
             placeholder="e.g., 2024, 2024-03, 2024-03-15, 2024-03-15T14:30:00"
         )
 
-    elif attr_type in ["SimpleCost", "UnitBasedCost"]:
+    elif attr_type in (AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST):
         col1, col2 = st.columns(2)
         with col1:
             data['value'] = st.number_input("Value", value=float(current_data.get('value', 0.0)), format="%.2f")
         with col2:
             data['currency'] = st.text_input("Currency", value=current_data.get('currency', 'CHF'))
 
-        if attr_type == "UnitBasedCost":
+        if attr_type == AttributeKind.UNIT_BASED_COST:
             available_units = st.session_state.get('replica_available_units', [])
             current_unit = current_data.get('unit', '')
             if available_units:
@@ -965,7 +966,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
             else:
                 data['unit'] = st.text_input("Per Unit", value=current_unit, placeholder="e.g., kWh, m2")
 
-    elif attr_type == "SimpleValue":
+    elif attr_type == AttributeKind.SIMPLE_VALUE:
         # SimpleValue can either be a text value OR a file reference
         current_value = current_data.get('value', '')
 
@@ -998,14 +999,14 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
                 placeholder="Enter value"
             )
 
-    elif attr_type == "Identifier":
+    elif attr_type == AttributeKind.IDENTIFIER:
         data['identifier_value'] = st.text_input(
             "Identifier Value",
             value=current_data.get('identifier_value', ''),
             placeholder="e.g., ID-12345"
         )
 
-    elif attr_type == "CustomPhysicalRatio":
+    elif attr_type == AttributeKind.CUSTOM_PHYSICAL_RATIO:
         available_units = st.session_state.get('replica_available_units', [])
         if constraints and constraints.ratio_numerator_unit and constraints.ratio_denominator_unit:
             st.caption(f"Ontology defined unit: **{constraints.ratio_numerator_unit} / {constraints.ratio_denominator_unit}**")
@@ -1038,7 +1039,7 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
                     help="No QUDT units loaded — enter manually"
                 )
 
-    elif attr_type == "Curve":
+    elif attr_type == AttributeKind.CURVE:
         st.write("**Curve Data**")
         col1, col2 = st.columns(2)
         available_units = st.session_state.get('replica_available_units', [])
@@ -1069,14 +1070,14 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
             help="Format: [(x1,y1);(x2,y2);...]"
         )
 
-    elif attr_type == "Resource":
+    elif attr_type == AttributeKind.RESOURCE:
         data['data_path'] = st.text_input(
             "Resource Path",
             value=current_data.get('data_path', ''),
             placeholder="e.g., /data/file.csv, https://..."
         )
 
-    elif attr_type == "Geospatial":
+    elif attr_type == AttributeKind.GEOSPATIAL:
         # Geospatial can be a text value (coordinates, WKT, etc.) OR a file reference (GeoJSON, Shapefile, etc.)
         current_value = current_data.get('value', '')
 
@@ -1148,7 +1149,7 @@ def render_attribute_value_display(attr_data: Dict[str, Any]):
     """Display attribute value based on type"""
     attr_type = attr_data.get('type', 'Unknown')
 
-    if attr_type == "Physical":
+    if attr_type == AttributeKind.PHYSICAL:
         value = attr_data.get('value', 0)
         unit = attr_data.get('unit', '')
 
@@ -1170,14 +1171,14 @@ def render_attribute_value_display(attr_data: Dict[str, Any]):
         if attr_data.get('live_reference'):
             st.caption(f"⚡ Live: {attr_data['live_reference']}")
 
-    elif attr_type == "Categorical":
+    elif attr_type == AttributeKind.CATEGORICAL:
         st.write(f"Category: {attr_data.get('category_value', 'N/A')}")
 
-    elif attr_type == "Event":
+    elif attr_type == AttributeKind.EVENT:
         st.write(f"{attr_data.get('temporal_value', 'N/A')}")
         st.caption(f"Precision: {attr_data.get('temporal_precision', 'Unknown')}")
 
-    elif attr_type in ["SimpleCost", "UnitBasedCost"]:
+    elif attr_type in (AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST):
         value = attr_data.get('value', 0)
         currency = attr_data.get('currency', '')
         unit = attr_data.get('unit', '')
@@ -1186,21 +1187,21 @@ def render_attribute_value_display(attr_data: Dict[str, Any]):
         else:
             st.write(f"{value} {currency}")
 
-    elif attr_type == "Curve":
+    elif attr_type == AttributeKind.CURVE:
         st.caption(f"X: {attr_data.get('x_unit', 'N/A')}, Y: {attr_data.get('y_unit', 'N/A')}")
         st.caption(f"Points: {attr_data.get('data_points', 'N/A')}")
 
-    elif attr_type == "Resource":
+    elif attr_type == AttributeKind.RESOURCE:
         st.caption(f"Path: {attr_data.get('data_path', 'N/A')}")
 
-    elif attr_type == "SimpleValue":
+    elif attr_type == AttributeKind.SIMPLE_VALUE:
         st.write(f"Value: {attr_data.get('value', 'N/A')}")
 
-    elif attr_type == "CustomPhysicalRatio":
+    elif attr_type == AttributeKind.CUSTOM_PHYSICAL_RATIO:
         unit = attr_data.get('custom_unit', '')
         st.write(f"Value: {attr_data.get('value', 'N/A')} [{unit}]")
 
-    elif attr_type == "Identifier":
+    elif attr_type == AttributeKind.IDENTIFIER:
         st.write(f"ID: {attr_data.get('identifier_value', 'N/A')}")
 
     if attr_data.get('datasource'):

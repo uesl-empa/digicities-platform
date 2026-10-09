@@ -208,64 +208,47 @@ def load_components_and_attributes(
 def load_attribute_mappings_by_convention(
     client, on_status: StatusCallback = None,
 ) -> Dict[str, List[str]]:
-    """Component -> attribute-name mappings via the naming convention.
+    """Component -> attribute-name mappings from each component's category.
 
-    For each component class ``<Name>`` the ontology groups its attributes
-    under an abstract ``<Name>Attribute`` class; its subclasses are the valid
-    attributes. Every component gets at least ``label``.
+    The ontology states a component's category as the range of its general
+    predicate (``has<X>Attribute rdfs:domain X ; rdfs:range XAttribute``); the
+    attribute classes under that category are the component's valid
+    attributes (:func:`backend.ontology_scaffold.category_members_by_component`).
+    Every component gets at least ``label``.
     """
     if not client:
         return {}
 
-    try:
-        components_result = gdb_queries.get_component_subclasses(client)
+    from backend.graphdb.graphs import ONTOLOGY_GRAPH
+    from backend.graphdb.queries import graph_io
+    from backend.ontology_scaffold import ScaffoldError, category_members_by_component
 
-        if components_result is None or components_result.empty:
-            _notify(on_status, 'warning', "No components found in Triplestore")
-            return {}
-
-        component_attributes: Dict[str, List[str]] = {}
-
-        for _, row in components_result.iterrows():
-            component_uri = row['component']
-            component_name = extract_local_name(component_uri)
-
-            attribute_class_name = f"{component_name}Attribute"
-
-            try:
-                attributes_result = gdb_queries.get_attribute_subclasses_for(
-                    client, attribute_class_name)
-
-                if attributes_result is not None and not attributes_result.empty:
-                    component_attributes[component_name] = []
-
-                    for _, attr_row in attributes_result.iterrows():
-                        attr_uri = attr_row['attribute']
-                        attr_name = extract_local_name(attr_uri)
-
-                        if attr_name not in component_attributes[component_name]:
-                            component_attributes[component_name].append(attr_name)
-
-                    if 'label' not in component_attributes[component_name]:
-                        component_attributes[component_name].insert(0, 'label')
-
-                else:
-                    component_attributes[component_name] = ['label']
-
-            except Exception as attr_e:
-                _notify(on_status, 'warning',
-                        f"Could not find attributes for {component_name}: {attr_e}")
-                component_attributes[component_name] = ['label']
-                continue
-
-        _notify(on_status, 'success',
-                f"Retrieved component-attribute mappings for "
-                f"{len(component_attributes)} components using naming convention")
-        return component_attributes
-
-    except Exception as e:
-        _notify(on_status, 'error', f"Error querying Triplestore with new method: {e}")
+    onto = graph_io.construct_named_graph(client, ONTOLOGY_GRAPH)
+    if onto is None:
+        _notify(on_status, 'error', "Could not read the workspace ontology graph")
         return {}
+    if len(onto) == 0:
+        _notify(on_status, 'warning', "No components found in Triplestore")
+        return {}
+    try:
+        members_by_component = category_members_by_component(onto)
+    except ScaffoldError as e:
+        _notify(on_status, 'error', f"The ontology states a component's category ambiguously: {e}")
+        return {}
+
+    component_attributes: Dict[str, List[str]] = {}
+    for comp, members in members_by_component.items():
+        names = ['label']
+        for member in members:
+            name = extract_local_name(str(member))
+            if name not in names:
+                names.append(name)
+        component_attributes[extract_local_name(str(comp))] = names
+
+    _notify(on_status, 'success',
+            f"Retrieved component-attribute mappings for "
+            f"{len(component_attributes)} components from their categories")
+    return component_attributes
 
 
 def load_attribute_mappings(

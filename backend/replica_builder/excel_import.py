@@ -33,11 +33,15 @@ def import_workbook(
     project_uri: str,
     uri_mode: str = "default",
     default_units: Optional[Dict[str, str]] = None,
+    *,
+    ontology: Graph,
 ) -> Tuple[str, List[ComponentInstance]]:
     """Convert a digital-replica workbook to TTL and parse the model back.
 
-    Returns ``(ttl_content, instances)``. Raises on conversion errors (the
-    UI shim turns that into an error message).
+    ``ontology`` is the workspace's ontology extension: the converter links each
+    value by the predicate it declares, and the parse-back reads categorical
+    values with it. Returns ``(ttl_content, instances)``. Raises on conversion
+    errors (the UI shim turns that into an error message).
     """
     fd, ttl_path = tempfile.mkstemp(suffix=".ttl")
     os.close(fd)
@@ -48,6 +52,7 @@ def import_workbook(
             output_ttl_path=ttl_path,
             uri_mode=uri_mode,
             default_units=default_units,
+            ontology=ontology,
         )
         with open(ttl_path, "r", encoding="utf-8") as f:
             ttl_content = f.read()
@@ -57,16 +62,18 @@ def import_workbook(
         except OSError:
             pass
 
-    instances = parse_generated_ttl(ttl_content, project_uri=project_uri)
+    instances = parse_generated_ttl(ttl_content, project_uri=project_uri, ontology=ontology)
     return ttl_content, instances
 
 
 def parse_generated_ttl(ttl_content: str,
-                        project_uri: Optional[str] = None) -> List[ComponentInstance]:
-    """Parse a generated classes_and_attributes TTL string into instances."""
+                        project_uri: Optional[str] = None,
+                        ontology: Optional[Graph] = None) -> List[ComponentInstance]:
+    """Parse a generated classes_and_attributes TTL string into instances.
+    ``ontology`` is the workspace schema (see ``parse_local_replica_graph``)."""
     graph = Graph()
     graph.parse(data=ttl_content, format="turtle")
-    return parse_local_replica_graph(graph, project_uri=project_uri)
+    return parse_local_replica_graph(graph, project_uri=project_uri, ontology=ontology)
 
 
 def instances_payload(instances: List[ComponentInstance]) -> Dict[str, List[Dict[str, Any]]]:

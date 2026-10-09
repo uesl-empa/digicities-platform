@@ -69,6 +69,13 @@ Op → backend mapping:
 ``remove_component`` :meth:`ComponentMixin.remove_component` (``{"name"}``)
 ``annotate``         set annotations on an existing term (``{"name",
                      "annotations"}``)
+``add_deprecated_alias`` an old term kept for one release:
+                     ``owl:deprecated true`` and ``owl:equivalentClass`` /
+                     ``owl:equivalentProperty`` to ``replaced_by`` (a
+                     property alias is also ``rdfs:subPropertyOf`` it, so
+                     data still using the old predicate stays reachable
+                     through the hierarchy). ``{"name", "replaced_by",
+                     "annotations"}``
 ===================  =====================================================
 
 Checks, in the proper sequence, before anything is written (the same rules the
@@ -85,8 +92,11 @@ A refused op is reported as ``error`` with the reason; the replay continues.
 :func:`check_extension_instructions` runs the same checks without writing
 anything — a dry run to show the user before applying.
 
-``annotations`` keys: ``label``, ``comment``, ``alt_labels``, ``scope_note``,
-``definition`` (``skos:definition``), ``examples`` (``skos:example``).
+``annotations`` keys: ``label`` (with ``label_lang``: a language tag, or null
+for a plain literal), ``comment``, ``alt_labels``, ``scope_note``,
+``definition`` (``skos:definition``), ``dici_definition``
+(``dici_onto:definition``), ``examples`` (``skos:example``), ``default_unit``
+(a QUDT unit code, ``dici_onto:hasDefaultUnit``).
 
 Names and labels: the Ontology Manager derives a class name by stripping the
 whitespace from its label. Instructions carry the ``name``; the label passed to
@@ -107,6 +117,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import rdflib
 from rdflib import Literal, Namespace, OWL, RDF, RDFS, URIRef
+
+from backend.ontology_kinds import AttributeKind, dici_local_name
 
 from . import hierarchy
 from .functions import create_ontology_functions, OntologyFunctions
@@ -161,13 +173,11 @@ class _Checker:
     def __init__(self, core: rdflib.Graph, ext: rdflib.Graph):
         self.core = core
         self.core_classes = hierarchy.classes(core)
-        self.core_props = {n for n in (str(s)[len(str(dici_onto)):]
-                                       for s in core.subjects(RDF.type, OWL.ObjectProperty)
-                                       if str(s).startswith(str(dici_onto)))}
+        self.core_props = {n for n in map(dici_local_name,
+                                          core.subjects(RDF.type, OWL.ObjectProperty)) if n}
         self.ext_classes = hierarchy.classes(ext)
-        self.ext_props = {str(s)[len(str(dici_onto)):]
-                          for s in ext.subjects(RDF.type, OWL.ObjectProperty)
-                          if str(s).startswith(str(dici_onto))}
+        self.ext_props = {n for n in map(dici_local_name,
+                                         ext.subjects(RDF.type, OWL.ObjectProperty)) if n}
         self.parents: Dict[str, List[str]] = {
             c: hierarchy.parents(ext, c) for c in self.ext_classes}
 
@@ -192,16 +202,23 @@ class _Checker:
             frontier = nxt
         return seen
 
+    def is_subclass_of(self, name: str, other: str) -> bool:
+        """``name rdfs:subClassOf* other`` in the tree as it stands."""
+        return name == other or other in self.ancestors(name)
+
     def _subclasses(self, name: str) -> List[str]:
         return sorted(c for c, ps in self.parents.items()
-                      if name in ps and not c.endswith("Attribute"))
+                      if name in ps and not self.is_subclass_of(c, "Attribute"))
 
     @staticmethod
     def _local(term: str) -> str:
         return str(term).split("#")[-1].split(":")[-1]
 
     # -- per-op checks ----------------------------------------------------------
-    def check(self, op: Dict[str, Any]):
+    def check(self, op: Dict[str, Any], live: Optional[rdflib.Graph] = None):
+        """``live``: the graph as it stands during a replay, so a term an earlier
+        op minted (a component's category or general predicate) counts as
+        existing. The dry run has none and judges by the declared names."""
         kind = op.get("op")
         name = op.get("name") or ""
         if kind in ("add_component", "add_class"):
@@ -279,10 +296,25 @@ class _Checker:
                                  "remove them first")
             return "ok", ""
         if kind == "annotate":
-            if not (self.known(name) or name in self.ext_props or name in self.core_props):
+            if not self._exists(name, live):
                 return "error", f"`{name}` is not a term of the core ontology or this extension"
             return "ok", ""
+        if kind == "add_deprecated_alias":
+            if self._exists(name, live):
+                return "skip", f"`{name}` already exists"
+            target = op.get("replaced_by") or ""
+            if not target or not self._exists(target, live):
+                return "error", (f"`{target}` (the term replacing `{name}`) is not a term of "
+                                 "the core ontology or this extension")
+            return "ok", ""
         return "ok", ""
+
+    def _exists(self, term: str, live: Optional[rdflib.Graph]) -> bool:
+        local = self._local(term)
+        if live is not None and (_uri(term), None, None) in live:
+            return True
+        return (self.known(local) or local in self.ext_props or local in self.core_props
+                or (_uri(term), None, None) in self.core)
 
     def apply(self, op: Dict[str, Any]) -> None:
         kind, name = op.get("op"), op.get("name") or ""
@@ -290,6 +322,10 @@ class _Checker:
             self.ext_classes.add(name)
             parent = op.get("parent") or ("Component" if kind == "add_component" else "")
             self.parents.setdefault(name, [self._local(parent)] if parent else [])
+        if kind == "add_component":
+            # The scaffold add_component mints for a new class (its general
+            # predicate), so a later op in the same file may annotate it.
+            self.ext_props.add(f"has{name}Attribute")
         elif kind == "add_object_property":
             self.ext_props.add(name)
         elif kind == "change_parent":
@@ -312,7 +348,10 @@ class _Executor:
         self.ext = extension
         self.results: List[Dict[str, str]] = []
         self.declared: List[str] = []
-        self.checker = _Checker(funcs.load_core_ontology(), self._graph())
+        # In core mode the core file IS what is built, so the checker's "core"
+        # (terms reused, never redeclared) is empty.
+        core = rdflib.Graph() if extension == funcs.CORE_TARGET else funcs.load_core_ontology()
+        self.checker = _Checker(core, self._graph())
 
     # -- bookkeeping ---------------------------------------------------------
 
@@ -325,19 +364,21 @@ class _Executor:
         })
 
     def _graph(self) -> rdflib.Graph:
-        return self.funcs.load_extension(self.ext)
+        """The graph the ops write: the extension, or the core file when the
+        instruction file targets the core (``CORE_ONTOLOGY_MODIFICATION``)."""
+        return self.funcs._edit_graph(self.ext)
 
     def _class_exists(self, name: str) -> bool:
         return (dici_onto[name], RDF.type, OWL.Class) in self._graph()
 
     def _save(self, g: rdflib.Graph) -> None:
-        """The same persist flow every OM mutation ends with."""
-        self.funcs.save_extension(self.ext, g)
-        self.funcs.update_temp_and_export(self.ext)
+        """The same persist flow every OM mutation ends with; a failed save
+        raises and the op is reported as an error."""
+        self.funcs._persist(self.ext, g)
 
     def run(self, op: Dict[str, Any]) -> None:
         """Check the op against the tree as it stands, then execute it."""
-        status, msg = self.checker.check(op)
+        status, msg = self.checker.check(op, live=self._graph())
         if status == "error":
             self._record(op, "error", msg)
             return
@@ -354,28 +395,55 @@ class _Executor:
     # -- annotations ---------------------------------------------------------
 
     def _annotate(self, name: str, ann: Optional[Dict[str, Any]]) -> None:
+        """Set annotations on a term (class or property; a dici local name, a
+        ``prefix:name`` or a full IRI). Single-valued ones (label, comment,
+        scope note, definition) replace what is there, so a rerun changes
+        nothing; a replaced label keeps the language of the one it replaces
+        unless ``label_lang`` says otherwise. Alt labels and examples are added
+        once each."""
         if not ann:
             return
         g = self._graph()
-        uri = dici_onto[name]
+        uri = _uri(name)
+
+        def replace(prop, text, lang):
+            for old in list(g.objects(uri, prop)):
+                g.remove((uri, prop, old))
+            g.add((uri, prop, Literal(text, lang=lang)))
+
         if ann.get("label"):
-            for old in list(g.objects(uri, RDFS.label)):
-                g.remove((uri, RDFS.label, old))
-            g.add((uri, RDFS.label, Literal(ann["label"])))
+            if "label_lang" in ann:
+                lang = ann["label_lang"]
+            else:
+                langs = {o.language for o in g.objects(uri, RDFS.label)
+                         if isinstance(o, Literal)}
+                lang = langs.pop() if len(langs) == 1 else None
+            replace(RDFS.label, ann["label"], lang)
         if ann.get("comment"):
-            g.add((uri, RDFS.comment, Literal(ann["comment"], lang="en")))
+            replace(RDFS.comment, ann["comment"], "en")
         for alt in ann.get("alt_labels") or []:
             if alt:
                 g.add((uri, SKOS.altLabel, Literal(alt, lang="en")))
         if ann.get("scope_note"):
-            g.add((uri, SKOS.scopeNote, Literal(ann["scope_note"], lang="en")))
+            replace(SKOS.scopeNote, ann["scope_note"], "en")
         if ann.get("definition"):
-            for old in list(g.objects(uri, SKOS.definition)):
-                g.remove((uri, SKOS.definition, old))
-            g.add((uri, SKOS.definition, Literal(ann["definition"], lang="en")))
+            replace(SKOS.definition, ann["definition"], "en")
+        if ann.get("dici_definition"):
+            replace(dici_onto.definition, ann["dici_definition"], "en")
         for ex in ann.get("examples") or []:
             if ex:
                 g.add((uri, SKOS.example, Literal(ex, lang="en")))
+        if "notation" in ann:
+            # The codes a categorical value has in the source data ("S" for
+            # OrientationSouth), replaced as a set, so a rerun changes nothing.
+            for old in list(g.objects(uri, SKOS.notation)):
+                g.remove((uri, SKOS.notation, old))
+            for code in ann.get("notation") or []:
+                g.add((uri, SKOS.notation, Literal(str(code))))
+        if ann.get("default_unit"):
+            for old in list(g.objects(uri, dici_onto.hasDefaultUnit)):
+                g.remove((uri, dici_onto.hasDefaultUnit, old))
+            g.add((uri, dici_onto.hasDefaultUnit, UNIT[ann["default_unit"]]))
         self._save(g)
 
     # -- ops -----------------------------------------------------------------
@@ -394,7 +462,7 @@ class _Executor:
         if self._class_exists(name):
             # Reconcile a changed simple default unit; everything else is append-only.
             unit = op.get("qudt_unit")
-            if unit and op.get("type") in ("Physical", "Geospatial"):
+            if unit and op.get("type") in (AttributeKind.PHYSICAL, AttributeKind.GEOSPATIAL):
                 current = set(self._graph().objects(dici_onto[name], dici_onto.hasDefaultUnit))
                 if current and UNIT[unit] not in current:
                     ok, msg = self.funcs.set_default_unit(self.ext, name, unit)
@@ -425,9 +493,27 @@ class _Executor:
         self._record(op, "applied" if ok else "error", msg)
 
     def add_named_individual(self, op: Dict[str, Any]) -> None:
-        name = op["name"]
-        if (dici_onto[name], RDF.type, OWL.NamedIndividual) in self._graph():
-            self._record(op, "skipped", "individual already in extension")
+        from .naming import class_name
+        # The Ontology Manager names the individual from its label
+        # (``class_name``: `steel_316L` becomes `Steel316L`); everything below
+        # addresses that IRI, so the label and data codes land on the value
+        # that is declared.
+        name = class_name(_label_for(op["name"])) or op["name"]
+        g = self._graph()
+        if (dici_onto[name], RDF.type, OWL.NamedIndividual) in g:
+            # The same value can belong to more than one categorical attribute
+            # (OilHeated for both HeatingSupply and DHWSupply): it is a declared
+            # value of each one that lists it. Its label and data codes follow
+            # the op, so a replay that learned a new code updates the value.
+            attribute = _uri(op["attribute"])
+            added = (dici_onto[name], RDF.type, attribute) not in g
+            if added:
+                g.add((dici_onto[name], RDF.type, attribute))
+                self._save(g)
+            self._annotate(name, op.get("annotations"))
+            self._record(op, "applied" if added else "skipped",
+                         f"existing value also declared for `{op['attribute']}`" if added
+                         else "individual already in extension")
             return
         ok, msg = self.funcs.add_named_individual(
             self.ext, _label_for(name), str(_uri(op["attribute"])))
@@ -500,10 +586,32 @@ class _Executor:
         self._annotate(op["name"], op.get("annotations"))
         self._record(op, "applied")
 
+    def add_deprecated_alias(self, op: Dict[str, Any]) -> None:
+        """Keep an old term for one release, pointing at the term that replaces
+        it. Whether it is a class or a property is read from the replacing
+        term's declaration."""
+        g = self._graph()
+        old, new = _uri(op["name"]), _uri(op["replaced_by"])
+        if (new, RDF.type, OWL.Class) in g:
+            g.add((old, RDF.type, OWL.Class))
+            g.add((old, OWL.equivalentClass, new))
+        elif (new, RDF.type, OWL.ObjectProperty) in g:
+            g.add((old, RDF.type, OWL.ObjectProperty))
+            g.add((old, OWL.equivalentProperty, new))
+            g.add((old, RDFS.subPropertyOf, new))
+        else:
+            self._record(op, "error", f"`{op['replaced_by']}` is neither a class nor an "
+                                      "object property")
+            return
+        g.add((old, OWL.deprecated, Literal(True)))
+        self._save(g)
+        self._annotate(op["name"], op.get("annotations"))
+        self._record(op, "applied")
+
 
 _OPS = ("add_component", "add_attribute", "link_attribute", "add_named_individual",
         "add_object_property", "add_class", "add_custom_unit", "change_parent",
-        "rename_component", "remove_component", "annotate")
+        "rename_component", "remove_component", "annotate", "add_deprecated_alias")
 
 
 def check_extension_instructions(
@@ -520,15 +628,18 @@ def check_extension_instructions(
     if isinstance(instructions, (str, Path)):
         instructions = json.loads(Path(instructions).read_text(encoding="utf-8"))
     ext = instructions.get("extension") or ""
-    if ext and not ext.endswith(".ttl"):
+    if ext and ext != OntologyFunctions.CORE_TARGET and not ext.endswith(".ttl"):
         ext += ".ttl"
     funcs = create_ontology_functions(storage=storage,
                                       workspace_id=workspace_id or instructions.get("workspace"),
                                       ontology_dir=ontology_dir)
-    ext_graph = (funcs.load_extension(ext)
-                 if ext and funcs.storage.exists(f"{funcs.EXTENSION_PATH}/{ext}")
-                 else rdflib.Graph())
-    chk = _Checker(funcs.load_core_ontology(), ext_graph)
+    if ext == funcs.CORE_TARGET:
+        chk = _Checker(rdflib.Graph(), funcs.load_core_ontology())
+    else:
+        ext_graph = (funcs.load_extension(ext)
+                     if ext and funcs.storage.exists(f"{funcs.EXTENSION_PATH}/{ext}")
+                     else rdflib.Graph())
+        chk = _Checker(funcs.load_core_ontology(), ext_graph)
     results = []
     for op in instructions.get("instructions", []):
         kind = op.get("op")
@@ -581,7 +692,7 @@ def apply_extension_instructions(
     ext = instructions.get("extension")
     if not ext:
         raise ValueError("instruction file has no 'extension' filename")
-    if not ext.endswith(".ttl"):
+    if ext != OntologyFunctions.CORE_TARGET and not ext.endswith(".ttl"):
         ext += ".ttl"
 
     funcs = create_ontology_functions(
@@ -591,8 +702,10 @@ def apply_extension_instructions(
         ontology_dir=ontology_dir,
     )
 
-    if not funcs.storage.exists(f"{funcs.EXTENSION_PATH}/{ext}"):
-        funcs.create_new_extension(ext)
+    if ext != funcs.CORE_TARGET and not funcs.storage.exists(f"{funcs.EXTENSION_PATH}/{ext}"):
+        ok, msg = funcs.create_new_extension(ext)
+        if not ok:
+            raise IOError(msg)
 
     ex = _Executor(funcs, ext)
     for op in instructions.get("instructions", []):
@@ -605,7 +718,8 @@ def apply_extension_instructions(
         except Exception as e:                       # keep replaying; report it
             ex._record(op, "error", str(e))
 
-    export = funcs.update_temp_and_export(ext)
+    export = (funcs.update_temp_and_export_core_mod() if ext == funcs.CORE_TARGET
+              else funcs.update_temp_and_export(ext))
 
     uploaded = False
     if upload is None:

@@ -31,6 +31,7 @@ from backend.graphdb.graphs import (
     CLASSES_AND_ATTRIBUTES_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
     SCENARIOS_GRAPH,
+    SERVICES_GRAPH,
     from_clause,
 )
 
@@ -40,7 +41,16 @@ _PREFIXES = (
     "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
     "PREFIX prov: <http://www.w3.org/ns/prov#>\n"
     "PREFIX schema: <https://schema.org/>\n"
+    "PREFIX qudt: <http://qudt.org/schema/qudt/>\n"
 )
+
+# A configuration parameter's value, whichever kind it is.
+_PARAM_VALUE = """  OPTIONAL { ?param dici_onto:hasAttributeValue ?v1 }
+  OPTIONAL { ?param qudt:value ?v2 }
+  OPTIONAL { ?param dici_onto:hasCategoricalValue ?v3 }
+  OPTIONAL { ?param qudt:unit ?unit }
+  BIND(COALESCE(?v1, ?v2, ?v3) AS ?value)
+  BIND(REPLACE(STR(?param), "^.*/", "") AS ?parameter)"""
 
 # The instance's own class, at its most specific: with a materialised closure the
 # instance is typed with every ancestor too, so keep only classes that no other
@@ -223,13 +233,71 @@ _RECOMMENDATIONS = [
   OPTIONAL {{ ?source schema:url ?sourceUrl }}""",
         "?scope ?attribute",
     ),
+    (
+        "configuration",
+        "Service configuration",
+        "The settings a service runs with (its configuration profiles, in the services "
+        "graph): profiles tuned for this instance, and service-wide profiles of the "
+        "services that use its class.",
+        "?scope ?service ?profile ?parameter ?value ?unit",
+        """  {{
+    BIND("this instance" AS ?scope)
+    ?profile ?applies <{uri}> .
+    ?applies rdfs:subPropertyOf* dici_onto:appliesTo .
+  }}
+  UNION
+  {{
+    BIND("the whole service" AS ?scope)
+    <{uri}> a ?cls .
+    ?req dici_onto:hasInputEntity ?cls ; dici_onto:isRequiredBy ?service .
+    ?service dici_onto:hasConfiguration ?profile .
+    FILTER NOT EXISTS {{ ?profile dici_onto:appliesTo ?target }}
+  }}
+  ?profile dici_onto:configures ?service ;
+           dici_onto:hasConfigurationParameter ?param .
+""" + _PARAM_VALUE.replace("{", "{{").replace("}", "}}"),
+        "?scope ?profile ?parameter",
+    ),
+    (
+        "service_io",
+        "Service inputs, outputs and live streams",
+        "What each service needs from this instance's class, what it produces for "
+        "it, and the live stream an input reads (the instance's live time series "
+        "reference).",
+        "?direction ?service ?entity ?attribute ?stream",
+        """  <{uri}> a ?cls .
+  ?cls rdfs:subClassOf* dici_onto:Component .
+  {{
+    ?n dici_onto:hasInputEntity ?cls ; dici_onto:isRequiredBy ?service ;
+       dici_onto:hasInputAttribute ?attribute .
+    BIND(?cls AS ?entity)
+    OPTIONAL {{
+      <{uri}> ?attrLink ?attrNode .
+      ?attrLink rdfs:subPropertyOf* dici_onto:hasAttribute .
+      ?attrNode a ?attribute ; dici_onto:hasLiveTimeSeriesReference ?stream .
+    }}
+    BIND(IF(BOUND(?stream), "input (live stream)", "input") AS ?direction)
+  }}
+  UNION
+  {{
+    BIND("output" AS ?direction)
+    ?n dici_onto:providesOutputEntity ?cls ; dici_onto:isProvidedBy ?service .
+    BIND(?cls AS ?entity)
+    OPTIONAL {{ ?n dici_onto:providesOutputAttribute ?attribute }}
+    OPTIONAL {{ ?n dici_onto:atStreamAddress ?stream }}
+  }}""",
+        "?direction ?service ?attribute",
+    ),
 ]
 
 
 # Replica-built component links live in SYSTEM_DESCRIPTION_GRAPH as well as the
 # instances graph; the link queries read both so neither authoring path is missed.
 _LINK_GRAPHS = (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SYSTEM_DESCRIPTION_GRAPH)
-_INSTANCE_GRAPH_OVERRIDES = {"links": _LINK_GRAPHS}
+# Service requirements and configuration live in the services graph.
+_SERVICE_GRAPHS = (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SERVICES_GRAPH)
+_INSTANCE_GRAPH_OVERRIDES = {"links": _LINK_GRAPHS, "configuration": _SERVICE_GRAPHS,
+                             "service_io": _SERVICE_GRAPHS}
 
 
 def _compose(key, name, description, select, where, order, graphs, group=None) -> dict:
@@ -367,6 +435,48 @@ _WORKSPACE_QUERIES = [
   OPTIONAL { ?derivedInstance rdfs:label ?derivedLabel }""",
         "?entry ?derivedInstance",
         (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH),
+        None,
+    ),
+    (
+        "service_configuration",
+        "Service configuration",
+        "Every configuration profile of every service (the settings it runs with), "
+        "what each applies to, and its parameter values.",
+        "DISTINCT ?service ?profile ?appliesTo ?parameter ?value ?unit",
+        """  ?service dici_onto:hasConfiguration ?profile .
+  ?profile dici_onto:hasConfigurationParameter ?param .
+  OPTIONAL { ?profile dici_onto:appliesTo ?appliesTo }
+""" + _PARAM_VALUE,
+        "?service ?profile ?parameter",
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SERVICES_GRAPH),
+        None,
+    ),
+    (
+        "service_io",
+        "Service inputs, outputs and live streams",
+        "For every service: the component types and attributes it needs (with the "
+        "live stream an input's instances reference), what it produces, and the "
+        "stream it writes its results to.",
+        "DISTINCT ?service ?direction ?entity ?attribute ?stream",
+        """  {
+    ?n dici_onto:isRequiredBy ?service ; dici_onto:hasInputEntity ?entity .
+    OPTIONAL { ?n dici_onto:hasInputAttribute ?attribute }
+    OPTIONAL {
+      ?inst a ?entity ; ?attrLink ?attrNode .
+      ?attrLink rdfs:subPropertyOf* dici_onto:hasAttribute .
+      ?attrNode a ?attribute ; dici_onto:hasLiveTimeSeriesReference ?stream .
+    }
+    BIND(IF(BOUND(?stream), "input (live stream)", "input") AS ?direction)
+  }
+  UNION
+  {
+    BIND("output" AS ?direction)
+    ?n dici_onto:isProvidedBy ?service ; dici_onto:providesOutputEntity ?entity .
+    OPTIONAL { ?n dici_onto:providesOutputAttribute ?attribute }
+    OPTIONAL { ?n dici_onto:atStreamAddress ?stream }
+  }""",
+        "?service ?direction ?entity ?attribute",
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SERVICES_GRAPH),
         None,
     ),
 ]

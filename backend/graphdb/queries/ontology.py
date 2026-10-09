@@ -8,16 +8,16 @@ and their constraints, link properties, categorical named individuals, units, an
 ratio units. Each takes a client and returns a pandas DataFrame. The graph IRI
 comes from ``backend.graphdb.graphs`` (single source of truth).
 
-Used by the Replica Builder (ontology loader, link manager). Queries scope the
-ontology graph with an explicit ``GRAPH <...>`` clause, which is portable across
-triple stores.
+Used by the Replica Builder (ontology loader, link manager). Queries read the
+ontology graph and its inferred companion through ``FROM`` clauses
+(``from_clause``), which is portable across triple stores.
 """
 
 from __future__ import annotations
 
 import pandas as pd
 
-from backend.graphdb.graphs import ONTOLOGY_GRAPH
+from backend.graphdb.graphs import ONTOLOGY_GRAPH, from_clause
 from backend.graphdb.queries._exec import run_df
 
 _PREFIXES = (
@@ -27,7 +27,8 @@ _PREFIXES = (
     "PREFIX qudt: <http://qudt.org/schema/qudt/>\n"
     "PREFIX unit: <http://qudt.org/vocab/unit/>\n"
 )
-_G = f"<{ONTOLOGY_GRAPH}>"
+# The ontology graph with its inferred companion (the schema closure).
+_SCOPE = from_clause(ONTOLOGY_GRAPH)
 
 
 def get_link_properties(client) -> pd.DataFrame:
@@ -35,8 +36,8 @@ def get_link_properties(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?property ?label
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?property rdfs:subPropertyOf* dici_onto:linksComponent .
             OPTIONAL {{ ?property rdfs:label ?label }}
         }}
@@ -52,8 +53,8 @@ def get_components(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?class ?label
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?class rdfs:subClassOf* dici_onto:Component .
             OPTIONAL {{ ?class rdfs:label ?label }}
         }}
@@ -73,8 +74,8 @@ def get_attributes_with_constraints(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?class ?label ?defaultUnit ?quantityKind ?attrType
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?class rdfs:subClassOf* dici_onto:Attribute .
             OPTIONAL {{ ?class rdfs:label ?label }}
             OPTIONAL {{ ?class dici_onto:hasDefaultUnit ?defaultUnit }}
@@ -89,7 +90,8 @@ def get_attributes_with_constraints(client) -> pd.DataFrame:
                     dici_onto:CurveAttribute,
                     dici_onto:SimpleCostAttribute,
                     dici_onto:UnitBasedCostAttribute,
-                    dici_onto:ResourceAttribute,
+                    dici_onto:DataPathAttribute,
+                    dici_onto:IdentifierAttribute,
                     dici_onto:SimpleValueAttribute,
                     dici_onto:CustomPhysicalRatioAttribute,
                     dici_onto:GeospatialAttribute
@@ -112,8 +114,8 @@ def get_component_subclasses(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?component
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?component rdfs:subClassOf* dici_onto:Component .
         }}
         FILTER(?component != dici_onto:Component)
@@ -132,8 +134,8 @@ def get_attribute_subclasses_for(client, attribute_class_name: str) -> pd.DataFr
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?attribute ?label
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?attribute rdfs:subClassOf* dici_onto:{attribute_class_name} .
             OPTIONAL {{ ?attribute rdfs:label ?label }}
         }}
@@ -150,8 +152,8 @@ def get_named_individuals(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?individual ?class ?label
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?individual a owl:NamedIndividual .
             ?individual a ?class .
             ?class rdfs:subClassOf* dici_onto:CategoricalAttribute .
@@ -177,8 +179,8 @@ def get_categorical_value_options(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?attrClass ?value ?label
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?attrClass rdfs:subClassOf* dici_onto:CategoricalAttribute .
             FILTER(?attrClass != dici_onto:CategoricalAttribute)
             {{
@@ -201,8 +203,8 @@ def get_default_units(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?unit ?label
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?something dici_onto:hasDefaultUnit ?unit .
         }}
     }}
@@ -219,8 +221,8 @@ def get_ratio_units(client) -> pd.DataFrame:
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?class ?numUnit ?denUnit
-    WHERE {{
-        GRAPH {_G} {{
+    {_SCOPE}WHERE {{
+        {{
             ?class dici_onto:hasRatioUnits ?node .
             ?node dici_onto:numeratorUnit ?numUnit .
             ?node dici_onto:denominatorUnit ?denUnit .

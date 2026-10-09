@@ -22,8 +22,8 @@ SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
 
 
 def _local(u) -> Optional[str]:
-    s = str(u)
-    return s[len(str(DICI)):] if s.startswith(str(DICI)) else None
+    from backend.ontology_kinds import dici_local_name
+    return dici_local_name(u)
 
 
 def classes(g: Graph) -> Set[str]:
@@ -86,11 +86,12 @@ def is_component(g: Graph, name: str) -> bool:
 def tree(g: Graph, root: str = "Component", depth: int = 6,
          skip_attributes: bool = True) -> Dict:
     """``{"name", "label", "children": [...]}`` below ``root`` — the component tree
-    a user picks a parent from. ``…Attribute`` scaffolding is left out."""
+    a user picks a parent from. Attribute classes (``rdfs:subClassOf*
+    dici_onto:Attribute``) are left out."""
     def node(n: str, d: int) -> Dict:
         kids = [] if d <= 0 else [
             node(c, d - 1) for c in children(g, n)
-            if not (skip_attributes and c.endswith("Attribute"))]
+            if not (skip_attributes and is_subclass_of(g, c, "Attribute"))]
         label = next((str(o) for o in g.objects(DICI[n], RDFS.label)), n)
         return {"name": n, "label": label, "children": kids}
     return node(root, depth)
@@ -163,7 +164,7 @@ def parent_candidates(g: Graph, text: str, limit: int = 5,
         return []
     scored = []
     for n in classes(g):
-        if n.endswith("Attribute") or n == root or not is_subclass_of(g, n, root):
+        if n == root or not is_subclass_of(g, n, root) or is_subclass_of(g, n, "Attribute"):
             continue
         u = DICI[n]
         named = [n] + [str(o) for p in (RDFS.label, SKOS.altLabel) for o in g.objects(u, p)]

@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use the Digicities platform in published work, please cite it as below."
+type: software
+title: "Digicities Platform"
+abstract: >-
+  Digicities is a requirements-driven semantic layer that connects models to the
+  data they need: each model states its inputs as requirements against a shared
+  ontology, and the platform finds, checks and delivers that data from a knowledge
+  graph.
+authors:
+  - family-names: Allan
+    given-names: James
+  - family-names: Fricker
+    given-names: Reto
+  - family-names: Akdodov
+    given-names: Khusrav
+version: 0.5.0
+date-released: 2026-08-21
+license: Apache-2.0
+repository-code: "https://github.com/uesl-empa/digicities-platform"
+keywords:
+  - semantic layer
+  - knowledge graph
+  - ontology
+  - energy systems
+  - service requirements

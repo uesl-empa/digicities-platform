@@ -13,28 +13,42 @@ the workspace graph and are re-resolved at validate/build time).
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping, Optional
 
 DICI = "https://digicities.info/ontology#"
 
-# rdf:types that are never the component's concrete class in a scenario TTL.
-_SKIP_TYPES = {"Scenario", "ComponentLink", "Component", "NamedIndividual", "Thing", "Resource"}
 
-
-def draft_from_ttl(ttl_text: str) -> dict[str, Any]:
+def draft_from_ttl(ttl_text: str,
+                   instance_types: Optional[Mapping[str, str]] = None) -> dict[str, Any]:
     """Parse a scenario TTL into an editable draft.
 
     Returns ``{scenario_name, scenario_uri, service_name, description,
     components: [{uri, type, label}], links: [{source, target, link_type,
-    pattern}]}``. Scenario→component links come back with the ``'scenario'``
-    pseudo-source the builders (and POST /scenario/build) use.
+    pattern}], warnings: [...]}``. Scenario→component links come back with the
+    ``'scenario'`` pseudo-source the builders (and POST /scenario/build) use.
+
+    A component's type is its ``rdf:type`` in the scenario TTL, else its type
+    in the workspace graph (``instance_types``: instance IRI → class local
+    name, see ``graph_lookups.instance_types``). A thin scenario that only
+    references an instance carries no type of its own; when neither source
+    has one the type is None and ``warnings`` says so. It is never read off
+    the IRI.
     """
     from rdflib import Graph, Namespace
-    from rdflib.namespace import RDF, RDFS
+    from rdflib.namespace import OWL, RDF, RDFS
+
+    from backend.ontology_kinds import (
+        is_attribute_node, is_attribute_predicate, is_time_series_predicate, with_core,
+    )
 
     dici = Namespace(DICI)
     g = Graph()
     g.parse(data=ttl_text, format="turtle")
+    # The scenario TTL plus the core hierarchy, for every "what is this" question.
+    onto = with_core(g)
+    # rdf:types that are never the component's concrete class in a scenario TTL.
+    skip_types = {dici.Scenario, dici.ComponentLink, dici.Component,
+                  OWL.NamedIndividual, OWL.Thing, RDFS.Resource}
 
     scenario_uri = None
     scenario_name = None
@@ -54,17 +68,21 @@ def draft_from_ttl(ttl_text: str) -> dict[str, Any]:
     # itself, a ComponentLink node, or an ATTRIBUTE INDIVIDUAL — full-emitter
     # TTLs mark attribute nodes with usedInScenario too, and the Streamlit
     # reconstruction had to filter them the same way. An attribute individual
-    # is recognisable as the object of a has…Attribute edge (or a hasAttribute
-    # itself); TimeSeries resources are skipped by type.
+    # is typed under dici_onto:Attribute (the emitter always adds its kind
+    # class) or is the object of a link under dici_onto:hasAttribute; a
+    # TimeSeries resource is typed TimeSeries or hangs off a hasTimeSeries link.
     link_nodes = set(g.subjects(RDF.type, dici.ComponentLink))
     attribute_nodes: set[str] = set()
     for s, p, o in g:
-        local_p = str(p).rsplit("#", 1)[-1].rsplit("/", 1)[-1]
-        if local_p.startswith("has") and (local_p.endswith("Attribute") or local_p == "hasAttribute"):
+        if is_attribute_predicate(onto, p) or is_time_series_predicate(onto, p):
             attribute_nodes.add(str(o))
+    for s in set(g.subjects(dici.usedInScenario, None)):
+        if is_attribute_node(onto, s):
+            attribute_nodes.add(str(s))
     for ts in g.subjects(RDF.type, dici.TimeSeries):
         attribute_nodes.add(str(ts))
     components: list[dict[str, Any]] = []
+    warnings: list[str] = []
     seen: set[str] = set()
     for s in g.subjects(dici.usedInScenario, None):
         uri = str(s)
@@ -73,18 +91,14 @@ def draft_from_ttl(ttl_text: str) -> dict[str, Any]:
         seen.add(uri)
         ctype = None
         for t in g.objects(s, RDF.type):
-            local = str(t).rsplit("#", 1)[-1].rsplit("/", 1)[-1]
-            if local not in _SKIP_TYPES:
-                ctype = local
+            if t not in skip_types:
+                ctype = str(t).rsplit("#", 1)[-1].rsplit("/", 1)[-1]
                 break
         if ctype is None:
-            # Thin scenarios may reference instances without redeclaring the
-            # class; the path-style URI convention carries the type as the
-            # second-to-last segment (…/WindTurbine/Alkmaar_1) — same fallback
-            # the Streamlit builder used.
-            parts = uri.rstrip("/").split("/")
-            if len(parts) >= 2 and parts[-2] not in ("", "proj"):
-                ctype = parts[-2]
+            ctype = (instance_types or {}).get(uri)
+        if ctype is None:
+            warnings.append(f"{uri} has no rdf:type in the scenario or the workspace "
+                            "graph, so its type is unknown")
         label = None
         for lbl in g.objects(s, RDFS.label):
             label = str(lbl)
@@ -123,4 +137,5 @@ def draft_from_ttl(ttl_text: str) -> dict[str, Any]:
         "description": description,
         "components": components,
         "links": links,
+        "warnings": warnings,
     }

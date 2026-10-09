@@ -102,10 +102,12 @@ def test_delete_resolves_name(client, monkeypatch):
     deleted = {}
     monkeypatch.setattr(api_collections, "list_collections", lambda c: LISTING)
     monkeypatch.setattr(api_collections, "delete_collection",
-                        lambda c, iri: deleted.update(iri=iri))
+                        lambda c, iri, ws: deleted.update(iri=iri, ws=ws))
     r = client.delete("/api/workspaces/demo/collections/FloorAreaSet")
     assert r.status_code == 200
     assert deleted["iri"] == COLL
+    # The workspace comes from the request, never parsed out of the IRI.
+    assert deleted["ws"] == "demo"
 
 
 def test_options_shape(client, monkeypatch):

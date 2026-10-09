@@ -10,6 +10,9 @@ import streamlit as st
 import yaml
 from typing import Dict, List, Any, Optional
 
+from rdflib import Graph
+
+from backend.ontology_kinds import DICI, is_scenario_class, with_core
 from components.service_catalog import services_by_name, read_service_text
 
 
@@ -29,8 +32,8 @@ def parse_service_yaml(yaml_content: Dict[str, Any]) -> Dict[str, Any]:
         """Extract component type from URI pattern like 'Location.URI' -> 'Location'"""
         if isinstance(uri_value, str) and '.' in uri_value:
             comp_type = uri_value.split('.')[0]
-            # Exclude Scenario from components
-            if comp_type != 'Scenario':
+            # The scenario node is not a component (decided by the core hierarchy).
+            if not is_scenario_class(with_core(Graph()), DICI[comp_type]):
                 return comp_type
         return None
 

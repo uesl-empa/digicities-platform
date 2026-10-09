@@ -16,6 +16,7 @@ adds the session-state shortcut (the live ``workspace_context``) on top of
 from __future__ import annotations
 
 import os
+from pathlib import PurePosixPath
 from typing import Optional
 
 
@@ -63,11 +64,12 @@ def to_host_display_path(path: str) -> Optional[str]:
     ws_dir = os.environ.get("USECASES_DIR")
     if not host_root or not ws_dir:
         return None
-    p = str(path).replace("\\", "/").rstrip("/")
-    wd = ws_dir.replace("\\", "/").rstrip("/")
-    if p != wd and not p.startswith(wd + "/"):
+    p = PurePosixPath(str(path).replace("\\", "/"))
+    wd = PurePosixPath(ws_dir.replace("\\", "/"))
+    if not p.is_relative_to(wd):
         return None
-    rel = p[len(wd):].lstrip("/")
+    rel = p.relative_to(wd).as_posix()
+    rel = "" if rel == "." else rel
     host_root = host_root.rstrip("/\\")
     # A Windows host root ("C:/...") is rendered with backslashes so it pastes
     # straight into File Explorer; POSIX roots keep forward slashes.

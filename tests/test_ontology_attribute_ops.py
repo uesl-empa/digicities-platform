@@ -141,9 +141,10 @@ def test_set_default_unit_rejects_unknown_code(funcs):
 
 # ── linking attributes to components ─────────────────────────────────────────
 def test_link_attribute_builds_property_stack(funcs):
-    """Linking creates the general has<Comp>Attribute property, the specific
-    has<Comp><Attr> subproperty with domain+range, and reclassifies the
-    attribute under the component's attribute category."""
+    """Linking keeps the general has<Comp>Attribute property's range as the
+    component's category, adds ONE specific has<Comp><Attr>Attribute
+    subproperty with domain+range, and files the attribute under the
+    component's category."""
     funcs.add_component(EXT, "SolarPanel", str(DICI.Component))
     funcs.add_attribute(EXT, "Physical", "PanelArea", qudt_unit="M2")
     ok, msg = funcs.link_attribute(EXT, str(DICI.SolarPanel),
@@ -152,9 +153,10 @@ def test_link_attribute_builds_property_stack(funcs):
 
     g = _ext_graph(funcs)
     general = DICI.hasSolarPanelAttribute
-    specific = DICI.hasSolarPanelPanelArea
-    assert (general, RDFS.range, DICI.PanelArea) in g
+    specific = DICI.hasSolarPanelPanelAreaAttribute
+    assert set(g.objects(general, RDFS.range)) == {DICI.SolarPanelAttribute}
     assert (general, RDFS.domain, DICI.SolarPanel) in g
+    assert (DICI.hasSolarPanelPanelArea, None, None) not in g
     assert (specific, RDF.type, OWL.ObjectProperty) in g
     assert (specific, RDFS.subPropertyOf, general) in g
     assert (specific, RDFS.range, DICI.PanelArea) in g
@@ -162,15 +164,13 @@ def test_link_attribute_builds_property_stack(funcs):
     assert (DICI.PanelArea, RDFS.subClassOf, DICI.SolarPanelAttribute) in g
 
 
-def test_link_attribute_is_idempotent_on_range(funcs):
+def test_link_attribute_is_idempotent(funcs):
     funcs.add_component(EXT, "SolarPanel", str(DICI.Component))
     funcs.add_attribute(EXT, "Physical", "PanelArea", qudt_unit="M2")
     funcs.link_attribute(EXT, str(DICI.SolarPanel), str(DICI.PanelArea))
+    once = set(_ext_graph(funcs))
     funcs.link_attribute(EXT, str(DICI.SolarPanel), str(DICI.PanelArea))
-    g = _ext_graph(funcs)
-    ranges = list(g.triples((DICI.hasSolarPanelAttribute, RDFS.range,
-                             DICI.PanelArea)))
-    assert len(ranges) == 1
+    assert set(_ext_graph(funcs)) == once
 
 
 def test_remove_attribute_link_drops_property_stack(funcs):
@@ -183,7 +183,7 @@ def test_remove_attribute_link_drops_property_stack(funcs):
     assert ok, msg
     g = _ext_graph(funcs)
     assert (DICI.hasSolarPanelAttribute, RDFS.range, DICI.PanelArea) not in g
-    assert not list(g.triples((DICI.hasSolarPanelPanelArea, None, None)))
+    assert not list(g.triples((DICI.hasSolarPanelPanelAreaAttribute, None, None)))
     # the attribute class itself survives — only the link went away
     assert (DICI.PanelArea, RDF.type, OWL.Class) in g
 
@@ -207,13 +207,9 @@ def test_remove_attribute_erases_every_reference(funcs):
     g = _ext_graph(funcs)
     assert not list(g.triples((DICI.PanelArea, None, None)))
     assert not list(g.triples((None, None, DICI.PanelArea)))
-    # Known residue, pinned: the specific property's own declaration triples
-    # (type/subPropertyOf/domain) survive — the sweep only removes triples
-    # whose *predicate* carries the attribute name, and its range triple went
-    # with the object sweep. What matters is that no triple points at the
-    # attribute class anymore (asserted above).
-    leftovers = list(g.triples((DICI.hasSolarPanelPanelArea, None, None)))
-    assert all(o != DICI.PanelArea for _, _, o in leftovers)
+    # The specific link predicate goes with it (found by domain, range and
+    # general predicate).
+    assert not list(g.triples((DICI.hasSolarPanelPanelAreaAttribute, None, None)))
 
 
 # ── categorical attributes + named individuals ───────────────────────────────

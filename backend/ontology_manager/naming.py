@@ -36,6 +36,8 @@ from typing import Iterable, List, Optional
 
 from rdflib import OWL, RDF, RDFS, Graph, Namespace
 
+from backend.ontology_kinds import dici_local_name
+
 DICI = Namespace("https://digicities.info/ontology#")
 SKOS = Namespace("http://www.w3.org/2004/02/skos/core#")
 
@@ -89,9 +91,9 @@ def core_terms(core: Graph) -> dict:
                       ("dataProperty", OWL.DatatypeProperty),
                       ("individual", OWL.NamedIndividual)):
         for s in core.subjects(RDF.type, typ):
-            if not str(s).startswith(str(DICI)):
+            local = dici_local_name(s)
+            if local is None:
                 continue
-            local = str(s)[len(str(DICI)):]
             labels = {str(o) for o in core.objects(s, RDFS.label)}
             labels |= {str(o) for o in core.objects(s, SKOS.altLabel)}
             out.setdefault(local, {"kind": kind, "labels": set()})["labels"] |= labels
@@ -120,7 +122,7 @@ def check_class_name(name: str, core: Optional[Graph] = None,
     if len(name) > MAX_CLASS_NAME:
         chk.errors.append(f"`{name}` is {len(name)} characters — at most {MAX_CLASS_NAME} "
                           "(the workbook sheet that carries its instances cuts longer names)")
-    if name.endswith("Attribute") and name != "Attribute":
+    if name.endswith("Attribute") and name != "Attribute":  # debt-ok: naming rule for proposed names (the suffix is reserved for generated categories)
         chk.errors.append(f"`{name}` ends in `Attribute`, which is reserved for the attribute "
                           "structure the platform generates for every component")
     if name in set(existing):

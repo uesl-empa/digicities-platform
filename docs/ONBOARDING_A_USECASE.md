@@ -52,8 +52,8 @@ Before touching Digicities, answer (from the model's code + its data files):
    a Redis stream, a CLI? What does a successful result look like?
 4. **Which values are settings of the model, not facts about the system?** A value
    that sets a boundary condition of the model run (a model choice, a calibration
-   constant, a run name, a stream address) is configuration of the service, not an
-   attribute of a component. A config file is never a component.
+   constant, a run name) is configuration of the service, not an
+   attribute of a component. A live data stream that delivers a component's values is not configuration: it belongs to that component, as the `hasLiveTimeSeriesReference` of one of its attributes. A config file is never a component.
 5. **Does the model want statistics over a population?** A mean or count over the
    records linked to each container (the apples on each tree) is derived by the
    platform from those records, not stored as a column.

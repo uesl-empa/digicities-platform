@@ -42,6 +42,7 @@ from backend.graphdb.graphs import (
     SCENARIOS_GRAPH,
     COLLECTIONS_GRAPH,
     SERVICES_GRAPH,
+    INFERRED_OF,
 )
 
 from .context import WorkspaceContext
@@ -280,6 +281,71 @@ def clear_default_graph(repo_id: str, base_url: Optional[str] = None) -> bool:
 # Per-workspace provisioning
 # ---------------------------------------------------------------------------
 
+def closed_sections(schema_raw, instances_raw, services_raw) -> dict:
+    """{graph IRI: graph} for the closed sections, asserted and inferred apart.
+
+    The closure is computed as before: the schema on its own, the instances
+    and the services each together with the schema. What a section asserts is
+    written to its graph as asserted (minus the schema it repeats); what the
+    closure adds is written to the section's inferred companion
+    (``INFERRED_OF``). An inferred triple already asserted elsewhere in the
+    same section is not repeated.
+    """
+    import rdflib
+    from .inference import materialize
+
+    def closure(*parts) -> "rdflib.Graph":
+        g = rdflib.Graph()
+        for part in parts:
+            g += part
+        materialize(g, profile="rdfs-plus")
+        return g
+
+    schema_closed = closure(schema_raw)
+    out = {ONTOLOGY_GRAPH: schema_raw,
+           INFERRED_OF[ONTOLOGY_GRAPH]: schema_closed - schema_raw}
+    for graph_iri, raw in ((CLASSES_AND_ATTRIBUTES_GRAPH, instances_raw),
+                           (SERVICES_GRAPH, services_raw)):
+        asserted = raw - schema_closed
+        inferred = (closure(schema_raw, raw) - schema_closed) - raw if len(raw) else rdflib.Graph()
+        out[graph_iri] = asserted
+        out[INFERRED_OF[graph_iri]] = inferred
+    return out
+
+
+def _write_graph(repo_id: str, graph_iri: str, graph) -> bool:
+    """Replace a named graph with ``graph`` (a PUT of an empty graph empties
+    it, so a stale companion never survives)."""
+    return upload_ttl_to_graph(repo_id, graph_iri, graph.serialize(format="turtle"),
+                               replace=True)
+
+
+def refresh_inferred(client) -> bool:
+    """Recompute every inferred companion from the asserted graphs now in the
+    store. Call after replacing an asserted section outside provisioning (the
+    ontology manager's upload, the replica builder's), so no inference outlives
+    the triples it came from. Returns False when a read or write failed."""
+    from backend.graphdb.queries.graph_io import construct_named_graph
+
+    repo_id = getattr(client, "repository", None)
+    if not repo_id:
+        raise ValueError("refresh_inferred needs a client bound to a repository")
+    asserted = {}
+    for graph_iri in (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SERVICES_GRAPH):
+        graph = construct_named_graph(client, graph_iri, inferred=False)
+        if graph is None:
+            print(f"[graphdb_provisioning] refresh_inferred: <{graph_iri}> could not be read")
+            return False
+        asserted[graph_iri] = graph
+    sections = closed_sections(asserted[ONTOLOGY_GRAPH],
+                               asserted[CLASSES_AND_ATTRIBUTES_GRAPH],
+                               asserted[SERVICES_GRAPH])
+    ok = True
+    for graph_iri in INFERRED_OF.values():
+        ok = _write_graph(repo_id, graph_iri, sections[graph_iri]) and ok
+    return ok
+
+
 def _publish_local_working_copy(ctx: WorkspaceContext) -> None:
     """Mirror-backed workspaces: push the local working copy before loading.
 
@@ -339,7 +405,6 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     # materializes inference itself.
 
     import rdflib
-    from .inference import materialize
 
     def _parse_glob(target: rdflib.Graph, pattern: str, kind: str) -> None:
         try:
@@ -381,47 +446,14 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     services_raw = rdflib.Graph()
     _parse_glob(services_raw, "services/*.ttl", "service")
 
-    # --- Materialize the RDFS-Plus closure and split it across the two graphs so
-    #     each is self-sufficient AND inferred *instance* triples (e.g.
-    #     `inst a dici_onto:Component`, derived from `inst a WindTurbine` +
-    #     `WindTurbine rdfs:subClassOf Component`) are physically present — the
-    #     behaviour the old union+inference default graph provided, now without
-    #     touching the default graph.
-    #
-    #     schema graph    = closure(schema)                 — the class/property hierarchy
-    #     instances graph = closure(schema + instances) − closure(schema)
-    #                       — instance triples + everything inferred from the
-    #                         merge, minus the schema (so the schema isn't
-    #                         duplicated and stays independently replaceable). ---
-    schema = rdflib.Graph()
-    schema += schema_raw
-    try:
-        added = materialize(schema, profile="rdfs-plus")
-        print(f"[graphdb_provisioning] {ctx.id}: schema closure +{added} inferred = {len(schema)} total")
-    except Exception as exc:
-        print(f"[graphdb_provisioning] schema inference skipped: {exc}")
-
-    merged = rdflib.Graph()
-    merged += schema_raw
-    merged += instances_raw
-    try:
-        added = materialize(merged, profile="rdfs-plus")
-        print(f"[graphdb_provisioning] {ctx.id}: merged closure +{added} inferred = {len(merged)} total")
-    except Exception as exc:
-        print(f"[graphdb_provisioning] merged inference skipped: {exc}")
-
-    # Instance graph = merged closure minus the schema closure (rdflib set diff).
-    instances = merged - schema
-
-    services = rdflib.Graph()
-    if len(services_raw):
-        services += schema_raw
-        services += services_raw
-        try:
-            materialize(services, profile="rdfs-plus")
-        except Exception as exc:
-            print(f"[graphdb_provisioning] services inference skipped: {exc}")
-        services = services - schema
+    # --- Materialize the RDFS-Plus closure and keep it apart from what was
+    #     asserted: each closed section is written as asserted, and what the
+    #     closure adds goes to its inferred companion (graphs.INFERRED_OF), so
+    #     readers can still rely on inferred triples (they read both by
+    #     default) while "which link did the user choose" stays answerable. ---
+    sections = closed_sections(schema_raw, instances_raw, services_raw)
+    print(f"[graphdb_provisioning] {ctx.id}: "
+          + ", ".join(f"<{g}> {len(t)}" for g, t in sections.items()))
 
     # Keep the default graph empty. Earlier (pre-named-graph) provisioning runs
     # dumped the full merged graph into the default graph; clear it so no reader
@@ -438,26 +470,12 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     #     instance/scenario writes are best-effort. <system_description> is left
     #     alone here so re-provisioning on workspace open never wipes the links
     #     the Replica Builder writes there. ---
-    try:
-        if not upload_ttl_to_graph(repo_id, ONTOLOGY_GRAPH, schema.serialize(format="turtle"), replace=True):
-            return False
-        print(f"[graphdb_provisioning] {ctx.id}: wrote {len(schema)} triples to <{ONTOLOGY_GRAPH}>")
-    except Exception as exc:
-        print(f"[graphdb_provisioning] upload of schema graph failed: {exc}")
-        return False
-
-    for graph_iri, graph in (
-        (CLASSES_AND_ATTRIBUTES_GRAPH, instances),
-        (SCENARIOS_GRAPH, scenarios),
-        (SERVICES_GRAPH, services),
-    ):
-        try:
-            if not upload_ttl_to_graph(repo_id, graph_iri, graph.serialize(format="turtle"), replace=True):
-                print(f"[graphdb_provisioning] {ctx.id}: named-graph write to <{graph_iri}> failed (non-fatal)")
-            else:
-                print(f"[graphdb_provisioning] {ctx.id}: wrote {len(graph)} triples to <{graph_iri}>")
-        except Exception as exc:
-            print(f"[graphdb_provisioning] {ctx.id}: named-graph write to <{graph_iri}> raised (non-fatal): {exc}")
+    if not _write_graph(repo_id, ONTOLOGY_GRAPH, sections[ONTOLOGY_GRAPH]):
+        return False                     # queries are useless without the schema
+    for graph_iri, graph in [(SCENARIOS_GRAPH, scenarios)] + [
+            (g, t) for g, t in sections.items() if g != ONTOLOGY_GRAPH]:
+        if not _write_graph(repo_id, graph_iri, graph):
+            print(f"[graphdb_provisioning] {ctx.id}: named-graph write to <{graph_iri}> failed (non-fatal)")
 
     # Collections are DERIVED from the authored replica — but a plain
     # workspace reopen re-uploads IDENTICAL data, and collections must survive

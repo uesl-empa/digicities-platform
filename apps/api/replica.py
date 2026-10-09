@@ -28,6 +28,21 @@ def _project_uri(ctx: WorkspaceContext) -> str:
     return f"{_PROJECT_PREFIX}/{ctx.id}"
 
 
+def _workspace_ontology(ctx: WorkspaceContext):
+    """The workspace's ontology extension, which the converter needs to link
+    each value by its declared predicate. A 400 when it cannot be read: the
+    converter never makes a predicate up instead."""
+    from backend.api_submission.materialize import workspace_schema
+
+    unread: list = []
+    schema = workspace_schema(getattr(ctx, "storage", None), skipped=unread)
+    if schema is None:
+        why = unread[0]["error"] if unread else "the workspace has no storage"
+        raise HTTPException(status_code=400,
+                            detail=f"The workspace ontology extension could not be read ({why}).")
+    return schema
+
+
 @router.get("/config")
 def config(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, str]:
     return {"workspace": ctx.id, "project_uri": _project_uri(ctx)}
@@ -64,6 +79,7 @@ def replica_model(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     ``draft`` is the same :class:`ReplicaDraft` schema ``POST /generate``
     accepts, so a client can GET the model, edit it, and POST it back.
     """
+    from backend.api_submission.materialize import workspace_schema
     from backend.replica_builder.draft import ReplicaDraft
     from backend.replica_builder.excel_import import parse_generated_ttl
 
@@ -73,8 +89,13 @@ def replica_model(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
         return {"file": None, "instances": [], "draft": {"components": []}}
     f = files[0]
     project_uri = _project_uri(ctx)
+    # The workspace schema says which type of a categorical node is its own
+    # attribute class and which is the category it holds.
+    unread: list = []
+    schema = workspace_schema(getattr(ctx, "storage", None), skipped=unread)
     try:
-        instances = parse_generated_ttl(f.read_text(encoding="utf-8"), project_uri=project_uri)
+        instances = parse_generated_ttl(f.read_text(encoding="utf-8"), project_uri=project_uri,
+                                        ontology=schema)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not parse {f.name}: {exc}") from exc
     draft = ReplicaDraft.from_instances(instances, project_uri=project_uri)
@@ -82,6 +103,9 @@ def replica_model(ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
         "file": f.name,
         "instances": [inst.to_dict() for inst in instances],
         "draft": draft.to_dict(),
+        "warnings": [f"The workspace ontology extension could not be read ({u['error']}); "
+                     "categorical values that the data does not state may be missing."
+                     for u in unread],
     }
 
 
@@ -107,8 +131,10 @@ def import_workbook(
 
     from backend.replica_builder.utils.create_class_and_attribute_graph import process_excel_to_ttl
 
+    ontology = _workspace_ontology(ctx)
     try:
-        process_excel_to_ttl(_project_uri(ctx), str(xlsx_path), str(ttl_path), uri_mode="default")
+        process_excel_to_ttl(_project_uri(ctx), str(xlsx_path), str(ttl_path), uri_mode="default",
+                             ontology=ontology)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
 
@@ -163,8 +189,10 @@ def generate(spec: ReplicaSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dic
 
     from backend.replica_builder.utils.create_class_and_attribute_graph import process_excel_to_ttl
 
+    ontology = _workspace_ontology(ctx)
     try:
-        process_excel_to_ttl(_project_uri(ctx), str(xlsx), str(ttl_path), uri_mode="default")
+        process_excel_to_ttl(_project_uri(ctx), str(xlsx), str(ttl_path), uri_mode="default",
+                             ontology=ontology)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Generation failed: {exc}") from exc
     ttl = ttl_path.read_text(encoding="utf-8") if ttl_path.exists() else ""

@@ -54,7 +54,9 @@ def _write_service(storage, attrs):
 
 def _write_scenario(storage, name="Baseline", service="WindSvc", turbines=("T1", "T2")):
     site = f"{PROJ}/Site/Park1"
-    comps = [site] + [f"{PROJ}/WindTurbine/{t}" for t in turbines]
+    # Each reference declares its class: the type is never read off the IRI.
+    comps = [{"uri": site, "type": "Site"}] + [
+        {"uri": f"{PROJ}/WindTurbine/{t}", "type": "WindTurbine"} for t in turbines]
     sc = scenario_uri_for("testws", name)
     links = [(sc, site)] + [(site, f"{PROJ}/WindTurbine/{t}") for t in turbines]
     ttl = build_scenario_ttl(scenario_name=name, workspace_id="testws",
@@ -277,4 +279,48 @@ def test_materialized_full_files_are_never_synced(storage, monkeypatch):
     rep = sync_mod.sync_scenarios_for_service(storage, _FakeClient(), svc)
     assert rep["scenarios"] == []
     assert storage.exists("scenarios/Baseline_full.ttl")
+    assert not storage.glob("scenarios/_archive/*.ttl")
+
+
+# ── a thin scenario's bare references take their type from the graph ─────────
+def _write_bare_scenario(storage, name="Bare"):
+    """A thin scenario that only references instances (no rdf:type of its own)."""
+    site, t1 = f"{PROJ}/Site/Park1", f"{PROJ}/WindTurbine/T1"
+    sc = scenario_uri_for("testws", name)
+    ttl = build_scenario_ttl(scenario_name=name, workspace_id="testws",
+                             components=[site, t1], links=[(sc, site), (site, t1)],
+                             service_name="WindSvc", scenario_uri=sc)
+    storage.write_text(f"scenarios/{name}.ttl", ttl)
+    return f"scenarios/{name}.ttl"
+
+
+def test_bare_references_typed_from_the_graph(storage, monkeypatch):
+    svc = _write_service(storage, {"HubHeight": ["Static"]})
+    rel = _write_bare_scenario(storage)
+    before = storage.read_text(rel)
+    monkeypatch.setattr(sync_mod, "_instance_types", lambda client: (
+        {f"{PROJ}/Site/Park1": "Site", f"{PROJ}/WindTurbine/T1": "WindTurbine"}, []))
+    monkeypatch.setattr(sync_mod, "attach_graph_attributes", _graph_attrs(_all_attrs()))
+    rep = sync_mod.sync_scenarios_for_service(storage, _FakeClient(), svc)
+    (entry,) = rep["scenarios"]
+    assert entry["action"] == "unchanged"
+    assert storage.read_text(rel) == before
+
+
+@pytest.mark.parametrize("types,failures,reason", [
+    ({}, ["instance types (ConnectionError)"], "graph read failed"),
+    # The graph answers but does not hold this instance: the old code read the
+    # type off the IRI path (.../WindTurbine/T1); now the scenario is left alone.
+    ({f"{PROJ}/Site/Park1": "Site"}, [], "no type for"),
+])
+def test_unknown_types_never_prune(storage, monkeypatch, types, failures, reason):
+    svc = _write_service(storage, {"HubHeight": ["Static"]})
+    rel = _write_bare_scenario(storage)
+    before = storage.read_text(rel)
+    monkeypatch.setattr(sync_mod, "_instance_types", lambda client: (types, failures))
+    monkeypatch.setattr(sync_mod, "attach_graph_attributes", _graph_attrs({}))
+    rep = sync_mod.sync_scenarios_for_service(storage, _FakeClient(), svc)
+    (entry,) = rep["scenarios"]
+    assert entry["action"] == "skipped" and reason in entry["detail"]
+    assert storage.read_text(rel) == before
     assert not storage.glob("scenarios/_archive/*.ttl")

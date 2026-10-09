@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 # Pure URI helper (relocated out of the legacy ttl_use_case_loader).
 from components.scenario_builder.component_display_utils import get_uri_fragment
+from backend.scenario_builder.semantics import names_scenario_class
 
 TTL_UTILS_AVAILABLE = True
 
@@ -27,35 +28,13 @@ except ImportError:
 
 
 def get_component_type_from_uri(uri: str) -> str:
-    """Extract component type from URI by parsing the path structure"""
-    try:
-        # Remove the base URL and split by '/'
-        if '://' in uri:
-            # Split off the protocol and domain
-            path_part = uri.split('://', 1)[1]
-            # Find the first '/' after the domain to get the path
-            if '/' in path_part:
-                path = path_part.split('/', 1)[1]
-            else:
-                return 'Unknown'
-        else:
-            path = uri
-
-        # Split the path into segments
-        segments = [seg for seg in path.split('/') if seg]  # Remove empty segments
-
-        # The component type should be the second-to-last segment
-        # Format: .../project/use_case/ComponentType/instance_name
-        if len(segments) >= 2:
-            return segments[-2]  # Second-to-last segment
-        elif len(segments) == 1:
-            return segments[0]  # If only one segment, use it
-        else:
-            return 'Unknown'
-
-    except Exception:
-        # Fallback to the original logic if parsing fails
-        return 'Unknown'
+    """The type of the scenario component with this URI, as loaded from the
+    graph, or 'Unknown' when the scenario holds no such component. The type is
+    never read off the URI's spelling."""
+    for comp in st.session_state.get('scenario_components', []):
+        if comp.get('uri') == uri and comp.get('type'):
+            return comp['type']
+    return 'Unknown'
 
 
 def get_all_component_types_in_scenario() -> List[str]:
@@ -321,7 +300,7 @@ def get_requirement_status(requirement_pattern: str) -> Dict[str, Any]:
     target_type = parsed['target_type']
 
     # Check if this is an automatic scenario link
-    is_automatic = source_type == 'Scenario'
+    is_automatic = names_scenario_class(source_type)
 
     if is_automatic:
         # Count automatic links for this requirement

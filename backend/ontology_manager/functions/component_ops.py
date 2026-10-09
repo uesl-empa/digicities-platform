@@ -8,11 +8,14 @@ File: components/ontology_manager/functions/components.py
 Mixin for component CRUD operations and hierarchy management.
 """
 
-import re
-
 import rdflib
 from rdflib import Namespace, RDF, RDFS, Literal, URIRef, OWL
-from typing import List, Dict, Tuple
+from typing import Iterable, List, Dict, Tuple
+
+from backend.ontology_kinds import is_attribute_class, is_component_class
+from backend.ontology_scaffold import (
+    ensure_scaffold, local_name, own_category, own_general_predicate, specific_predicates_of,
+)
 
 dici_onto = Namespace("https://digicities.info/ontology#")
 
@@ -135,25 +138,23 @@ class ComponentMixin:
 
     def add_component(self, extension_filename: str, new_component_label: str,
                       parent_component: str) -> Tuple[bool, str]:
-        """Add a new component to the ontology.
+        """Add a new component to the ontology, with its scaffold.
 
         The name is formed from the label by the shared naming rules
         (:mod:`backend.ontology_manager.naming`) and refused when it is not a
         valid class name, redefines a core term or already exists; the parent
-        must be an existing class (core or this extension)."""
+        must be an existing component class (core or this extension). The new
+        class gets its own category and general predicate under its parent's
+        (:func:`backend.ontology_scaffold.ensure_scaffold`), and so does every
+        ancestor that has none yet."""
         try:
             from ..naming import check_class_name, class_name
             from .. import hierarchy
 
             new_component = class_name(new_component_label)
-            core_mod = extension_filename == "CORE_ONTOLOGY_MODIFICATION"
-
-            if core_mod:
-                if self.use_nextcloud:
-                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
-                ext_graph = self.load_core_ontology()
-            else:
-                ext_graph = self.load_extension(extension_filename)
+            core_mod = extension_filename == self.CORE_TARGET
+            ext_graph = self._edit_graph(extension_filename)
+            view = self._schema_view(extension_filename, ext_graph)
 
             core = self.load_core_ontology()
             chk = check_class_name(new_component, core=None if core_mod else core,
@@ -162,169 +163,128 @@ class ComponentMixin:
             if not chk.ok:
                 return False, f"Cannot add `{new_component}`: {'; '.join(chk.errors)}"
 
-            parent_local = parent_component.split('#')[-1]
-            parent_component_uri = dici_onto[parent_local]
-            if parent_local not in hierarchy.classes(core) | hierarchy.classes(ext_graph):
-                return False, (f"Cannot add `{new_component}`: its parent `{parent_local}` is not "
-                               "a class in the core ontology or this extension — add the parent "
-                               "first")
+            parent_ref = self._class_ref(parent_component)
+            if not is_component_class(view, parent_ref):
+                return False, (f"Cannot add `{new_component}`: its parent "
+                               f"`{local_name(parent_ref)}` is not a component class in the "
+                               "core ontology or this extension; add the parent first")
 
             new_component_uri = dici_onto[new_component]
             ext_graph.add((new_component_uri, RDF.type, OWL.Class))
-            ext_graph.add((new_component_uri, RDFS.subClassOf, parent_component_uri))
+            ext_graph.add((new_component_uri, RDFS.subClassOf, parent_ref))
             ext_graph.add((new_component_uri, RDFS.label, Literal(new_component_label)))
+            ensure_scaffold(view, ext_graph, new_component_uri)
 
-            self.create_component_attribute_hierarchy(ext_graph, new_component, parent_component)
-
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                self.save_core_ontology(ext_graph)
-                self.update_temp_and_export_core_mod()
-            else:
-                self.save_extension(extension_filename, ext_graph)
-                self.update_temp_and_export(extension_filename)
-
+            self._persist(extension_filename, ext_graph)
             note = f" Note: {'; '.join(chk.warnings)}." if chk.warnings else ""
-            return True, f"Component `{new_component}` added under `{parent_local}`.{note}"
+            return True, (f"Component `{new_component}` added under "
+                          f"`{local_name(parent_ref)}`.{note}")
         except Exception as e:
             return False, f"Error adding component: {str(e)}"
 
-    def remove_component(self, extension_filename: str, component_uri: str) -> Tuple[bool, str]:
-        """Remove a component and all its associated triples"""
-        try:
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                if self.use_nextcloud:
-                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
-                ext_graph = self.load_core_ontology()
-            else:
-                ext_graph = self.load_extension(extension_filename)
+    @staticmethod
+    def _class_ref(term: str) -> URIRef:
+        """A class given as a full IRI or a dici local name."""
+        term = str(term)
+        return URIRef(term) if "://" in term else dici_onto[term]
 
+    def remove_component(self, extension_filename: str, component_uri: str) -> Tuple[bool, str]:
+        """Remove a component, its own scaffold (general predicate, specific
+        predicates and, once nothing hangs under it, its category) and every
+        triple that mentions it."""
+        try:
+            ext_graph = self._edit_graph(extension_filename)
+            view = self._schema_view(extension_filename, ext_graph)
             component_ref = URIRef(component_uri)
-            component_local = component_uri.split('#')[-1]
+            name = local_name(component_ref)
 
             # A class with subclasses can't go first: removing it would strip their
             # parent and leave them floating outside the tree. Proper sequence:
             # move or remove the subclasses, then the class.
-            subs = sorted(str(s).split('#')[-1]
+            subs = sorted(local_name(s)
                           for s in ext_graph.subjects(RDFS.subClassOf, component_ref)
-                          if s != component_ref
-                          and not str(s).split('#')[-1].endswith("Attribute"))
+                          if s != component_ref and not is_attribute_class(view, s))
             if subs:
-                return False, (f"Cannot remove `{component_local}`: "
+                return False, (f"Cannot remove `{name}`: "
                                f"{', '.join(f'`{s}`' for s in subs)} "
-                               f"{'is' if len(subs) == 1 else 'are'} under it — move or remove "
+                               f"{'is' if len(subs) == 1 else 'are'} under it; move or remove "
                                f"{'it' if len(subs) == 1 else 'them'} first")
 
-            # The properties this component owns, collected BEFORE the component's
-            # triples go (their domain triples point at it): has<X>Attribute and the
-            # per-attribute has<X><Attr>[Attribute] properties declared for it.
-            owned = {dici_onto["has" + component_local + "Attribute"]}
-            owned |= {p for p in ext_graph.subjects(RDFS.domain, component_ref)
-                      if str(p).startswith(str(dici_onto) + "has" + component_local)}
+            # Its own scaffold, read BEFORE its triples go (the domain and range
+            # triples are how it is found).
+            general = own_general_predicate(view, component_ref)
+            category = own_category(view, component_ref)
+            owned = set(specific_predicates_of(view, component_ref))
+            if general is not None:
+                owned.add(general)
 
-            # Remove all triples where this component is the subject
-            triples_to_remove = list(ext_graph.triples((component_ref, None, None)))
-            for triple in triples_to_remove:
+            for triple in list(ext_graph.triples((component_ref, None, None))):
                 ext_graph.remove(triple)
-
-            # Remove all triples where this component is the object
-            triples_to_remove = list(ext_graph.triples((None, None, component_ref)))
-            for triple in triples_to_remove:
+            for triple in list(ext_graph.triples((None, None, component_ref))):
                 ext_graph.remove(triple)
-
-            # Remove exactly the properties it owned — never every predicate that
-            # merely STARTS with has<X> (removing `Wind` used to wipe `hasWindTurbine…`).
             for prop in owned:
                 for triple in list(ext_graph.triples((prop, None, None))):
                     ext_graph.remove(triple)
                 for triple in list(ext_graph.triples((None, None, prop))):
                     ext_graph.remove(triple)
-            self.cleanup_orphaned_attribute_classes(ext_graph)
+            if category is not None:
+                self.cleanup_orphaned_attribute_classes(ext_graph, [category])
 
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                self.save_core_ontology(ext_graph)
-                self.update_temp_and_export_core_mod()
-            else:
-                self.save_extension(extension_filename, ext_graph)
-                self.update_temp_and_export(extension_filename)
-
+            self._persist(extension_filename, ext_graph)
             return True, "Component removed successfully"
         except Exception as e:
             return False, f"Error removing component: {str(e)}"
 
     def change_component_parent(self, extension_filename: str, component_uri: str,
                                 new_parent_uri: str) -> Tuple[bool, str]:
-        """Change the parent class of a component and update the entire attribute hierarchy"""
+        """Move a component under another parent. Its category and general
+        predicate move with it (under the new parent's), so its attributes and
+        its subclasses' scaffolds follow without being touched."""
         try:
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                if self.use_nextcloud:
-                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
-                ext_graph = self.load_core_ontology()
-            else:
-                ext_graph = self.load_extension(extension_filename)
-
+            ext_graph = self._edit_graph(extension_filename)
+            view = self._schema_view(extension_filename, ext_graph)
             component_ref = URIRef(component_uri)
             new_parent_ref = URIRef(new_parent_uri)
-            component_local = component_uri.split('#')[-1]
-            new_parent_local = new_parent_uri.split('#')[-1]
+            component_local = local_name(component_ref)
+            new_parent_local = local_name(new_parent_ref)
 
             # The proper sequence, checked on core + extension: the class is this
-            # extension's own (a core class keeps its core parent — re-parenting it
+            # extension's own (a core class keeps its core parent; re-parenting it
             # here would give it two), the new parent exists, and the move doesn't
             # put the class under itself.
             from .. import hierarchy
             core = self.load_core_ontology()
             merged = core + ext_graph
-            if extension_filename != "CORE_ONTOLOGY_MODIFICATION":
+            if extension_filename != self.CORE_TARGET:
                 if component_local not in hierarchy.classes(ext_graph):
                     return False, (f"`{component_local}` is not a class of this extension"
                                    + (" (it is a core class)"
                                       if component_local in hierarchy.classes(core) else ""))
             if new_parent_local not in hierarchy.classes(merged):
                 return False, (f"`{new_parent_local}` is not a class in the core ontology or "
-                               "this extension — add it first")
+                               "this extension; add it first")
             if hierarchy.would_cycle(merged, component_local, new_parent_local):
                 return False, (f"`{new_parent_local}` is `{component_local}` itself or sits "
-                               f"under it — a class can't be moved under its own subclass")
+                               f"under it; a class can't be moved under its own subclass")
 
-            # Get all attributes currently linked to this component and its descendants
-            component_attributes = self.get_component_and_descendant_attributes(ext_graph, component_local)
-
-            # Remove old component hierarchy
-            self.remove_existing_subclass_relationships(ext_graph, component_ref)
-
-            # Add new parent relationship
+            for old in list(ext_graph.objects(component_ref, RDFS.subClassOf)):
+                ext_graph.remove((component_ref, RDFS.subClassOf, old))
             ext_graph.add((component_ref, RDFS.subClassOf, new_parent_ref))
+            ensure_scaffold(view, ext_graph, component_ref)
 
-            # Create new attribute hierarchy for the new parent chain
-            self.create_component_attribute_hierarchy(ext_graph, component_local, new_parent_ref)
-
-            # Transfer all attributes to the new hierarchy
-            self.transfer_attributes_to_new_hierarchy(ext_graph, component_attributes, component_local)
-
-            # Update property hierarchy
-            self.update_property_hierarchy(ext_graph, component_local, new_parent_ref)
-
-            # Clean up orphaned attribute classes
-            self.cleanup_orphaned_attribute_classes(ext_graph)
-
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                self.save_core_ontology(ext_graph)
-                self.update_temp_and_export_core_mod()
-            else:
-                self.save_extension(extension_filename, ext_graph)
-                self.update_temp_and_export(extension_filename)
-
+            self._persist(extension_filename, ext_graph)
             return True, "Component parent changed and attribute hierarchy updated successfully"
         except Exception as e:
             return False, f"Error changing component parent: {str(e)}"
 
     def rename_component(self, extension_filename: str, component_uri: str,
                          new_label: str) -> Tuple[bool, str]:
-        """Rename a component of this extension and everything the platform generated
-        for it: the class, its ``<X>Attribute`` scaffold class, ``has<X>Attribute``,
-        the per-attribute properties declared for it (``has<X><Attr>…``) and the link
-        properties named after it (``partOf<X>``), every triple that mentions them,
-        and their labels. The new name follows the shared naming rules.
+        """Rename a component of this extension and its own scaffold: the class,
+        its category, its general predicate and its specific predicates, in
+        every triple that mentions them. The scaffold is found by its triples
+        and the new terms are minted by the same rule ``add_component`` and
+        ``link_attribute`` use. The class takes ``new_label``; its category
+        takes the generated label.
 
         Instance data in the replica is typed by the class name, so instances keep
         the old name until the replica is rebuilt from its workbook (the message
@@ -333,11 +293,13 @@ class ComponentMixin:
             from ..naming import check_class_name, class_name
             from .. import hierarchy
 
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
+            if extension_filename == self.CORE_TARGET:
                 return False, "Core classes are renamed in the ontology repository, not here"
             ext_graph = self.load_extension(extension_filename)
+            view = self._schema_view(extension_filename, ext_graph)
             core = self.load_core_ontology()
-            old = component_uri.split('#')[-1]
+            old_uri = URIRef(component_uri)
+            old = local_name(old_uri)
             new = class_name(new_label)
             ext_classes = hierarchy.classes(ext_graph)
             if old not in ext_classes:
@@ -350,44 +312,35 @@ class ComponentMixin:
             if not chk.ok:
                 return False, f"Cannot rename `{old}` to `{new}`: {'; '.join(chk.errors)}"
 
-            old_uri, new_uri = dici_onto[old], dici_onto[new]
-            rename = {old_uri: new_uri,
-                      dici_onto[old + "Attribute"]: dici_onto[new + "Attribute"],
-                      dici_onto["has" + old + "Attribute"]: dici_onto["has" + new + "Attribute"]}
-            # Properties generated for this class: named after it AND pointing at it.
-            for p in set(ext_graph.subjects(RDFS.domain, old_uri)) | \
-                    set(ext_graph.subjects(RDFS.range, old_uri)):
-                local = str(p).split('#')[-1]
-                if not str(p).startswith(str(dici_onto)):
-                    continue
-                if local.startswith("has" + old):
-                    rename[p] = dici_onto["has" + new + local[len("has" + old):]]
-                elif local.endswith(old) and local != old:
-                    rename[p] = dici_onto[local[:-len(old)] + new]
-            clash = [str(t).split('#')[-1] for f, t in rename.items()
-                     if f != t and (t, None, None) in ext_graph]
+            new_uri = dici_onto[new]
+            rename = {old_uri: new_uri}
+            general = own_general_predicate(view, old_uri)
+            category = own_category(view, old_uri)
+            if general is not None:
+                rename[general] = dici_onto[f"has{new}Attribute"]
+            if category is not None:
+                rename[category] = dici_onto[f"{new}Attribute"]
+            for p in specific_predicates_of(view, old_uri):
+                for attr in view.objects(p, RDFS.range):
+                    rename[p] = dici_onto[f"has{new}{local_name(attr)}Attribute"]
+            clash = [local_name(t) for f, t in rename.items()
+                     if f != t and (t, None, None) in view]
             if clash:
                 return False, (f"Cannot rename `{old}` to `{new}`: "
                                f"{', '.join(f'`{c}`' for c in clash)} already exist")
 
-            old_human = {old, re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", old)}
             renamed = rdflib.Graph()
             for prefix, ns in ext_graph.namespaces():
                 renamed.bind(prefix, ns)
             for s, p, o in ext_graph:
-                s2, p2, o2 = rename.get(s, s), rename.get(p, p), rename.get(o, o)
-                if p == RDFS.label and s in rename and isinstance(o, Literal):
-                    # a generated label follows the name; a hand-written one stays
-                    text = str(o)
-                    for h in sorted(old_human, key=len, reverse=True):
-                        if h in text:
-                            o2 = Literal(text.replace(h, re.sub(r"(?<=[a-z0-9])(?=[A-Z])",
-                                                                " ", new)), lang=o.language)
-                            break
-                renamed.add((s2, p2, o2))
+                if p == RDFS.label and s in (old_uri, category):
+                    continue                      # set below
+                renamed.add((rename.get(s, s), rename.get(p, p), rename.get(o, o)))
+            renamed.add((new_uri, RDFS.label, Literal(new_label)))
+            if category is not None:
+                renamed.add((rename[category], RDFS.label, Literal(f"{new} Attribute")))
 
-            self.save_extension(extension_filename, renamed)
-            self.update_temp_and_export(extension_filename)
+            self._persist(extension_filename, renamed)
             moved = len(rename) - 1
             return True, (f"Renamed `{old}` to `{new}`"
                           + (f" (and {moved} generated term{'s' if moved != 1 else ''})"
@@ -399,184 +352,16 @@ class ComponentMixin:
 
     # =================== Component Helper Functions ===================
 
-    def create_component_attribute_hierarchy(self, graph: rdflib.Graph,
-                                             new_component_local: str,
-                                             parent_component_uri: str):
-        """Create the complete attribute hierarchy for a new component"""
-        component_chain = self.get_component_hierarchy_chain(graph, parent_component_uri)
-        component_chain.append(new_component_local)
-
-        previous_attribute_class = dici_onto["ComponentAttribute"]
-
-        for component_local in component_chain:
-            current_attribute_class = dici_onto[component_local + "Attribute"]
-
-            attribute_exists = False
-            for triple in graph.triples((current_attribute_class, RDF.type, OWL.Class)):
-                attribute_exists = True
-                break
-
-            if not attribute_exists:
-                graph.add((current_attribute_class, RDF.type, OWL.Class))
-                graph.add((current_attribute_class, RDFS.subClassOf, previous_attribute_class))
-                graph.add((current_attribute_class, RDFS.label, Literal(component_local + " Attribute")))
-
-            previous_attribute_class = current_attribute_class
-
-        # Create the property for the new component
-        new_property = dici_onto["has" + new_component_local + "Attribute"]
-        parent_local = str(parent_component_uri).split('#')[-1]
-        parent_property = dici_onto["has" + parent_local + "Attribute"]
-
-        graph.add((new_property, RDF.type, OWL.ObjectProperty))
-        graph.add((new_property, RDFS.subPropertyOf, parent_property))
-        graph.add((new_property, RDFS.domain, dici_onto[new_component_local]))
-
-    def get_component_hierarchy_chain(self, graph: rdflib.Graph,
-                                      component_uri: str) -> List[str]:
-        """Get the complete hierarchy chain from the first child of Component down to the given component"""
-        hierarchy = []
-        current_component = component_uri
-
-        while current_component:
-            current_local = str(current_component).split('#')[-1]
-
-            if current_local == "Component":
-                break
-
-            hierarchy.insert(0, current_local)
-
-            parent_found = False
-            for triple in graph.triples((current_component, RDFS.subClassOf, None)):
-                parent_component = triple[2]
-                parent_local = str(parent_component).split('#')[-1]
-
-                if str(parent_component).startswith(str(dici_onto)):
-                    current_component = parent_component
-                    parent_found = True
-                    break
-
-            if not parent_found:
-                break
-
-        return hierarchy
-
-    def get_component_and_descendant_attributes(self, graph: rdflib.Graph,
-                                                component_local: str) -> List[Dict]:
-        """Get all attributes linked to this component and all its descendant components"""
-        attributes = []
-
-        component_attribute_class = dici_onto[component_local + "Attribute"]
-        for subj, pred, obj in graph.triples((None, RDFS.subClassOf, component_attribute_class)):
-            subj_local = str(subj).split('#')[-1]
-            if not subj_local.endswith("Attribute") or subj_local == component_local + "Attribute":
+    def cleanup_orphaned_attribute_classes(self, graph: rdflib.Graph,
+                                           candidates: Iterable[URIRef]):
+        """Remove the given categories (of removed components) when no subclass
+        and no property range still uses them."""
+        for attr_class in candidates:
+            if (attr_class, RDF.type, OWL.Class) not in graph:
                 continue
-            attributes.append({
-                'uri': str(subj),
-                'local': subj_local,
-                'component': component_local
-            })
-
-        descendant_components = self.get_descendant_components(graph, component_local)
-        for desc_component in descendant_components:
-            desc_attribute_class = dici_onto[desc_component + "Attribute"]
-            for subj, pred, obj in graph.triples((None, RDFS.subClassOf, desc_attribute_class)):
-                subj_local = str(subj).split('#')[-1]
-                if not subj_local.endswith("Attribute") or subj_local == desc_component + "Attribute":
-                    continue
-                attributes.append({
-                    'uri': str(subj),
-                    'local': subj_local,
-                    'component': desc_component
-                })
-
-        return attributes
-
-    def get_descendant_components(self, graph: rdflib.Graph, component_local: str) -> List[str]:
-        """Get all components that are descendants of the given component"""
-        descendants = []
-        component_uri = dici_onto[component_local]
-
-        for subj, pred, obj in graph.triples((None, RDFS.subClassOf, component_uri)):
-            subj_local = str(subj).split('#')[-1]
-            if str(subj).startswith(str(dici_onto)) and subj_local != component_local:
-                descendants.append(subj_local)
-                descendants.extend(self.get_descendant_components(graph, subj_local))
-
-        return list(set(descendants))
-
-    def remove_existing_subclass_relationships(self, graph: rdflib.Graph, component_ref: URIRef):
-        """Remove existing subClassOf relationships for the component"""
-        triples_to_remove = list(graph.triples((component_ref, RDFS.subClassOf, None)))
-        for triple in triples_to_remove:
-            graph.remove(triple)
-
-    def transfer_attributes_to_new_hierarchy(self, graph: rdflib.Graph,
-                                             attributes: List[Dict],
-                                             moved_component_local: str):
-        """Transfer all attributes to the new hierarchy"""
-        for attr in attributes:
-            attr_uri = URIRef(attr['uri'])
-            attr_component = attr['component']
-
-            old_relationships = list(graph.triples((attr_uri, RDFS.subClassOf, None)))
-            for triple in old_relationships:
-                obj_local = str(triple[2]).split('#')[-1]
-                if obj_local.endswith("Attribute"):
-                    graph.remove(triple)
-
-            new_component_attribute_class = dici_onto[attr_component + "Attribute"]
-            graph.add((attr_uri, RDFS.subClassOf, new_component_attribute_class))
-
-    def update_property_hierarchy(self, graph: rdflib.Graph,
-                                  component_local: str,
-                                  new_parent_ref: URIRef):
-        """Update the property hierarchy for the moved component"""
-        new_parent_local = str(new_parent_ref).split('#')[-1]
-
-        old_property = dici_onto["has" + component_local + "Attribute"]
-        old_relationships = list(graph.triples((old_property, RDFS.subPropertyOf, None)))
-        for triple in old_relationships:
-            graph.remove(triple)
-
-        new_parent_property = dici_onto["has" + new_parent_local + "Attribute"]
-        graph.add((old_property, RDFS.subPropertyOf, new_parent_property))
-
-    def cleanup_orphaned_attribute_classes(self, graph: rdflib.Graph):
-        """Remove attribute classes that no longer have any subclasses or instances"""
-        attribute_classes = []
-        for subj, pred, obj in graph.triples((None, RDF.type, OWL.Class)):
-            subj_local = str(subj).split('#')[-1]
-            if subj_local.endswith("Attribute") and subj_local not in ["Attribute", "ComponentAttribute"]:
-                attribute_classes.append(subj)
-
-        classes_to_remove = []
-        for attr_class in attribute_classes:
-            attr_class_local = str(attr_class).split('#')[-1]
-
-            base_component_name = attr_class_local.replace("Attribute", "")
-            component_exists = False
-            for subj, pred, obj in graph.triples((dici_onto[base_component_name], RDF.type, OWL.Class)):
-                component_exists = True
-                break
-
-            if component_exists:
+            if any(graph.subjects(RDFS.subClassOf, attr_class)):
                 continue
-
-            has_subclasses = False
-            for subj, pred, obj in graph.triples((None, RDFS.subClassOf, attr_class)):
-                has_subclasses = True
-                break
-
-            has_property_references = False
-            for subj, pred, obj in graph.triples((None, RDFS.range, attr_class)):
-                has_property_references = True
-                break
-
-            if not has_subclasses and not has_property_references:
-                classes_to_remove.append(attr_class)
-
-        for class_to_remove in classes_to_remove:
-            triples_to_remove = list(graph.triples((class_to_remove, None, None)))
-            for triple in triples_to_remove:
+            if any(graph.subjects(RDFS.range, attr_class)):
+                continue
+            for triple in list(graph.triples((attr_class, None, None))):
                 graph.remove(triple)

@@ -191,3 +191,19 @@ def test_custom_path_names_rename_block_keys():
     # parses back cleanly with the renamed key as the path
     name, parsed = parse_yaml_to_components(yaml.safe_dump(doc, sort_keys=False))
     assert {e.path for e in parsed} == {"location", "buildings"}
+
+
+def test_requirements_ttl_has_no_stream_vocabulary_for_inputs():
+    """A live input is a component's live time series in the replica (one source
+    of truth): the requirement is an ordinary one on that component's attribute,
+    with no stream address or "feeds" side vocabulary."""
+    ttl = requirements_ttl("Svc", "", [("Weather", ["WindspeedForecast"])],
+                           [("WindPark", "Weather")], BASE)
+    g = rdflib.Graph()
+    g.parse(data=ttl, format="turtle")
+    D = rdflib.Namespace(DICI)
+    (req,) = list(g.subjects(D.hasInputAttribute, D.WindspeedForecast))
+    assert (req, D.hasInputEntity, D.Weather) in g
+    assert "feedsEntity" not in ttl and "atStreamAddress" not in ttl
+    with pytest.raises(TypeError):            # no second way to state a stream
+        requirements_ttl("Svc", "", [], [], BASE, stream_inputs=[])

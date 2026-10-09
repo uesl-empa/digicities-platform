@@ -207,12 +207,13 @@ def test_resolve_categorical_attribute(scenario_state):
 
 def test_resolve_nested_promotes_to_dynamic(scenario_state):
     """Resolving the base attribute of a component with nested TimeSeries
-    properties merges those properties in and re-types it DynamicAttribute."""
+    properties merges those properties in and re-types it dynamic."""
+    from backend.ontology_kinds import AttributeKind
     value, unit, data = sbs.resolve_enhanced_attribute_value(
         st.session_state.scenario_components[1], "Power")
     assert value == "timeseries"
     assert unit == "kW"
-    assert data["attribute_type"] == "DynamicAttribute"
+    assert data["attribute_type"] is AttributeKind.DYNAMIC
     assert data["hasHistoricTimeSeriesReference"] == "resources/demand.csv"
 
     # And the dotted path resolves the nested property directly; the unit

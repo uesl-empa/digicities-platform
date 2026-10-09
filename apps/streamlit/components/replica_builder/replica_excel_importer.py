@@ -507,6 +507,24 @@ def _workspace_default_units() -> Optional[Dict[str, str]]:
     return None
 
 
+def _workspace_ontology():
+    """The active workspace's ontology extension: the converter links each value
+    by the predicate it declares. Raises when there is no workspace or the
+    extension cannot be read, so the import says why instead of guessing."""
+    from backend.api_submission.materialize import workspace_schema
+
+    _ctx = st.session_state.get("workspace_context")
+    if _ctx is None:
+        raise ValueError("Select a workspace first: the import links values by the "
+                         "predicates its ontology extension declares.")
+    unread: list = []
+    schema = workspace_schema(getattr(_ctx, "storage", None), skipped=unread)
+    if schema is None:
+        why = unread[0]["error"] if unread else "the workspace has no storage"
+        raise ValueError(f"The workspace ontology extension could not be read ({why}).")
+    return schema
+
+
 def convert_excel_to_ttl_wrapper(uploaded_file, project_uri: str, uri_mode: str) -> tuple:
     """Wrapper that also returns parsed Excel data for session integration.
 
@@ -534,6 +552,7 @@ def convert_excel_to_ttl_wrapper(uploaded_file, project_uri: str, uri_mode: str)
         ttl_content, instances = _excel_import.import_workbook(
             tmp_input_path, project_uri, uri_mode,
             default_units=_workspace_default_units(),
+            ontology=_workspace_ontology(),
         )
         excel_data = _excel_import.instances_payload(instances)
 
@@ -572,6 +591,7 @@ def parse_excel_file(file_path: str, project_uri: str, uri_mode: str) -> Dict[st
     _, instances = _excel_import.import_workbook(
         file_path, project_uri, uri_mode,
         default_units=_workspace_default_units(),
+        ontology=_workspace_ontology(),
     )
     return _excel_import.instances_payload(instances)
 

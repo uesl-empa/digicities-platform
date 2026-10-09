@@ -442,15 +442,26 @@ def test_service_template_yaml_nests_child_under_parent(client, ws):
 
 
 # ── replica ───────────────────────────────────────────────────────────────────
+def _declare(ws, spec):
+    """Declare the spec's classes and attribute links in the workspace
+    extension, as the Ontology Manager does before any replica is built."""
+    from backend.replica_builder.draft import ReplicaDraft, build_workbook
+    from workbook_schema import declare_workbook
+
+    build_workbook(ReplicaDraft.from_request(spec["components"]), ws / "decl.xlsx")
+    declare_workbook(ws / "decl.xlsx", ws)
+
+
 def test_replica_generate_roundtrip_to_ttl(client, ws):
     spec = {
         "components": [{
             "cls": "Building",
-            "columns": [{"name": "floorArea", "type": "decimal", "unit": "M2"}],
-            "rows": [{"id": "B1", "floorArea": 120.5}],
+            "columns": [{"name": "FloorArea", "type": "Physical", "unit": "M2"}],
+            "rows": [{"id": "B1", "FloorArea": 120.5}],
         }],
         "persist": True,
     }
+    _declare(ws, spec)
     r = client.post(f"{B}/replica/generate", json=spec)
     assert r.status_code == 200, r.text
     ttl = r.json()["ttl"]
@@ -467,6 +478,30 @@ def test_replica_generate_roundtrip_to_ttl(client, ws):
     cfg = client.get(f"{B}/replica/config").json()
     assert cfg == {"workspace": "testws",
                    "project_uri": "https://digicities.info/proj/testws"}
+
+
+def test_replica_generate_refuses_an_undeclared_attribute_link(client, ws):
+    # The converter never makes a predicate up from the sheet and column names.
+    spec = {"components": [{
+        "cls": "Building",
+        "columns": [{"name": "FloorArea", "type": "Physical", "unit": "M2"}],
+        "rows": [{"id": "B1", "FloorArea": 120.5}],
+    }]}
+    r = client.post(f"{B}/replica/generate", json=spec)
+    assert r.status_code == 400
+    assert "Building.FloorArea" in r.json()["detail"]
+
+
+def test_replica_generate_refuses_unknown_column_type(client, ws):
+    # An unknown type used to become a minted dici_onto:<type>Attribute class.
+    spec = {"components": [{
+        "cls": "Building",
+        "columns": [{"name": "floorArea", "type": "decimal", "unit": "M2"}],
+        "rows": [{"id": "B1", "floorArea": 120.5}],
+    }]}
+    r = client.post(f"{B}/replica/generate", json=spec)
+    assert r.status_code == 400
+    assert "unknown column type 'decimal'" in r.json()["detail"]
 
 
 def test_replica_generate_requires_components(client, ws):
@@ -592,7 +627,9 @@ _ONTO_TTL = """\
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix dici_onto: <https://digicities.info/ontology#> .
 dici_onto:HeatPump rdfs:subClassOf dici_onto:Component ; rdfs:label "HeatPump" .
-dici_onto:HeatPumpAttribute rdfs:subClassOf dici_onto:StaticAttribute .
+dici_onto:HeatPumpAttribute rdfs:subClassOf dici_onto:ComponentAttribute .
+dici_onto:hasHeatPumpAttribute rdfs:subPropertyOf dici_onto:hasComponentAttribute ;
+    rdfs:domain dici_onto:HeatPump ; rdfs:range dici_onto:HeatPumpAttribute .
 dici_onto:COP rdfs:subClassOf dici_onto:HeatPumpAttribute .
 dici_onto:ThermalPower rdfs:subClassOf dici_onto:HeatPumpAttribute .
 """
@@ -660,6 +697,19 @@ def test_submission_connection_writeback(client, ws):
     assert t["endpoint"] == "redis://h:6379/req.stream"
 
 
+def test_submission_connection_save_writes_the_transport_only(client, ws):
+    """A connection is how the service is called (transport, request/result
+    streams). The live streams the model reads are components' live time series
+    in the replica, never kept in the connection."""
+    _seed_template(ws, connection={"transport": "redis", "result_stream": "out"})
+    r = client.put(f"{B}/submission/connection", json={
+        "template_file": "Svc.yaml",
+        "connection": {"transport": "redis", "host": "h", "result_stream": "out2"}})
+    assert r.status_code == 200
+    doc = yaml.safe_load((ws / "services" / "Svc.yaml").read_text(encoding="utf-8"))
+    assert doc["connection"] == {"transport": "redis", "host": "h", "result_stream": "out2"}
+
+
 def test_submission_test_probe_degrades_cleanly(client, ws):
     """A connection without a URL reports unreachable, never 500s."""
     _seed_template(ws, connection={"transport": "http", "url": ""})
@@ -683,8 +733,8 @@ def test_submission_convert_materializes_thin_scenarios(client, ws):
 <{wt}> a dici_onto:WindTurbine ;
     dici_onto:hasWindTurbineHubHeightAttribute <{wt}/HubHeight> ;
     dici_onto:hasWindTurbinePowerCurveAttribute <{wt}/PowerCurve> .
-<{wt}/HubHeight> a dici_onto:PhysicalAttribute ; qudt:value 99.5 .
-<{wt}/PowerCurve> a dici_onto:CurveAttribute ;
+<{wt}/HubHeight> a dici_onto:HubHeight, dici_onto:PhysicalAttribute ; qudt:value 99.5 .
+<{wt}/PowerCurve> a dici_onto:PowerCurve, dici_onto:CurveAttribute ;
     dici_onto:hasDataPoints "[[3.0, 0.0], [12.0, 2300.0]]" ;
     dici_onto:xUnitLabel "M-PER-SEC" ; dici_onto:yUnitLabel "KiloW" .
 """, encoding="utf-8")
@@ -1061,6 +1111,20 @@ class _FakeAgentSession:
         self.proposed = str(folder)
         return {"messages": [], "stage": "gates", "error": None}
 
+    def commands(self):
+        return {"stage": "built", "commands": [
+            {"key": "set_link", "area": "Replica", "form": "set link {A}→{B} to {predicate}",
+             "usage": "set link <Class>→<Class> to <predicate>",
+             "description": "Change the predicate of the link between two classes",
+             "when_to_use": "The predicate that links two classes' instances is not the one "
+                            "you want",
+             "example": "set link WindTurbine→WindPark to hasLocation",
+             "example_result": "a preview; reply yes to rebuild", "states": ["built"],
+             "slots": [{"name": "predicate", "kind": "predicate", "label": "predicate",
+                        "help": "A link predicate of the ontology",
+                        "choices": [{"value": "hasLocation", "label": "hasLocation"},
+                                    {"value": "partOf", "label": "partOf"}]}]}]}
+
 
 @pytest.fixture()
 def agent_env(monkeypatch, ws):
@@ -1097,6 +1161,19 @@ def test_agent_session_lifecycle(client, agent_env):
     assert client.get(f"{B}/agent/chats").json()[0]["id"] == "chat-1"
 
 
+def test_agent_commands_for_the_current_step(client, agent_env):
+    """The React chat's command list: the agent registry's commands for the step
+    the conversation is in, with slot choices."""
+    sid = _start_session(client)
+    body = client.get(f"{B}/agent/commands", params={"session_id": sid}).json()
+    assert body["stage"] == "built"
+    cmd = body["commands"][0]
+    assert cmd["area"] == "Replica" and cmd["form"] == "set link {A}→{B} to {predicate}"
+    assert cmd["when_to_use"] and cmd["example_result"] and cmd["slots"][0]["help"]
+    assert cmd["slots"][0]["choices"][0] == {"value": "hasLocation", "label": "hasLocation"}
+    assert client.get(f"{B}/agent/commands", params={"session_id": "nope"}).status_code == 404
+
+
 def test_agent_unknown_session_404(client, agent_env):
     r = client.post(f"{B}/agent/message", json={"session_id": "nope", "text": "x"})
     assert r.status_code == 404
@@ -1117,6 +1194,7 @@ def test_agent_session_scoped_to_its_own_workspace(client, agent_env):
         ("get", f"{B}/agent/message/stream", dict(params={"session_id": foreign_id, "text": "x"})),
         ("post", f"{B}/agent/message/stream", dict(json={"session_id": foreign_id, "text": "x"})),
         ("get", f"{B}/agent/state", dict(params={"session_id": foreign_id})),
+        ("get", f"{B}/agent/commands", dict(params={"session_id": foreign_id})),
         ("post", f"{B}/agent/model", dict(json={"session_id": foreign_id, "model": "opus"})),
         ("post", f"{B}/agent/mode", dict(json={"session_id": foreign_id, "mode": "auto"})),
     ]:
@@ -1482,3 +1560,91 @@ def test_agent_upload_second_zip_accumulates_into_folder(client, agent_env, tmp_
     assert (existing / "park2" / "config.yml").exists() # second zip nested in, not replacing
     assert sess.proposed == str(existing)               # re-proposed on the combined folder
     assert any("Added `park2.zip`" in m[1] for m in sess.state.oa_messages)
+
+
+def _thin_scenario(ws, wt):
+    """A thin scenario: a bare reference to a replica instance, no rdf:type."""
+    from backend.scenario_builder import build_scenario_ttl, scenario_uri_for
+    sc = scenario_uri_for(_Ctx.id, "Thin")
+    (ws / "scenarios").mkdir(exist_ok=True)
+    (ws / "scenarios" / "Thin.ttl").write_text(
+        build_scenario_ttl("Thin", _Ctx.id, [wt], [(sc, wt)], scenario_uri=sc),
+        encoding="utf-8")
+
+
+def test_scenario_draft_types_thin_references_from_the_graph(client, ws, monkeypatch):
+    import backend.scenario_builder.sync as sync_mod
+    wt = "https://x/proj/testws/WindTurbine/W1"
+    _thin_scenario(ws, wt)
+    monkeypatch.setattr(sync_mod, "_instance_types", lambda c: ({wt: "WindTurbine"}, []))
+    d = client.get(f"{B}/scenario/draft", params={"name": "Thin.ttl"}).json()
+    assert d["components"][0]["type"] == "WindTurbine"
+
+
+def test_scenario_draft_says_when_the_graph_cannot_type(client, ws, monkeypatch):
+    import backend.scenario_builder.sync as sync_mod
+    wt = "https://x/proj/testws/WindTurbine/W1"
+    _thin_scenario(ws, wt)
+    monkeypatch.setattr(sync_mod, "_instance_types",
+                        lambda c: ({}, ["instance types (ConnectionError)"]))
+    d = client.get(f"{B}/scenario/draft", params={"name": "Thin.ttl"}).json()
+    # Untyped, never "WindTurbine" read off the IRI path, and said so.
+    assert d["components"][0]["type"] is None
+    assert any("ConnectionError" in w for w in d["warnings"])
+
+
+def test_submission_convert_uses_the_workspace_schema(client, ws, monkeypatch):
+    """The template names the superclass (CL.Scenario.Turbine); only the
+    workspace extension says a WindTurbine IS a Turbine. Convert must read the
+    extension, or the block comes back empty."""
+    import apps.api.submission as sub
+    monkeypatch.setattr(sub, "graph_client", lambda ctx: None)
+    wt = "https://x/proj/testws/WindTurbine/W1"
+    (ws / "ingestion" / "output").mkdir(parents=True)
+    (ws / "ingestion" / "output" / "replica.ttl").write_text(f"""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+<{wt}> a dici_onto:WindTurbine ; dici_onto:hasAttribute <{wt}/HubHeight> .
+<{wt}/HubHeight> a dici_onto:HubHeight, dici_onto:PhysicalAttribute ; qudt:value 99.5 .
+""", encoding="utf-8")
+    (ws / "ontology" / "extensions").mkdir(parents=True)
+    (ws / "ontology" / "extensions" / "testws.ttl").write_text("""
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+dici_onto:WindTurbine rdfs:subClassOf dici_onto:Turbine .
+dici_onto:HubHeight rdfs:subClassOf dici_onto:TurbineAttribute .
+""", encoding="utf-8")
+    (ws / "services").mkdir(exist_ok=True)
+    (ws / "services" / "T.yaml").write_text(yaml.safe_dump({
+        "service_name": "T",
+        "scenario_data": {"turbines": {"link": "CL.Scenario.Turbine",
+                                       "template": {"hub": "Turbine.HubHeight"}}},
+    }), encoding="utf-8")
+    from backend.scenario_builder import build_scenario_ttl, scenario_uri_for
+    sc = scenario_uri_for(_Ctx.id, "S")
+    (ws / "scenarios").mkdir(exist_ok=True)
+    (ws / "scenarios" / "S.ttl").write_text(
+        build_scenario_ttl("S", _Ctx.id, [wt], [(sc, wt)], scenario_uri=sc), encoding="utf-8")
+    got = client.post(f"{B}/submission/convert",
+                      json={"template_file": "T.yaml", "scenario_file": "S.ttl"}).json()
+    assert got["payload"]["scenario_data"]["turbines"] == [{"hub": 99.5}]
+
+
+def test_submission_convert_says_when_the_extension_is_unreadable(client, ws, monkeypatch):
+    import apps.api.submission as sub
+    monkeypatch.setattr(sub, "graph_client", lambda ctx: None)
+    (ws / "ontology" / "extensions").mkdir(parents=True)
+    (ws / "ontology" / "extensions" / "bad.ttl").write_text("this is not turtle @@@",
+                                                            encoding="utf-8")
+    (ws / "services").mkdir(exist_ok=True)
+    (ws / "services" / "T.yaml").write_text(yaml.safe_dump({
+        "service_name": "T", "scenario_data": {"uri": "Scenario.URI"}}), encoding="utf-8")
+    from backend.scenario_builder import build_scenario_ttl, scenario_uri_for
+    sc = scenario_uri_for(_Ctx.id, "S")
+    (ws / "scenarios").mkdir(exist_ok=True)
+    (ws / "scenarios" / "S.ttl").write_text(
+        build_scenario_ttl("S", _Ctx.id, [], [], scenario_uri=sc), encoding="utf-8")
+    got = client.post(f"{B}/submission/convert",
+                      json={"template_file": "T.yaml", "scenario_file": "S.ttl"}).json()
+    assert any("ontology extension could not be read" in w
+               for w in got["validation"]["warnings"])

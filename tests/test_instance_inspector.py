@@ -33,6 +33,7 @@ from backend.graphdb.graphs import (  # noqa: E402
     CLASSES_AND_ATTRIBUTES_GRAPH,
     ONTOLOGY_GRAPH,
     SCENARIOS_GRAPH,
+    SERVICES_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
 )
 from backend.graphdb.queries import (  # noqa: E402
@@ -65,7 +66,12 @@ dici_onto:Pump a owl:Class ;
 dici_onto:Location a owl:Class ;
     rdfs:subClassOf dici_onto:Location, dici_onto:Component .
 
+dici_onto:Weather a owl:Class ;
+    rdfs:subClassOf dici_onto:Weather, dici_onto:Component .
 dici_onto:PhysicalAttribute a owl:Class .
+dici_onto:DynamicAttribute a owl:Class .
+dici_onto:WindSpeed a owl:Class ;
+    rdfs:subClassOf dici_onto:WindSpeed, dici_onto:DynamicAttribute .
 dici_onto:HubHeight a owl:Class ;
     rdfs:subClassOf dici_onto:HubHeight, dici_onto:PhysicalAttribute .
 
@@ -73,6 +79,8 @@ dici_onto:HubHeight a owl:Class ;
 dici_onto:locatedIn a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:linksComponent .
 dici_onto:hasHubHeightAttribute a owl:ObjectProperty ;
+    rdfs:subPropertyOf dici_onto:hasAttribute .
+dici_onto:hasWindSpeedAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
 dici_onto:hasTypeTagAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
@@ -115,6 +123,14 @@ REPLICA = f"""
 
 <{PROJ}/Pump/P1> a dici_onto:Pump, dici_onto:Component ; rdfs:label "Pump 1" .
 
+# A live stream is a component: one instance per stream address, its attribute
+# a live time series whose reference IS the stream.
+<{PROJ}/Weather/W1> a dici_onto:Weather, dici_onto:Component ;
+    rdfs:label "weather.feed" ;
+    dici_onto:hasWindSpeedAttribute <{PROJ}/Weather/W1/WindSpeed> .
+<{PROJ}/Weather/W1/WindSpeed> a dici_onto:WindSpeed, dici_onto:DynamicAttribute ;
+    dici_onto:hasLiveTimeSeriesReference "weather.feed" .
+
 <{PROJ}/Location/Site1> a dici_onto:Location, dici_onto:Component ;
     rdfs:label "Site 1" ;
     dici_onto:hasTypeTagAttribute <{PROJ}/Location/Site1/TypeTag> .
@@ -147,6 +163,29 @@ SCENARIOS = f"""
 """
 
 
+# A service that needs WindTurbine.HubHeight and the live Weather.WindSpeed, and
+# runs with a profile tuned for T1 plus a service-wide one.
+SERVICES = f"""
+@prefix d: <https://digicities.info/ontology#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<{PROJ}/services/Svc> a d:Service ;
+    d:hasConfiguration <{PROJ}/services/Svc/config/site>, <{PROJ}/services/Svc/config/run> .
+<{PROJ}/services/req_1> a d:ComponentAttributeRequirement ;
+    d:isRequiredBy <{PROJ}/services/Svc> ;
+    d:hasInputEntity d:WindTurbine ; d:hasInputAttribute d:HubHeight .
+<{PROJ}/services/req_2> a d:ComponentAttributeRequirement ;
+    d:isRequiredBy <{PROJ}/services/Svc> ;
+    d:hasInputEntity d:Weather ; d:hasInputAttribute d:WindSpeed .
+<{PROJ}/services/Svc/config/site> d:configures <{PROJ}/services/Svc> ;
+    d:appliesTo <{PROJ}/WindTurbine/T1> ;
+    d:hasConfigurationParameter <{PROJ}/services/Svc/config/site/WakeDecayConstantK> .
+<{PROJ}/services/Svc/config/site/WakeDecayConstantK> d:hasAttributeValue "0.0324" .
+<{PROJ}/services/Svc/config/run> d:configures <{PROJ}/services/Svc> ;
+    d:hasConfigurationParameter <{PROJ}/services/Svc/config/run/RedisHost> .
+<{PROJ}/services/Svc/config/run/RedisHost> d:hasAttributeValue "redis" .
+"""
+
+
 class _Client:
     def __init__(self, scenarios: str = SCENARIOS):
         self.ds = rdflib.Dataset()
@@ -159,6 +198,7 @@ class _Client:
         # dereferences a FROM graph it does not know over HTTP, which a real
         # store never does. A graph only registers once it holds a triple, so
         # "no scenarios yet" is a graph with one unmatchable marker triple.
+        self.ds.graph(rdflib.URIRef(SERVICES_GRAPH)).parse(data=SERVICES, format="turtle")
         g = self.ds.graph(rdflib.URIRef(SCENARIOS_GRAPH))
         if scenarios:
             g.parse(data=scenarios, format="turtle")
@@ -192,10 +232,11 @@ def _q(key: str, uri: str = T1) -> str:
 
 # ── the recommendation set itself ─────────────────────────────────────────────
 
-def test_seven_recommendations_each_named_and_scoped():
+def test_nine_recommendations_each_named_and_scoped():
     recs = recommended_queries(T1)
     assert [r["key"] for r in recs] == [
-        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources"]
+        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources",
+        "configuration", "service_io"]
     for r in recs:
         assert r["name"] and r["description"]
         assert T1 in r["sparql"] and "FROM" in r["sparql"]
@@ -277,9 +318,11 @@ def test_catalogue_derivation_both_ways(client):
 
 
 def test_ask_preflight_hides_only_the_empty_recommendations(client):
-    # T1 has links, attributes, a catalogue entry, sources and peers: all seven.
+    # T1 has links, attributes, a catalogue entry, sources, peers, a service's
+    # configuration and its inputs: all nine.
     assert [r["key"] for r in available_recommendations(client, T1)] == [
-        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources"]
+        "overview", "attributes", "links", "same_class", "cousins", "catalogue", "sources",
+        "configuration", "service_io"]
     # The pump has none of that: no attributes, no links, no catalogue, no
     # sources, no same-class peers. Its overview (it exists) and its cousins
     # (Turbine and Location instances beside Pump under Component) remain.
@@ -292,7 +335,7 @@ def test_ask_preflight_fails_open_when_ask_cannot_run(client):
         def sparql_api_query(self, query, out_format="df"):
             raise RuntimeError("no ASK support")
     # Hiding must never lose a working query: with ASK unavailable, everything stays.
-    assert len(available_recommendations(_Broken(), T1)) == 7
+    assert len(available_recommendations(_Broken(), T1)) == 9
 
 
 def test_sources_are_references_never_the_catalogue_link(client):
@@ -313,7 +356,8 @@ def test_workspace_queries_named_scoped_and_askable():
     recs = workspace_queries()
     assert [r["key"] for r in recs] == [
         "all_components", "class_counts", "component_links", "attribute_values",
-        "scenarios", "data_sources", "catalogue_instances"]
+        "scenarios", "data_sources", "catalogue_instances", "service_configuration",
+        "service_io"]
     for r in recs:
         assert r["name"] and r["description"]
         assert "FROM" in r["sparql"] and "ASK" in r["ask"]
@@ -322,14 +366,15 @@ def test_workspace_queries_named_scoped_and_askable():
 def test_all_components_reports_most_specific_classes(client):
     df = client.run(_wq("all_components"))
     by_class = {c.rsplit("#", 1)[-1]: set(g["instance"]) for c, g in df.groupby("class")}
-    assert set(by_class) == {"WindTurbine", "TidalTurbine", "Pump", "Location"}
+    assert set(by_class) == {"WindTurbine", "TidalTurbine", "Pump", "Location", "Weather"}
     assert by_class["WindTurbine"] == {T1, f"{PROJ}/WindTurbine/T2", f"{PROJ}/WindTurbine/Cat1"}
 
 
 def test_class_counts_add_up(client):
     df = client.run(_wq("class_counts"))
     counts = {c.rsplit("#", 1)[-1]: int(n) for c, n in zip(df["class"], df["instances"])}
-    assert counts == {"WindTurbine": 3, "TidalTurbine": 1, "Pump": 1, "Location": 1}
+    assert counts == {"WindTurbine": 3, "TidalTurbine": 1, "Pump": 1, "Location": 1,
+                      "Weather": 1}
 
 
 def test_component_links_span_both_data_graphs(client):
@@ -376,3 +421,46 @@ def test_shared_platform_queries_exclude_dual_typed_attribute_nodes(client):
     counts = get_component_types_with_instances(client)
     wt = counts[counts["componentName"] == "Wind Turbine"]
     assert int(wt.iloc[0]["instanceCount"]) == 3      # T1, T2, Cat1 — not the TypeTag
+
+
+def test_service_queries_read_the_services_graph():
+    """Configuration and streams live in <http://services>: a query without it
+    shows none of them (James inspected a wind park and saw no settings)."""
+    for r in recommended_queries(T1) + workspace_queries():
+        if r["key"] in ("configuration", "service_io", "service_configuration"):
+            assert "FROM <http://services>" in r["sparql"], r["key"]
+
+
+def test_configuration_shows_the_instance_profile_and_the_service_wide_one(client):
+    df = client.run(_q("configuration"))
+    got = {(r["scope"], r["parameter"], str(r["value"])) for _, r in df.iterrows()}
+    assert got == {("this instance", "WakeDecayConstantK", "0.0324"),
+                   ("the whole service", "RedisHost", "redis")}
+
+
+def _io_rows(client, uri):
+    df = client.run(_q("service_io", uri))
+    return {(r["direction"], str(r["attribute"]).rsplit("#", 1)[-1], str(r["stream"]))
+            for _, r in df.iterrows()}
+
+
+def test_service_io_shows_what_the_service_needs_from_the_class(client):
+    rows = _io_rows(client, T1)
+    assert ("input", "HubHeight", "None") in rows or ("input", "HubHeight", "nan") in rows
+    assert not any(d == "input (live stream)" for d, _a, _s in rows)
+
+
+def test_service_io_shows_the_live_stream_of_a_stream_component(client):
+    """The live stream is the Weather instance's live time series reference,
+    never a stream-to-class side vocabulary in the services graph."""
+    rows = _io_rows(client, f"{PROJ}/Weather/W1")
+    assert ("input (live stream)", "WindSpeed", "weather.feed") in rows
+
+
+def test_workspace_service_io_reads_the_stream_from_the_replica(client):
+    q = next(r["sparql"] for r in workspace_queries() if r["key"] == "service_io")
+    assert "feedsEntity" not in q
+    df = client.run(q)
+    rows = {(r["direction"], str(r["attribute"]).rsplit("#", 1)[-1], str(r["stream"]))
+            for _, r in df.iterrows()}
+    assert ("input (live stream)", "WindSpeed", "weather.feed") in rows

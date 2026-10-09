@@ -49,6 +49,7 @@ except ImportError:
 
 # Shared service discovery/reading (workspace services/ + global library).
 from components.service_catalog import services_by_name, read_service_text
+from backend.scenario_builder.semantics import names_component_link_class, names_scenario_class
 
 
 def initialize_session_state():
@@ -247,16 +248,13 @@ def extract_all_required_component_types(yaml_content):
 
     # Second, extract component types from required attributes
     required_attributes, _ = extract_required_attributes_enhanced(yaml_content)
-    for comp_type in required_attributes.keys():
-        if comp_type != 'Scenario':  # Skip scenario itself
-            component_types.add(comp_type)
+    component_types.update(required_attributes.keys())
 
     # Third, extract component types from direct template definitions
     component_types.update(extract_component_types_from_templates(yaml_content))
 
-    # Remove 'Scenario' if it exists and return sorted list
-    component_types.discard('Scenario')
-    return sorted(list(component_types))
+    # The scenario itself is a link endpoint, never a component to pick.
+    return sorted(t for t in component_types if not names_scenario_class(t))
 
 
 def extract_component_types_from_templates(yaml_content):
@@ -510,12 +508,15 @@ def _reconstruct_scenario_from_ttl(ttl_content: str, workspace_id: str, name: st
     properties come through the same way they do for TTL data products. Returns
     ``(scenario_name, components, links)`` ready to drop into session state.
     """
-    from rdflib import Graph, Namespace
+    from rdflib import Graph, Namespace, URIRef
     from rdflib.namespace import RDF, RDFS
+
+    from backend.ontology_kinds import is_attribute_node, is_attribute_predicate, with_core
 
     DICI = Namespace("https://digicities.info/ontology#")
     graph = Graph()
     graph.parse(data=ttl_content, format="turtle")
+    onto = with_core(graph)
 
     from components.scenario_builder.ttl_use_case_loader import NextCloudTTLUseCaseLoader
 
@@ -533,10 +534,9 @@ def _reconstruct_scenario_from_ttl(ttl_content: str, workspace_id: str, name: st
     if not scenario_name:
         scenario_name = name.replace("_", " ")
 
-    # The extractor's attribute filter is name-based and misclassifies attribute
-    # individuals (GroundFloorArea, EVCount, ...) as components. Keep only the
-    # real components: nodes wired into the scenario's ComponentLink graph, or
-    # nodes that actually carry attribute predicates.
+    # Keep only the real components: nodes wired into the scenario's
+    # ComponentLink graph, or nodes that link to an attribute (a link under
+    # dici_onto:hasAttribute, or to a node typed under dici_onto:Attribute).
     linked_uris = set()
     for link in graph.subjects(RDF.type, DICI.ComponentLink):
         linked_uris.update(str(o) for o in graph.objects(link, DICI.hasInputEntity))
@@ -544,14 +544,14 @@ def _reconstruct_scenario_from_ttl(ttl_content: str, workspace_id: str, name: st
     linked_uris.discard(scenario_uri)
 
     attribute_holders = {
-        str(s) for s, p, _ in graph
-        if "hasAttribute" in str(p) or (str(p).startswith(str(DICI)) and str(p).endswith("Attribute"))
+        str(s) for s, p, o in graph
+        if is_attribute_predicate(onto, p) or (isinstance(o, URIRef) and is_attribute_node(onto, o))
     }
     real_uris = linked_uris | attribute_holders
 
     components = []
     for ctype, items in comps_by_type.items():
-        if ctype in ("Scenario", "ComponentLink"):
+        if names_scenario_class(ctype) or names_component_link_class(ctype):
             continue
         for c in items:
             if c.get("uri") not in real_uris:

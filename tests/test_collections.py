@@ -159,14 +159,64 @@ def test_materialize_set_surgical_delete_targets_own_subtree_only():
     iri = materializer.materialize_set(
         client, "ws", "https://digicities.info/ontology#RotorDiameter")
     deletes = [u for u in client.updates if u.startswith("DELETE")]
-    # aggregate-edges + aggregate-nodes + subject-side + object-side
-    assert len(deletes) == 4
+    # aggregate-edges + aggregate-nodes + the collection's own nodes
+    assert len(deletes) == 3
     for d in deletes:
         assert COLLECTIONS_GRAPH in d
-        assert iri in d
-        # prefix-guarded: `<root>/` — never a bare STRSTARTS on the root that
-        # would also match RotorDiameterSet2
-        assert f'{iri}/"' in d
+        assert f"<{iri}>" in d
+        assert "STRSTARTS" not in d and "STR(" not in d   # links, never IRI text
+
+
+class _StoreClient:
+    """Runs the materializer's SPARQL updates against an in-memory dataset."""
+
+    def __init__(self, ds):
+        self.ds = ds
+
+    def sparql_update(self, statement):
+        self.ds.update(statement)
+
+
+def test_replace_collection_follows_links_not_iri_prefixes():
+    """The delete finds a collection's nodes by its own structure links. A
+    sibling whose IRI merely starts with the root's (RotorDiameterSet2), and a
+    node under the root's IRI that the collection does not link to, survive;
+    every node the collection links to goes, wherever its IRI is."""
+    P = "https://digicities.info/proj/ws/collections/"
+    ds = rdflib.Dataset()
+    g = ds.graph(rdflib.URIRef(COLLECTIONS_GRAPH))
+    root, sibling = rdflib.URIRef(P + "RotorDiameterSet"), rdflib.URIRef(P + "RotorDiameterSet2")
+    group = rdflib.URIRef("https://example.org/elsewhere/group-a")   # IRI not under root
+    stats, gstats = rdflib.URIRef(P + "RotorDiameterSet/stats"), rdflib.URIRef("https://example.org/s")
+    dist, bin0 = rdflib.URIRef(P + "RotorDiameterSet/distribution"), rdflib.URIRef("https://example.org/b0")
+    unlinked = rdflib.URIRef(P + "RotorDiameterSet/not-part-of-it")
+    member = rdflib.URIRef("https://digicities.info/proj/ws/WindTurbine/T1/RotorDiameter")
+    dataset = rdflib.URIRef("https://example.org/dataset")
+    container = rdflib.URIRef("https://digicities.info/proj/ws/WindPark/P1")
+    agg = rdflib.URIRef(str(container) + "/RotorDiameterMean")
+    for t in [
+        (root, RDF.type, D.GroupedSet), (root, D.hasGroup, group),
+        (root, D.hasDescriptiveStatistics, stats), (stats, D.mean, rdflib.Literal(1.0)),
+        (root, D.hasDistribution, dist), (dist, D.hasBin, bin0),
+        (bin0, D.binLabel, rdflib.Literal("x")),
+        (group, RDF.type, D.Set), (group, D.hasDescriptiveStatistics, gstats),
+        (gstats, D.mean, rdflib.Literal(2.0)),
+        (member, D.aggregatedIn, group), (dataset, D.hasSet, root),
+        (container, D.hasAttribute, agg), (agg, D.aggregateOf, group),
+        (agg, RDF.type, D.AggregateAttribute),
+        (sibling, RDF.type, D.Set), (member, D.aggregatedIn, sibling),
+        (unlinked, RDF.type, D.Set),
+    ]:
+        g.add(t)
+
+    materializer._replace_collection(_StoreClient(ds), str(root), rdflib.Graph())
+
+    left = set(g)
+    gone = {root, group, stats, gstats, dist, bin0, agg}
+    assert not [t for t in left if t[0] in gone or t[2] in gone]
+    assert (sibling, RDF.type, D.Set) in left
+    assert (member, D.aggregatedIn, sibling) in left
+    assert (unlinked, RDF.type, D.Set) in left
 
 
 def test_materialize_grouped_set():

@@ -21,7 +21,7 @@ fastapi = pytest.importorskip("fastapi")
 pytestmark = pytest.mark.api
 
 FIXTURE_TTL = (Path(__file__).resolve().parent / "fixtures"
-               / "use_case_data_product.ttl").read_text(encoding="utf-8")
+               / "data_product_linked.ttl").read_text(encoding="utf-8")
 
 CSV = "timestamp,demand_kw\n" + "\n".join(
     f"2026-01-01 {h:02d}:00,{10 + h}" for h in range(8)) + "\n"

@@ -32,7 +32,7 @@ from backend.data_products import DataProductProcessor, analyzer
 from backend.workspace.storage import WorkspaceStorage
 
 FIXTURE_TTL = (Path(__file__).resolve().parent / "fixtures"
-               / "use_case_data_product.ttl").read_text(encoding="utf-8")
+               / "data_product_linked.ttl").read_text(encoding="utf-8")
 
 
 @pytest.fixture(autouse=True)

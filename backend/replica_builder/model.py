@@ -146,20 +146,30 @@ def get_instances_by_type(instances: List[ComponentInstance], component_type: st
 def component_type_names(ontology_components: Dict[str, Any]) -> List[str]:
     """Instantiable component types from the loaded ontology components map.
 
-    Filters out the attribute-class side of the naming convention and the
-    abstract roots — same rule the Instances tab has always applied.
+    The map comes from ``ontology_queries.query_components``, which already
+    selects ``rdfs:subClassOf* dici_onto:Component`` minus the root itself, so
+    every key is a component class. Nothing is filtered by name.
     """
-    return [
-        name for name in ontology_components
-        if not name.endswith('Attribute') and name not in ['Attribute', 'Component']
-    ]
+    return list(ontology_components)
 
 
 # ---------------------------------------------------------------------------
 # Links
 # ---------------------------------------------------------------------------
 
-DEFAULT_LINK_PROPERTIES = ['locatedIn', 'connectedTo']
+def _core_link_property_names() -> List[str]:
+    """Local names of the vendored core's link properties (``rdfs:subPropertyOf*
+    dici_onto:linksComponent``, the root included): the offer when no workspace
+    graph can be asked."""
+    from rdflib import RDFS
+
+    from backend.ontology_kinds import DICI, core_graph, dici_local_name
+
+    found = core_graph().transitive_subjects(RDFS.subPropertyOf, DICI.linksComponent)
+    return sorted(n for n in map(dici_local_name, found) if n)
+
+
+DEFAULT_LINK_PROPERTIES = _core_link_property_names()
 
 
 def extract_link_property_names(result) -> List[str]:

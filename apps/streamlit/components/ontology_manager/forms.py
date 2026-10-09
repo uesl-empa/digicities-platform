@@ -35,6 +35,11 @@ from .displays import (
     extract_local_name,
     sort_by_label
 )
+from rdflib import OWL, RDFS
+from rdflib.namespace import SKOS
+
+from backend.ontology_kinds import AttributeKind
+from backend.ontology_manager.functions.attribute_ops import OM_TYPE_KIND
 
 
 def refresh_cached_data(api_client, extension_filename):
@@ -247,24 +252,16 @@ def render_add_attribute_form(api_client):
     if 'add_attr_type' not in st.session_state:
         st.session_state.add_attr_type = "Physical"
 
-    # Attribute Type Selection - OUTSIDE FORM so it can trigger updates
+    # Attribute Type Selection - OUTSIDE FORM so it can trigger updates.
+    # The labels are the Ontology Manager's type strings; each maps to its kind once.
+    type_labels = list(OM_TYPE_KIND)
     attribute_type = st.selectbox(
         "Attribute Type",
-        options=[
-            "Physical",
-            "Simple Cost",
-            "Unit-Based Cost",
-            "Curve",
-            "Categorical",
-            "Geospatial",
-            "CustomPhysicalRatio",
-            "Event",
-            "SimpleValue"
-        ],
-        index=["Physical", "Simple Cost", "Unit-Based Cost", "Curve", "Categorical",
-               "Geospatial", "CustomPhysicalRatio", "Event", "SimpleValue"].index(st.session_state.add_attr_type),
+        options=type_labels,
+        index=type_labels.index(st.session_state.add_attr_type),
         key="attr_type_selector"
     )
+    kind = OM_TYPE_KIND[attribute_type]
 
     # Update session state when selection changes
     if attribute_type != st.session_state.add_attr_type:
@@ -288,7 +285,7 @@ def render_add_attribute_form(api_client):
 
         # Conditional fields based on attribute type
         # Physical, Geospatial, Unit-Based Cost: need qudtUnit
-        if attribute_type in ["Physical", "Geospatial", "Unit-Based Cost"]:
+        if kind in (AttributeKind.PHYSICAL, AttributeKind.GEOSPATIAL, AttributeKind.UNIT_BASED_COST):
             qudt_unit = st.selectbox(
                 "QUDT Unit",
                 options=[""] + st.session_state.qudt_units,
@@ -296,7 +293,7 @@ def render_add_attribute_form(api_client):
             )
 
         # Curve: needs X-axis and Y-axis units
-        elif attribute_type == "Curve":
+        elif kind is AttributeKind.CURVE:
             qudt_unit = st.selectbox(
                 "X-axis QUDT Unit",
                 options=[""] + st.session_state.qudt_units,
@@ -309,7 +306,7 @@ def render_add_attribute_form(api_client):
             )
 
         # CustomPhysicalRatio: needs numerator and denominator units
-        elif attribute_type == "CustomPhysicalRatio":
+        elif kind is AttributeKind.CUSTOM_PHYSICAL_RATIO:
             x_unit = st.selectbox(
                 "QUDT X Unit (Numerator)",
                 options=[""] + st.session_state.qudt_units,
@@ -322,7 +319,7 @@ def render_add_attribute_form(api_client):
             )
 
         # Event: needs temporal precision
-        elif attribute_type == "Event":
+        elif kind is AttributeKind.EVENT:
             if st.session_state.temporal_precisions:
                 precision_labels = [p['label'] for p in st.session_state.temporal_precisions]
                 precision_values = [p['value'] for p in st.session_state.temporal_precisions]
@@ -339,23 +336,23 @@ def render_add_attribute_form(api_client):
 
         # Info boxes for different attribute types
         st.markdown("---")
-        if attribute_type == "CustomPhysicalRatio":
+        if kind is AttributeKind.CUSTOM_PHYSICAL_RATIO:
             st.info("💡 Creates ratio attributes like kg/m² or EUR/kWh. Specify numerator and denominator units.")
-        elif attribute_type == "Event":
+        elif kind is AttributeKind.EVENT:
             st.info("💡 Creates temporal/date-based attributes with configurable precision levels.")
-        elif attribute_type == "SimpleValue":
+        elif kind is AttributeKind.SIMPLE_VALUE:
             st.info("💡 Creates basic attributes with just a value, no units required.")
-        elif attribute_type == "Physical":
+        elif kind is AttributeKind.PHYSICAL:
             st.info("💡 Creates physical attributes with QUDT units.")
-        elif attribute_type == "Curve":
+        elif kind is AttributeKind.CURVE:
             st.info("💡 Creates curve attributes with X and Y axis units.")
-        elif attribute_type == "Simple Cost":
+        elif kind is AttributeKind.SIMPLE_COST:
             st.info("💡 Creates simple cost attributes without units.")
-        elif attribute_type == "Unit-Based Cost":
+        elif kind is AttributeKind.UNIT_BASED_COST:
             st.info("💡 Creates cost attributes with QUDT units.")
-        elif attribute_type == "Categorical":
+        elif kind is AttributeKind.CATEGORICAL:
             st.info("💡 Creates categorical attributes with named individuals.")
-        elif attribute_type == "Geospatial":
+        elif kind is AttributeKind.GEOSPATIAL:
             st.info("💡 Creates geospatial attributes with QUDT units.")
 
         submitted = st.form_submit_button("✅ Add Attribute", type="primary", use_container_width=True)
@@ -366,19 +363,20 @@ def render_add_attribute_form(api_client):
                 return
 
             # Validate type-specific requirements
-            if attribute_type in ["Physical", "Geospatial", "Unit-Based Cost"] and not qudt_unit:
+            if kind in (AttributeKind.PHYSICAL, AttributeKind.GEOSPATIAL,
+                        AttributeKind.UNIT_BASED_COST) and not qudt_unit:
                 st.error(f"Please select a QUDT unit for {attribute_type} attributes")
                 return
 
-            if attribute_type == "Curve" and (not qudt_unit or not y_qudt_unit):
+            if kind is AttributeKind.CURVE and (not qudt_unit or not y_qudt_unit):
                 st.error("Please select both X-axis and Y-axis QUDT units for Curve attributes")
                 return
 
-            if attribute_type == "CustomPhysicalRatio" and (not x_unit or not y_qudt_unit):
+            if kind is AttributeKind.CUSTOM_PHYSICAL_RATIO and (not x_unit or not y_qudt_unit):
                 st.error("Please select both QUDT X (numerator) and QUDT Y (denominator) units")
                 return
 
-            if attribute_type == "Event" and not temporal_precision:
+            if kind is AttributeKind.EVENT and not temporal_precision:
                 st.error("Please select temporal precision for Event attributes")
                 return
 
@@ -929,14 +927,15 @@ def render_manage_property_mappings_form(api_client):
 
     st.markdown("**Current Property Mappings:**")
 
+    # The three mapping predicates get_property_mappings returns, by IRI.
+    mapping_predicate_labels = {
+        str(OWL.equivalentProperty): "equivalentProperty",
+        str(RDFS.subPropertyOf): "subPropertyOf",
+        str(SKOS.closeMatch): "closeMatch",
+    }
+
     def get_predicate_label(predicate: str) -> str:
-        if "equivalentProperty" in predicate:
-            return "equivalentProperty"
-        elif "subPropertyOf" in predicate:
-            return "subPropertyOf"
-        elif "closeMatch" in predicate:
-            return "closeMatch"
-        return extract_local_name(predicate)
+        return mapping_predicate_labels.get(predicate) or extract_local_name(predicate)
 
     for mapping in property_mappings:
         with st.container():

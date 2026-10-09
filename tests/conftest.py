@@ -19,6 +19,12 @@ for _p in (str(REPO_ROOT / "apps" / "streamlit"), str(REPO_ROOT)):
         sys.path.insert(0, _p)
 
 import pytest  # noqa: E402
+from rdflib.plugins import sparql as _rdflib_sparql  # noqa: E402
+
+# An in-memory rdflib Dataset, like a triplestore, must treat a named graph it
+# does not hold as empty. By default rdflib DOWNLOADS any FROM graph it lacks
+# (e.g. an inferred companion a fixture didn't build), which a store never does.
+_rdflib_sparql.SPARQL_LOAD_GRAPHS = False
 
 
 @pytest.fixture(scope="session")

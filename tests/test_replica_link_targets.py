@@ -24,6 +24,7 @@ import pytest
 rdflib = pytest.importorskip("rdflib")
 openpyxl = pytest.importorskip("openpyxl")
 
+from workbook_schema import declare_workbook  # noqa: E402
 from backend.replica_builder.utils.create_class_and_attribute_graph import (  # noqa: E402
     process_excel_to_ttl,
 )
@@ -89,7 +90,7 @@ def graph(tmp_path_factory) -> rdflib.Graph:
     tmp = tmp_path_factory.mktemp("links")
     xlsx = _workbook(tmp / "wb.xlsx", seven_row=True)
     ttl = tmp / "wb.ttl"
-    process_excel_to_ttl(PROJ, str(xlsx), str(ttl))
+    process_excel_to_ttl(PROJ, str(xlsx), str(ttl), ontology=declare_workbook(xlsx, tmp / "ws"))
     g = rdflib.Graph()
     g.parse(ttl, format="turtle")
     return g
@@ -134,7 +135,8 @@ def test_no_phantom_instance_survives_the_closure(tmp_path):
 
     xlsx = _workbook(tmp_path / "wb.xlsx")
     ttl = tmp_path / "wb.ttl"
-    process_excel_to_ttl(PROJ, str(xlsx), str(ttl))
+    process_excel_to_ttl(PROJ, str(xlsx), str(ttl),
+                         ontology=declare_workbook(xlsx, tmp_path / "ws"))
 
     g = rdflib.Graph()
     g.parse(ttl, format="turtle")
@@ -155,3 +157,13 @@ def test_no_phantom_instance_survives_the_closure(tmp_path):
     assert f"{PROJ}/WindPark/ParkA" in parks
     assert f"{PROJ}/WindPark/NOPE" not in parks
     assert not any("WindPark_ParkA" in p for p in parks)
+
+
+def test_an_instance_is_named_by_its_record_id(graph):
+    labels = set(graph.objects(rdflib.URIRef(f"{PROJ}/WindTurbine/T1"), rdflib.RDFS.label))
+    assert labels == {rdflib.Literal("T1")}
+
+
+def test_a_label_the_sheet_gives_is_kept_alone(graph):
+    labels = set(graph.objects(rdflib.URIRef(f"{PROJ}/WindPark/ParkA"), rdflib.RDFS.label))
+    assert {str(x) for x in labels} == {"Park A"}

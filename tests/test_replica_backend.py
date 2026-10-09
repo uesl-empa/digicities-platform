@@ -29,6 +29,7 @@ from backend.replica_builder.excel_import import (  # noqa: E402
     parse_generated_ttl,
 )
 from backend.replica_builder.model import ComponentInstance  # noqa: E402
+from workbook_schema import declare_workbook  # noqa: E402
 
 DICI = Namespace("https://digicities.info/ontology#")
 QUDT = Namespace("http://qudt.org/schema/qudt/")
@@ -64,7 +65,8 @@ def test_draft_workbook_ttl_roundtrip(tmp_path):
     xlsx = tmp_path / "replica.xlsx"
     build_workbook(draft, xlsx)
 
-    ttl, instances = import_workbook(str(xlsx), PROJ, uri_mode="default")
+    ttl, instances = import_workbook(str(xlsx), PROJ, uri_mode="default",
+                                     ontology=declare_workbook(xlsx, tmp_path / "ws"))
 
     # The TTL itself is valid Turtle.
     g = Graph()
@@ -128,7 +130,8 @@ def test_timeseries_columns_roundtrip(tmp_path):
 
     xlsx = tmp_path / "b.xlsx"
     build_workbook(draft, xlsx)
-    _, instances = import_workbook(str(xlsx), PROJ, uri_mode="default")
+    _, instances = import_workbook(str(xlsx), PROJ, uri_mode="default",
+                                   ontology=declare_workbook(xlsx, tmp_path / "ws"))
     (back,) = instances
     power = back.attributes["Power"]
     assert power["type"] in ("Physical", "Dynamic")
@@ -148,7 +151,8 @@ def test_local_parse_recovers_annotations_and_references(tmp_path):
     ])
     xlsx = tmp_path / "a.xlsx"
     build_workbook(draft, xlsx)
-    _, instances = import_workbook(str(xlsx), PROJ, uri_mode="default")
+    _, instances = import_workbook(str(xlsx), PROJ, uri_mode="default",
+                                   ontology=declare_workbook(xlsx, tmp_path / "ws"))
     (b1,) = instances
     assert b1.annotations["comment"] == "a note"
     assert b1.annotations["BaseCarrier"] == "Gas"       # :BaseCarrier "Gas"
@@ -220,10 +224,11 @@ def test_create_link_outcomes():
     assert model.get_links_for_instance(links, "nope") == []
 
 
-def test_component_type_names_filters_attribute_classes():
-    comps = {"Building": 1, "BuildingAttribute": 2, "Attribute": 3,
-             "Component": 4, "PV": 5}
-    assert model.component_type_names(comps) == ["Building", "PV"]
+def test_component_type_names_keeps_every_component_class():
+    # The map is already the subClassOf* Component set: a component class
+    # whose name ends in "Attribute" is still a component.
+    comps = {"Building": 1, "MeterAttribute": 2, "PV": 3}
+    assert model.component_type_names(comps) == ["Building", "MeterAttribute", "PV"]
 
 
 def test_extract_link_property_names():
@@ -365,10 +370,12 @@ def test_generate_classes_and_attributes_ttl():
     assert values and str(values[0]) == "120.5"
     assert (attr, QUDT.unit,
             URIRef("http://qudt.org/vocab/unit/M2")) in g
-    # Categorical attribute dual-typed with its value class.
+    # Categorical attribute: its value is the category IRI, stated with
+    # hasCategoricalValue, never an extra rdf:type.
     cat = URIRef(f"{PROJ}/Building/B1/BuildingType")
     assert (cat, rdflib.RDF.type, DICI.CategoricalAttribute) in g
-    assert (cat, rdflib.RDF.type, DICI.MFH) in g
+    assert (cat, DICI.hasCategoricalValue, DICI.MFH) in g
+    assert (cat, rdflib.RDF.type, DICI.MFH) not in g
 
 
 def test_generate_system_description_ttl_and_validate():
@@ -387,15 +394,24 @@ def test_generate_system_description_ttl_and_validate():
 
 def test_ttl_roundtrip_through_backend_graph_loader():
     """UI-generated TTL parses back through the same backend loader the graph
-    load path uses (kind classes asserted → no ontology needed)."""
+    load path uses. Kinds come from the asserted kind classes; the category is
+    stated with hasCategoricalValue, so it reads back with or without the
+    workspace schema."""
+    from rdflib import RDFS
+    from backend.ontology_kinds import DICI
     instances, links = _small_model()
     classes_ttl = bttl.generate_classes_and_attributes_ttl(instances)
-    back = parse_generated_ttl(classes_ttl)
+    schema = Graph()
+    schema.add((DICI.BuildingType, RDFS.subClassOf, DICI.CategoricalAttribute))
+    back = parse_generated_ttl(classes_ttl, ontology=schema)
     by_id = {inst.id: inst for inst in back}
     assert set(by_id) == {"B1", "P1"}
     fa = by_id["B1"].attributes["FloorArea"]
     assert fa["type"] == "Physical" and float(fa["value"]) == 120.5 and fa["unit"] == "M2"
     assert by_id["B1"].attributes["BuildingType"]["category_value"] == "MFH"
+    # Without the schema the stated value still reads back (nothing is guessed).
+    bare = {inst.id: inst for inst in parse_generated_ttl(classes_ttl)}
+    assert bare["B1"].attributes["BuildingType"]["category_value"] == "MFH"
 
     from backend.replica_builder.graph_loader import parse_links_from_graph
     sys_g = Graph()
@@ -470,7 +486,7 @@ def test_replica_shim_identity():
     assert ol.get_common_qudt_units is boq.get_common_qudt_units
 
 
-def test_excel_importer_shim_delegates_to_backend(tmp_path):
+def test_excel_importer_shim_delegates_to_backend(tmp_path, monkeypatch):
     """The old ``parse_excel_file`` name still works but is now the backend
     converter path — same instances as calling the backend directly."""
     pytest.importorskip("streamlit")
@@ -479,9 +495,12 @@ def test_excel_importer_shim_delegates_to_backend(tmp_path):
     draft = _flagship_draft()
     xlsx = tmp_path / "replica.xlsx"
     build_workbook(draft, xlsx)
+    schema = declare_workbook(xlsx, tmp_path / "ws")
+    # The active workspace's extension, as the Streamlit session would supply it.
+    monkeypatch.setattr(imp, "_workspace_ontology", lambda: schema)
 
     got = imp.parse_excel_file(str(xlsx), PROJ, "default")
-    _, expected = import_workbook(str(xlsx), PROJ, "default")
+    _, expected = import_workbook(str(xlsx), PROJ, "default", ontology=schema)
     assert got == {"instances": [inst.to_dict() for inst in expected]}
 
 
@@ -495,16 +514,21 @@ class _Ctx:
     name = "Replica WS"
     graphdb_repository = "replicaws"
     description = "replica-backend test workspace"
+    storage = None
 
 
 @pytest.fixture()
 def replica_ws(tmp_path, monkeypatch, api_app):
+    from backend.workspace.storage import WorkspaceStorage
+
     monkeypatch.setenv("USECASES_DIR", str(tmp_path))
     from apps.api.deps import get_ctx
 
-    api_app.dependency_overrides[get_ctx] = lambda: _Ctx()
     root = tmp_path / _Ctx.id
     root.mkdir()
+    ctx = _Ctx()
+    ctx.storage = WorkspaceStorage.local(str(root))
+    api_app.dependency_overrides[get_ctx] = lambda: ctx
     return root
 
 
@@ -518,6 +542,10 @@ def test_api_generate_then_model_roundtrip(replica_ws, api_client):
         ],
         "persist": True,
     }
+    # Building and its FloorArea link are declared in the workspace extension
+    # first, as the Ontology Manager does in real use.
+    build_workbook(ReplicaDraft.from_request(spec["components"]), replica_ws / "decl.xlsx")
+    declare_workbook(replica_ws / "decl.xlsx", replica_ws)
     r = api_client.post(f"{base}/generate", json=spec)
     assert r.status_code == 200, r.text
     assert r.json()["ttl"]

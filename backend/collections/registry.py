@@ -22,27 +22,30 @@ import statistics
 from collections import Counter
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from backend.ontology_kinds import AttributeKind
+
 NUMERIC = "numeric"
 CATEGORICAL = "categorical"
 TEMPORAL = "temporal"
 BOOLEAN = "boolean"
 
-# Core base value-type → family. The attribute class's ancestor in the schema
-# graph selects the row; SIMPLE_VALUE defers to value sniffing.
+# Attribute kind → family. The kinds whose class the attribute class sits under
+# in the schema graph select the row, first match in this order; SIMPLE_VALUE
+# defers to value sniffing.
 BASE_TYPE_FAMILY = {
-    "PhysicalAttribute": NUMERIC,
-    "GeospatialAttribute": NUMERIC,
-    "UnitBasedCostAttribute": NUMERIC,
-    "SimpleCostAttribute": NUMERIC,
-    "CustomPhysicalRatioAttribute": NUMERIC,
-    "DynamicAttribute": NUMERIC,
-    "CategoricalAttribute": CATEGORICAL,
-    "EventAttribute": TEMPORAL,
+    AttributeKind.PHYSICAL: NUMERIC,
+    AttributeKind.GEOSPATIAL: NUMERIC,
+    AttributeKind.UNIT_BASED_COST: NUMERIC,
+    AttributeKind.SIMPLE_COST: NUMERIC,
+    AttributeKind.CUSTOM_PHYSICAL_RATIO: NUMERIC,
+    AttributeKind.DYNAMIC: NUMERIC,
+    AttributeKind.CATEGORICAL: CATEGORICAL,
+    AttributeKind.EVENT: TEMPORAL,
 }
-SIMPLE_VALUE_BASE = "SimpleValueAttribute"
+SIMPLE_VALUE_BASE = AttributeKind.SIMPLE_VALUE
 
-# Base types whose values are not scalar and cannot form a Set.
-UNSUPPORTED_BASE_TYPES = {"CurveAttribute", "ResourceAttribute"}
+# Kinds whose values are not scalar and cannot form a Set.
+UNSUPPORTED_BASE_TYPES = {AttributeKind.CURVE, AttributeKind.RESOURCE}
 
 _TRUE = {"true", "1"}
 _FALSE = {"false", "0"}

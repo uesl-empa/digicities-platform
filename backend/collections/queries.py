@@ -12,6 +12,7 @@ platform's phantom-instance guard does: they are objects of a
 """
 from __future__ import annotations
 
+from enum import Enum
 from typing import List, Optional
 
 import pandas as pd
@@ -24,6 +25,7 @@ from backend.graphdb.graphs import (
     from_clause,
 )
 from backend.graphdb.queries._exec import run_df
+from backend.ontology_kinds import DICI as DICI_NS
 
 DICI = "https://digicities.info/ontology#"
 
@@ -47,8 +49,9 @@ _VALUE_OPTIONALS = (
 
 
 def base_types_of(client, attribute_class_iri: str) -> List[str]:
-    """Local names of every core base value-type the attribute class sits
-    under (``rdfs:subClassOf*`` in the schema graph)."""
+    """Every attribute class (IRI) the attribute class sits under, itself
+    included (``rdfs:subClassOf*`` in the schema graph). Empty when it is not
+    an attribute class."""
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?base
@@ -58,7 +61,7 @@ def base_types_of(client, attribute_class_iri: str) -> List[str]:
     }}
     """
     df = run_df(client, query, ["base"])
-    return [str(b).split("#")[-1] for b in df["base"].tolist()]
+    return [str(b) for b in df["base"].tolist()]
 
 
 def member_values(client, attribute_class_iri: str,
@@ -319,6 +322,24 @@ def workspace_datasets(client) -> pd.DataFrame:
     ORDER BY ?dataset
     """
     return run_df(client, query, ["dataset", "label", "componentCount"])
+
+
+class CollectionKind(str, Enum):
+    """What a listed collection is. The value is its display name."""
+    SET = "Set"
+    GROUPED_SET = "GroupedSet"
+
+
+_KIND_BY_TYPE = {
+    str(DICI_NS.Set): CollectionKind.SET,
+    str(DICI_NS.GroupedSet): CollectionKind.GROUPED_SET,
+}
+
+
+def collection_kind(type_iri) -> CollectionKind:
+    """The kind of a collection from the ``kind`` (rdf:type IRI) column
+    ``list_collections`` returns."""
+    return _KIND_BY_TYPE[str(type_iri)]
 
 
 def list_collections(client) -> pd.DataFrame:

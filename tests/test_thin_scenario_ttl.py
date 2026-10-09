@@ -125,11 +125,13 @@ def test_physical_override_shape():
     assert (ov, _dici("hasUnitLabel"), rdflib.Literal("KiloW", datatype=rdflib.XSD.string)) in g
 
 
-def test_categorical_override_typed_by_value_class():
+def test_categorical_override_states_its_category():
     _ttl, g = _build()
     ov = URIRef(f"{BUILDING}/HeatingSupply_override")
     types = set(g.objects(ov, RDF.type))
-    assert {_dici("HeatingSupply"), _dici("CategoricalAttribute"), _dici("HeatPump")} <= types
+    assert {_dici("HeatingSupply"), _dici("CategoricalAttribute")} <= types
+    assert _dici("HeatPump") not in types
+    assert (ov, _dici("hasCategoricalValue"), _dici("HeatPump")) in g
     assert not list(g.objects(ov, URIRef(QUDT + "value")))
 
 

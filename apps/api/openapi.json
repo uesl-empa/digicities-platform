@@ -2238,6 +2238,62 @@
         ]
       }
     },
+    "/api/workspaces/{workspace_id}/agent/commands": {
+      "get": {
+        "description": "The commands that can run in the conversation's current step, for the\nchat's command list: ``{\"stage\", \"commands\": [{key, area, form, usage,\ndescription, when_to_use, example, example_result, states, slots: [{name,\nkind, label, help, choices: [{value, label}]}]}]}``. Each command says when to\nuse it and what its example does; each slot says what goes in it. Slot\nchoices come from the workspace (classes, attributes, scenarios, instances,\nthe numbered decisions) and the ontology (the link predicates under\n``linksComponent``). Generated from the agent's command registry, the same\nlist its router and help use.",
+        "operationId": "commands_api_workspaces__workspace_id__agent_commands_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Commands Api Workspaces  Workspace Id  Agent Commands Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Commands",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/workspaces/{workspace_id}/agent/message": {
       "post": {
         "operationId": "message_api_workspaces__workspace_id__agent_message_post",

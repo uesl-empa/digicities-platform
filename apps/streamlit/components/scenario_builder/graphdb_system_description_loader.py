@@ -55,7 +55,7 @@ class SystemDescriptionLinkQuery:
         return links
 
     def _query_direct_located_in(self) -> List[Dict[str, Any]]:
-        """Direct query for locatedIn relationships
+        """Direct query for place links (located in / at)
         (via backend.graphdb.queries.system_description)."""
         try:
             result = gq_sysdesc.query_direct_located_in(self.client)
@@ -67,7 +67,7 @@ class SystemDescriptionLinkQuery:
                 link = {
                     'source_uri': row['source'],
                     'source_type': self._extract_type_name(row['sourceType']),
-                    'link_property': 'locatedIn',
+                    'link_property': self._extract_property_name(row['linkProperty']),
                     'target_uri': row['target'],
                     'target_type': self._extract_type_name(row['targetType']),
                     'source_label': self._extract_fragment(row['source']),
@@ -76,7 +76,7 @@ class SystemDescriptionLinkQuery:
                 links.append(link)
             return links
         except Exception as e:
-            st.warning(f"Direct locatedIn query failed: {e}")
+            st.warning(f"Direct place-link query failed: {e}")
             return []
 
     def _query_with_subproperty_reasoning(self) -> List[Dict[str, Any]]:
@@ -132,7 +132,7 @@ class SystemDescriptionLinkQuery:
             source_type = parsed['source_type']
             target_type = parsed['target_type']
 
-            # Check both directions since locatedIn is reversed
+            # Check both directions since place links run child to parent
             matches = [
                 link for link in discovered_links
                 if link['source_type'] == target_type and link['target_type'] == source_type

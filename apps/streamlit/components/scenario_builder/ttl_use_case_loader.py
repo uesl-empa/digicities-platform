@@ -56,17 +56,35 @@ def _st_status(level: str, message: str) -> None:
         st.write(message)
 
 
+def _workspace_ontology(workspace_id):
+    """The session workspace's extension graph, so the loader can place the
+    workspace's classes; None (with a warning) when it can't be read."""
+    from rdflib.plugins.parsers.notation3 import BadSyntax
+
+    from backend.scenario_builder.graph_lookups import workspace_extensions
+
+    ctx = st.session_state.get("workspace_context")
+    if ctx is None or not workspace_id or ctx.id != workspace_id:
+        return None
+    try:
+        return workspace_extensions(ctx.storage)
+    except BadSyntax as exc:
+        st.warning(f"The workspace ontology extension does not parse: {exc}")
+        return None
+
+
 class NextCloudTTLUseCaseLoader(_BackendTTLUseCaseLoader):
     """The backend loader plus the Streamlit session/display behavior it had
     before the move. Constructor signature is unchanged."""
 
     def __init__(self, workspace_id: str = None):
-        """Initialize loader with workspace context"""
+        """Initialize loader with workspace context and its ontology extension"""
         if not workspace_id:
             current_workspace = st.session_state.get('current_workspace')
             if current_workspace:
                 workspace_id = current_workspace['id']
-        super().__init__(workspace_id=workspace_id, on_status=_st_status)
+        super().__init__(workspace_id=workspace_id, on_status=_st_status,
+                         ontology=_workspace_ontology(workspace_id))
 
     def _create_data_processor(self):
         """The session-aware DataProductProcessor, as before the move."""

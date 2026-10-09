@@ -265,6 +265,39 @@ class OntologyBase:
             print(f"Error saving core ontology: {e}")
             return False
 
+    # =================== Edit flow shared by every mutation ===================
+
+    CORE_TARGET = "CORE_ONTOLOGY_MODIFICATION"
+
+    def _edit_graph(self, extension_filename: str) -> rdflib.Graph:
+        """The graph a mutation writes: the extension, or the core in core mode
+        (local workspaces only)."""
+        if extension_filename == self.CORE_TARGET:
+            if self.core_readonly:
+                raise PermissionError("Cannot modify core ontology in NextCloud mode (read-only)")
+            return self.load_core_ontology()
+        return self.load_extension(extension_filename)
+
+    def _schema_view(self, extension_filename: str, write: rdflib.Graph) -> rdflib.Graph:
+        """What a mutation reads: the graph it writes plus the core (live, so
+        triples added to ``write`` are seen at once)."""
+        if extension_filename == self.CORE_TARGET:
+            return write
+        from rdflib.graph import ReadOnlyGraphAggregate
+        return ReadOnlyGraphAggregate([write, self.load_core_ontology()])
+
+    def _persist(self, extension_filename: str, g: rdflib.Graph) -> None:
+        """Save a mutated graph and refresh the temp/export files; a save that
+        fails raises instead of being reported as done."""
+        if extension_filename == self.CORE_TARGET:
+            if not self.save_core_ontology(g):
+                raise IOError("the core ontology could not be saved")
+            self.update_temp_and_export_core_mod()
+        else:
+            if not self.save_extension(extension_filename, g):
+                raise IOError(f"the extension `{extension_filename}` could not be saved")
+            self.update_temp_and_export(extension_filename)
+
     def merge_ontologies(self, extension_filename: str) -> rdflib.Graph:
         """Merge core ontology with the extension graph."""
         core = self.load_core_ontology()

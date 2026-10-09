@@ -25,8 +25,14 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from rdflib import Graph, Namespace, URIRef, Literal, RDF, RDFS
+from rdflib.graph import ReadOnlyGraphAggregate
 from rdflib.namespace import DCTERMS
 
+from backend.ontology_kinds import (
+    KIND_CLASS, AttributeKind, core_graph, dici_local_name, in_namespace,
+    is_attribute_class, is_attribute_predicate, is_subclass_of, kind_for_class,
+    kind_of_node,
+)
 from backend.replica_builder.model import ComponentInstance
 
 DICI = Namespace("https://digicities.info/ontology#")
@@ -43,16 +49,50 @@ def local_name(uri: str) -> str:
 _local_name = local_name
 
 
-def parse_instances_from_graph(graph: Graph, discovered) -> List[Dict[str, Any]]:
+def schema_view(graph: Graph, ontology: Optional[Graph] = None) -> Graph:
+    """``graph`` plus the core ontology, and the workspace ontology (core +
+    extensions) when given, as one read-only graph. Every "what is this"
+    question below is asked of this view, through the class and property
+    hierarchy."""
+    parts = [graph] + ([ontology] if ontology is not None else []) + [core_graph()]
+    return ReadOnlyGraphAggregate(parts)
+
+
+def _class_objects(schema: Graph, subject: URIRef, attribute_nodes) -> Dict[str, str]:
+    """An instance's ``dici_onto:`` object links that are not attribute links:
+    neither an ``rdfs:subPropertyOf* dici_onto:hasAttribute`` predicate nor
+    pointing at a known attribute node (minted ``has<Sheet><Name>Attribute``
+    predicates are not declared, but their objects are attribute nodes)."""
+    out: Dict[str, str] = {}
+    for p, o in schema.predicate_objects(subject):
+        name = dici_local_name(p)
+        if name is None or not isinstance(o, URIRef):
+            continue
+        if o in attribute_nodes or is_attribute_predicate(schema, p):
+            continue
+        out[name] = str(o)
+    return out
+
+
+def parse_instances_from_graph(graph: Graph, discovered, attr_links=None,
+                               ontology: Optional[Graph] = None) -> List[Dict[str, Any]]:
     """Build instance dicts from the semantically-discovered (instance, type,
     label) rows returned by ``components.get_all_component_instances`` (which uses
     ``rdfs:subClassOf* dici_onto:Component`` against the ontology). The constructed
     ``graph`` is used only to read each instance's annotations and class-object
     links — literal/relationship data, not ontology classification.
+
+    ``attr_links`` (the ``get_all_instance_attribute_links`` rows) and
+    ``ontology`` (the workspace ontology graph) keep attribute links out of the
+    class objects; without them only the core hierarchy is consulted.
     """
     instances = []
     if discovered is None or getattr(discovered, "empty", True):
         return instances
+    schema = schema_view(graph, ontology)
+    attribute_nodes = set()
+    if attr_links is not None and not getattr(attr_links, "empty", True):
+        attribute_nodes = {URIRef(str(a)) for a in attr_links["attribute"]}
 
     for _, row in discovered.iterrows():
         uri = row["instance"]
@@ -73,15 +113,9 @@ def parse_instances_from_graph(graph: Graph, discovered) -> List[Dict[str, Any]]
             if pred_str.startswith(str(RDFS)) and pred_str != str(RDFS.label):
                 instance_data['annotations'][pred_str.replace(str(RDFS), "")] = str(o)
 
-        # Class-object relationships: dici_onto object-predicates (not has*) to URIs.
-        excluded_predicates = {'hasAttribute', 'hasIdentifier', 'label'}
-        for p, o in graph.predicate_objects(component_uri):
-            pred_str = str(p)
-            if pred_str.startswith(str(DICI)):
-                pred_name = pred_str.replace(str(DICI), "")
-                if pred_name not in excluded_predicates and not pred_name.startswith('has') \
-                        and isinstance(o, URIRef):
-                    instance_data['class_objects'][pred_name] = str(o)
+        # Class-object relationships: dici_onto object links that are not
+        # attribute links (decided by the property hierarchy).
+        instance_data['class_objects'] = _class_objects(schema, component_uri, attribute_nodes)
 
         instances.append(instance_data)
 
@@ -91,40 +125,48 @@ def parse_instances_from_graph(graph: Graph, discovered) -> List[Dict[str, Any]]
 def _kind_map(attr_kinds) -> Dict[str, str]:
     """Build {attribute_uri: editor_kind} from get_attribute_kinds() rows.
 
-    The editor kind is the kind class local name minus the ``Attribute`` suffix
-    (PhysicalAttribute → "Physical", SimpleCostAttribute → "SimpleCost", …) — the
-    form parse_single_attribute's value-extraction branches expect.
+    Each row's kind class IRI maps to its ``AttributeKind`` by exact IRI; the
+    kind's tag ("Physical", "SimpleCost", ...) is what parse_single_attribute's
+    value-extraction branches expect. An attribute under several kind classes
+    gets the first one in ``KIND_CLASS`` order.
     """
-    mapping: Dict[str, str] = {}
     if attr_kinds is None or getattr(attr_kinds, "empty", True):
-        return mapping
+        return {}
+    rank = {kind: i for i, kind in enumerate(KIND_CLASS)}
+    best: Dict[str, AttributeKind] = {}
     for _, row in attr_kinds.iterrows():
-        kind_local = local_name(str(row["kind"]))
-        mapping[str(row["attribute"])] = kind_local[:-len("Attribute")] \
-            if kind_local.endswith("Attribute") else kind_local
-    return mapping
+        kind = kind_for_class(URIRef(str(row["kind"])))
+        if kind is None:
+            continue
+        attr = str(row["attribute"])
+        if attr not in best or rank[kind] < rank[best[attr]]:
+            best[attr] = kind
+    return {attr: kind.value for attr, kind in best.items()}
 
 
-def parse_attributes_from_graph(graph: Graph, attr_links,
-                                attr_kinds=None) -> Dict[str, List[Dict[str, Any]]]:
+def parse_attributes_from_graph(graph: Graph, attr_links, attr_kinds=None,
+                                ontology: Optional[Graph] = None) -> Dict[str, List[Dict[str, Any]]]:
     """Group attribute values by instance, keyed on the instance→attribute links
     discovered semantically via ``rdfs:subPropertyOf* dici_onto:hasAttribute``
     (``components.get_all_instance_attribute_links``). Each attribute's editor
     kind comes from ``components.get_attribute_kinds`` (``rdfs:subClassOf*`` onto a
-    kind class). The constructed ``graph`` supplies the literal values only.
+    kind class). The constructed ``graph`` supplies the literal values only;
+    ``ontology`` (the workspace ontology graph) lets extension attribute classes
+    be told apart from category values.
     """
     attributes_by_instance: Dict[str, List[Dict[str, Any]]] = {}
     if attr_links is None or getattr(attr_links, "empty", True):
         return attributes_by_instance
 
     kind_by_attr = _kind_map(attr_kinds)
+    schema = schema_view(graph, ontology)
 
     for _, row in attr_links.iterrows():
         instance_uri = row["instance"]
         attr_uri = row["attribute"]
         attr_data = parse_single_attribute(
             graph, URIRef(attr_uri), QUDT_NS, UNIT_NS,
-            attr_type=kind_by_attr.get(str(attr_uri)),
+            attr_type=kind_by_attr.get(str(attr_uri)), schema=schema,
         )
         if attr_data:
             attributes_by_instance.setdefault(instance_uri, []).append(attr_data)
@@ -133,43 +175,35 @@ def parse_attributes_from_graph(graph: Graph, attr_links,
 
 
 def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT_NS,
-                           attr_type: Optional[str] = None) -> Optional[Dict[str, Any]]:
+                           attr_type: Optional[str] = None,
+                           schema: Optional[Graph] = None) -> Optional[Dict[str, Any]]:
     """Parse a single attribute instance from the graph.
 
     ``attr_type`` is the editor kind ("Physical", "Categorical", …) resolved
     semantically via ``components.get_attribute_kinds`` (``rdfs:subClassOf*`` onto a
     kind class). When not supplied — e.g. a direct call without the ontology — it
-    falls back to reading the attribute node's asserted kind class. Either way the
+    falls back to the attribute node's types in ``schema`` (default: ``graph``
+    plus the core ontology), again through ``rdfs:subClassOf*``. Either way the
     value extraction below is driven by the kind, never by class-name spelling.
     """
+    if schema is None:
+        schema = schema_view(graph)
 
     # Extract attribute name from URI (last segment after /)
     # URI structure: .../ComponentInstance/AttributeName
     attr_name = str(attr_uri).split('/')[-1]
 
     # Fallback kind detection (only when the semantic kind wasn't passed in):
-    # read the attribute node's directly-asserted kind class.
-    if not attr_type:
-        _kind_classes = {
-            'PhysicalAttribute', 'DynamicAttribute', 'CategoricalAttribute',
-            'EventAttribute', 'CurveAttribute', 'SimpleCostAttribute',
-            'UnitBasedCostAttribute', 'ResourceAttribute', 'SimpleValueAttribute',
-            'CustomPhysicalRatioAttribute', 'GeospatialAttribute',
-        }
-        for type_uri in graph.objects(attr_uri, RDF.type):
-            type_str = str(type_uri)
-            if type_str.startswith(str(DICI)):
-                type_name = type_str.replace(str(DICI), "")
-                if type_name in _kind_classes:
-                    attr_type = type_name.replace('Attribute', '')
-                    break
+    # the node's types, through the class hierarchy.
+    kind = AttributeKind(attr_type) if attr_type else kind_of_node(schema, URIRef(attr_uri))
 
     if not attr_name:
         return None  # Can't identify the attribute
 
     # Default to Physical if the kind couldn't be determined.
-    if not attr_type:
-        attr_type = 'Physical'
+    if kind is None:
+        kind = AttributeKind.PHYSICAL
+    attr_type = kind.value
 
     # Build attribute data dict
     attr_data = {
@@ -178,7 +212,7 @@ def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT
     }
 
     # Extract values based on attribute type
-    if attr_type in ['Physical', 'Dynamic']:
+    if kind in (AttributeKind.PHYSICAL, AttributeKind.DYNAMIC):
         # Get value
         for value in graph.objects(attr_uri, QUDT_NS.value):
             attr_data['value'] = str(value)
@@ -204,31 +238,35 @@ def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT
         for ts_ref in graph.objects(attr_uri, DICI.hasLiveTimeSeriesReference):
             attr_data['live_reference'] = str(ts_ref)
 
-    elif attr_type == 'Categorical':
-        # The category value is encoded as a dici_onto rdf:type of the attribute
-        # node (e.g. <.../BuildingType> a dici_onto:MFH). Skip structural classes:
-        # the attribute's own class, any *Attribute class (CategoricalAttribute and
-        # the ComponentAttribute hierarchy), and — via the DICI namespace check —
-        # the inferred rdfs:Resource / owl:Thing.
-        for type_uri in graph.objects(attr_uri, RDF.type):
-            type_str = str(type_uri)
-            if type_str.startswith(str(DICI)):
-                type_name = type_str.replace(str(DICI), "")
-                if type_name != attr_name and not type_name.endswith('Attribute'):
-                    attr_data['category_value'] = type_name
-                    break
+    elif kind is AttributeKind.CATEGORICAL:
+        # The category is the node's dici_onto:hasCategoricalValue when stated.
+        # Otherwise it is encoded as a dici_onto rdf:type of the attribute node
+        # (e.g. <.../BuildingType> a dici_onto:MFH): the one type the hierarchy
+        # does not place under dici_onto:Attribute (other namespaces, such as
+        # the inferred rdfs:Resource / owl:Thing, are never a category). When
+        # the schema does not know the attribute's own class, two types remain
+        # and no value is guessed.
+        stated = next(iter(graph.objects(attr_uri, DICI.hasCategoricalValue)), None)
+        if stated is not None:
+            attr_data['category_value'] = dici_local_name(stated) or str(stated)
+        else:
+            candidates = [n for t in graph.objects(attr_uri, RDF.type)
+                          if (n := dici_local_name(t)) is not None
+                          and not is_attribute_class(schema, t)]
+            if len(candidates) == 1:
+                attr_data['category_value'] = candidates[0]
 
-    elif attr_type == 'Event':
+    elif kind is AttributeKind.EVENT:
         # Get temporal value and precision
         for temp_val in graph.objects(attr_uri, DICI.hasTemporalValue):
             attr_data['temporal_value'] = str(temp_val)
         for precision in graph.objects(attr_uri, DICI.hasTemporalPrecision):
-            prec_str = str(precision).replace(str(DICI), "")
+            prec_str = dici_local_name(precision) or str(precision)
             attr_data['temporal_precision'] = prec_str
         for source in graph.objects(attr_uri, DCTERMS.source):
             attr_data['datasource'] = str(source)
 
-    elif attr_type in ['SimpleCost', 'UnitBasedCost']:
+    elif kind in (AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST):
         # Get value
         for value in graph.objects(attr_uri, QUDT_NS.value):
             attr_data['value'] = str(value)
@@ -248,19 +286,19 @@ def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT
         for source in graph.objects(attr_uri, DCTERMS.source):
             attr_data['datasource'] = str(source)
 
-    elif attr_type == 'Resource':
+    elif kind is AttributeKind.RESOURCE:
         # Get data path
         for data_path in graph.objects(attr_uri, DICI.hasDataPath):
             attr_data['data_path'] = str(data_path)
 
-    elif attr_type == 'SimpleValue':
+    elif kind is AttributeKind.SIMPLE_VALUE:
         # Get attribute value
         for value in graph.objects(attr_uri, DICI.hasAttributeValue):
             attr_data['value'] = str(value)
         for source in graph.objects(attr_uri, DCTERMS.source):
             attr_data['datasource'] = str(source)
 
-    elif attr_type == 'CustomPhysicalRatio':
+    elif kind is AttributeKind.CUSTOM_PHYSICAL_RATIO:
         # Get value and custom unit
         for value in graph.objects(attr_uri, QUDT_NS.value):
             attr_data['value'] = str(value)
@@ -276,7 +314,7 @@ def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT
         for source in graph.objects(attr_uri, DCTERMS.source):
             attr_data['datasource'] = str(source)
 
-    elif attr_type == 'Curve':
+    elif kind is AttributeKind.CURVE:
         # Units come as unit: IRIs (xUnit/yUnit) with string labels alongside.
         for x_unit in graph.objects(attr_uri, DICI.xUnit):
             attr_data['x_unit'] = local_name(str(x_unit))
@@ -290,12 +328,12 @@ def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT
         for source in graph.objects(attr_uri, DCTERMS.source):
             attr_data['datasource'] = str(source)
 
-    elif attr_type == 'Identifier':
+    elif kind is AttributeKind.IDENTIFIER:
         for ident in graph.objects(attr_uri, DICI.identifierValue):
             attr_data['identifier_value'] = str(ident)
             break
 
-    elif attr_type == 'Geospatial':
+    elif kind is AttributeKind.GEOSPATIAL:
         # Get geospatial value
         for value in graph.objects(attr_uri, DICI.hasAttributeValue):
             attr_data['value'] = str(value)
@@ -368,19 +406,20 @@ def parse_links_from_graph(graph: Graph,
         instances_by_id[inst.id] = inst
         instances_by_uri[inst.uri] = inst
 
+    schema = schema_view(graph)
+
     # Find all triples in the system_description graph
     for s, p, o in graph:
         source_uri = str(s)
         pred_str = str(p)
         target_uri = str(o)
 
-        # Check if this is a linking property (from dici_onto namespace)
-        # Links are subproperties of linksComponent
-        if pred_str.startswith(str(DICI)):
-            property_name = pred_str.replace(str(DICI), "")
+        # A dici_onto predicate between two known instances is a link, unless
+        # the property hierarchy says it attaches an attribute.
+        property_name = dici_local_name(p)
+        if property_name is not None:
 
-            # Skip non-linking properties (like rdf:type, rdfs:label, etc.)
-            if property_name in ['type', 'label', 'comment', 'hasAttribute']:
+            if is_attribute_predicate(schema, p):
                 continue
 
             # Try to find instances by URI first (most reliable)
@@ -426,6 +465,7 @@ def load_replica_model(client) -> Tuple[List[ComponentInstance], List[Dict[str, 
     """
     from backend.graphdb.graphs import (
         CLASSES_AND_ATTRIBUTES_GRAPH,
+        ONTOLOGY_GRAPH,
         SYSTEM_DESCRIPTION_GRAPH,
     )
     from backend.graphdb.queries import graph_io
@@ -436,11 +476,12 @@ def load_replica_model(client) -> Tuple[List[ComponentInstance], List[Dict[str, 
 
     classes_graph = graph_io.construct_named_graph(client, CLASSES_AND_ATTRIBUTES_GRAPH)
     if classes_graph is not None:
+        ontology = graph_io.construct_named_graph(client, ONTOLOGY_GRAPH)
         discovered = components_q.get_all_component_instances(client)
         attr_links = components_q.get_all_instance_attribute_links(client)
         attr_kinds = components_q.get_attribute_kinds(client)
-        parsed = parse_instances_from_graph(classes_graph, discovered)
-        attributes = parse_attributes_from_graph(classes_graph, attr_links, attr_kinds)
+        parsed = parse_instances_from_graph(classes_graph, discovered, attr_links, ontology)
+        attributes = parse_attributes_from_graph(classes_graph, attr_links, attr_kinds, ontology)
         instances = convert_to_replica_instances(parsed, attributes)
 
     system_graph = graph_io.construct_named_graph(client, SYSTEM_DESCRIPTION_GRAPH)
@@ -451,46 +492,54 @@ def load_replica_model(client) -> Tuple[List[ComponentInstance], List[Dict[str, 
 
 
 def parse_local_replica_graph(graph: Graph,
-                              project_uri: Optional[str] = None) -> List[ComponentInstance]:
+                              project_uri: Optional[str] = None,
+                              ontology: Optional[Graph] = None) -> List[ComponentInstance]:
     """Parse a *standalone* classes_and_attributes graph (e.g. the TTL just
     written by ``process_excel_to_ttl``) into ComponentInstances — no
     triplestore, no ontology.
 
-    Discovery leans on the asserted structure the platform's generators emit:
+    Discovery leans on the asserted structure the platform's generators emit,
+    read through the core ontology's hierarchy:
 
-    * attribute nodes are objects of ``dici_onto:hasAttribute`` /
-      ``dici_onto:hasIdentifier`` / any ``dici_onto:has…Attribute`` predicate;
+    * attribute nodes are objects of an ``rdfs:subPropertyOf*
+      dici_onto:hasAttribute`` predicate (``hasAttribute`` and ``hasIdentifier``
+      included; the generator writes ``hasAttribute`` next to every minted
+      ``has<Sheet><Name>Attribute``, which is not declared anywhere);
     * component instances are the remaining subjects with a ``dici_onto:``
-      rdf:type, excluding ``TimeSeries`` and ``Reference`` nodes;
-    * attribute kinds come from each node's asserted kind class
+      rdf:type, excluding time-series and reference nodes (types under
+      ``dici_onto:TimeSeries`` / ``dici_onto:Reference``);
+    * attribute kinds come from each node's types through ``rdfs:subClassOf*``
       (``parse_single_attribute``'s fallback path).
 
     ``project_uri`` additionally recovers free-form Annotation columns the
     Excel converter writes into the project namespace (``:<name> "value"``).
+    ``ontology`` is the workspace schema: it tells an attribute's own class
+    from the category it holds when the data does not state
+    ``dici_onto:hasCategoricalValue``.
     """
     dici = str(DICI)
+    schema = schema_view(graph, ontology)
 
     # 1. Attribute + identifier nodes (never instances).
+    attribute_predicates = {p for p in set(graph.predicates())
+                            if is_attribute_predicate(schema, p)}
     attr_nodes = set()
     attr_links: Dict[URIRef, List[URIRef]] = {}
     for s, p, o in graph:
-        pred = str(p)
-        if not pred.startswith(dici):
-            continue
-        pred_name = pred[len(dici):]
-        if pred_name == "hasAttribute" or pred_name == "hasIdentifier" or (
-                pred_name.startswith("has") and pred_name.endswith("Attribute")):
-            if isinstance(o, URIRef):
-                attr_nodes.add(o)
-                attr_links.setdefault(s, [])
-                if o not in attr_links[s]:
-                    attr_links[s].append(o)
+        if p in attribute_predicates and isinstance(o, URIRef):
+            attr_nodes.add(o)
+            attr_links.setdefault(s, [])
+            if o not in attr_links[s]:
+                attr_links[s].append(o)
 
     identifier_nodes = set(graph.objects(None, DICI.hasIdentifier))
 
-    # 2. Structural nodes to skip.
-    ts_nodes = set(graph.subjects(RDF.type, DICI.TimeSeries))
-    ref_nodes = set(graph.subjects(RDF.type, DICI.Reference))
+    # 2. Structural types to skip: time series and references.
+    structural_types = {
+        t for t in set(graph.objects(None, RDF.type))
+        if is_subclass_of(schema, t, DICI.TimeSeries) or is_subclass_of(schema, t, DICI.Reference)
+    }
+    structural_nodes = {s for t in structural_types for s in graph.subjects(RDF.type, t)}
 
     # 3. Component instances: subjects with a dici_onto: type that aren't
     # attribute / time-series / reference nodes.
@@ -498,13 +547,10 @@ def parse_local_replica_graph(graph: Graph,
     for s, o in graph.subject_objects(RDF.type):
         if not isinstance(s, URIRef) or not isinstance(o, URIRef):
             continue
-        if s in attr_nodes or s in ts_nodes or s in ref_nodes:
+        if s in attr_nodes or s in structural_nodes:
             continue
-        type_str = str(o)
-        if not type_str.startswith(dici):
-            continue
-        type_name = type_str[len(dici):]
-        if type_name in ("TimeSeries", "Reference"):
+        type_name = dici_local_name(o)
+        if type_name is None:
             continue
         # Deterministic when (rarely) multi-typed.
         if s not in instance_types or type_name < instance_types[s]:
@@ -523,20 +569,14 @@ def parse_local_replica_graph(graph: Graph,
             break
 
         annotations: Dict[str, str] = {}
-        class_objects: Dict[str, str] = {}
-        excluded_predicates = {'hasAttribute', 'hasIdentifier', 'label'}
         for p, o in graph.predicate_objects(subject):
             pred_str = str(p)
-            if pred_str.startswith(str(RDFS)) and pred_str != str(RDFS.label):
-                annotations[pred_str.replace(str(RDFS), "")] = str(o)
-            elif project_ns and pred_str.startswith(project_ns) and isinstance(o, Literal):
+            if in_namespace(p, RDFS) and p != RDFS.label:
+                annotations[pred_str[len(str(RDFS)):]] = str(o)
+            elif project_ns and in_namespace(p, project_ns) and isinstance(o, Literal):
                 # Free-form Annotation columns land in the project namespace.
                 annotations[pred_str[len(project_ns):]] = str(o)
-            elif pred_str.startswith(dici):
-                pred_name = pred_str[len(dici):]
-                if pred_name not in excluded_predicates and not pred_name.startswith('has') \
-                        and isinstance(o, URIRef):
-                    class_objects[pred_name] = str(o)
+        class_objects = _class_objects(schema, subject, attr_nodes)
 
         instance = ComponentInstance(
             id=uri.split('#')[-1] if '#' in uri else uri.split('/')[-1],
@@ -548,8 +588,8 @@ def parse_local_replica_graph(graph: Graph,
         )
 
         for attr_uri in attr_links.get(subject, []):
-            forced_kind = 'Identifier' if attr_uri in identifier_nodes else None
-            attr_data = parse_single_attribute(graph, attr_uri, attr_type=forced_kind)
+            forced_kind = AttributeKind.IDENTIFIER.value if attr_uri in identifier_nodes else None
+            attr_data = parse_single_attribute(graph, attr_uri, attr_type=forced_kind, schema=schema)
             if attr_data and attr_data.get('name'):
                 name = attr_data.pop('name')
                 instance.attributes[name] = attr_data

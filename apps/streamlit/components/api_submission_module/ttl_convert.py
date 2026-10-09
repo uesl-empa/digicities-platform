@@ -251,13 +251,37 @@ def render_scenario_selection_tab():
                     except Exception:
                         pass
 
+                    # The workspace schema decides what each node is during
+                    # conversion; without it only the core hierarchy is used.
+                    from backend.api_submission.materialize import workspace_schema
+                    _ctx = st.session_state.get("workspace_context")
+                    unread = []
+                    schema = workspace_schema(getattr(_ctx, "storage", None), skipped=unread)
+                    for u in unread:
+                        st.warning(f"The workspace ontology extension could not be read, so "
+                                   f"only the core hierarchy is used ({u['error']}).")
+
                     for ttl_file in ttl_files_to_process:
                         try:
                             # Process file
                             filename = ttl_file['name']
                             ttl_content = ttl_file['content']
+                            # The derived values the template asks for
+                            # (District.FloorAreaMean) join the scenario's own
+                            # components; nothing else of the collections does.
+                            _derived_client = st.session_state.get("workspace_client")
+                            if _derived_client is not None:
+                                from backend.api_submission.materialize import (
+                                    with_derived_values,
+                                )
+                                unread_derived = []
+                                ttl_content = with_derived_values(
+                                    ttl_content, _derived_client, template_content,
+                                    skipped=unread_derived)
+                                for u in unread_derived:
+                                    st.warning(f"{filename}: {u['error']}.")
 
-                            processor = RobustTTL2YAMLProcessor()
+                            processor = RobustTTL2YAMLProcessor(ontology_graph=schema)
                             converted = processor.process(
                                 template_content=template_content,
                                 ttl_source=ttl_content,

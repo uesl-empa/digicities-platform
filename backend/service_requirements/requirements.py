@@ -60,6 +60,11 @@ def requirements_ttl(
     ``providesOutputAttribute``, ``atStreamAddress``) is not yet in the core
     ontology, so it is declared inline per the workspace-extension model —
     promotion to core follows the usual 2+ workpackage rule.
+
+    What the service READS from a live stream needs nothing extra here: the
+    stream's component is an input like any other (a requirement on its
+    attribute), and the stream's address is that attribute's
+    ``hasLiveTimeSeriesReference`` in the replica, one source of truth.
     """
     g = Graph()
     g.bind("dici_onto", DICI)

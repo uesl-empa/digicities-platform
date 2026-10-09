@@ -26,13 +26,13 @@ def _fragment(uri: str) -> str:
     return uri
 
 
-def _rows_to_links(result, link_property: str | None = None) -> list[dict[str, Any]]:
+def _rows_to_links(result) -> list[dict[str, Any]]:
     links = []
     for _, row in result.iterrows():
         links.append({
             "source_uri": row["source"],
             "source_type": _fragment(row["sourceType"]),
-            "link_property": link_property or _fragment(row["linkProperty"]),
+            "link_property": _fragment(row["linkProperty"]),
             "target_uri": row["target"],
             "target_type": _fragment(row["targetType"]),
             "source_label": _fragment(row["source"]),
@@ -44,20 +44,21 @@ def _rows_to_links(result, link_property: str | None = None) -> list[dict[str, A
 def discover_component_links(client) -> list[dict[str, Any]]:
     """Physical component links from the graph, best query first.
 
-    Same fallback chain as the Streamlit loader: direct ``locatedIn``, then
-    ``linksComponent`` subproperty reasoning, then the broad relationship
-    sweep. Each step is tried only when the previous found nothing."""
-    for query, prop in (
-        (gq_sysdesc.query_direct_located_in, "locatedIn"),
-        (gq_sysdesc.query_links_with_subproperty, None),
-        (gq_sysdesc.query_all_component_relationships, None),
+    Same fallback chain as the Streamlit loader: direct place links (located
+    in / at, ``LOCATION_PREDICATES``), then ``linksComponent`` subproperty
+    reasoning, then the broad relationship sweep. Each step is tried only when
+    the previous found nothing. Every link carries the predicate it was found by."""
+    for query in (
+        gq_sysdesc.query_direct_located_in,
+        gq_sysdesc.query_links_with_subproperty,
+        gq_sysdesc.query_all_component_relationships,
     ):
         try:
             result = query(client)
         except Exception:
             continue
         if result is not None and not result.empty:
-            links = _rows_to_links(result, prop)
+            links = _rows_to_links(result)
             if links:
                 return links
     return []
@@ -69,7 +70,7 @@ def match_links_to_requirements(
     """Discovered links per ``CL.Source.Target`` requirement they can fulfil.
 
     Each match is oriented to the requirement (``suggested_source`` /
-    ``suggested_target``): ``locatedIn`` runs child→parent, so the reversed
+    ``suggested_target``): place links run child→parent, so the reversed
     direction is checked first, exactly like the Streamlit loader."""
     matched: dict[str, list[dict[str, Any]]] = {}
     for pattern in requirements:

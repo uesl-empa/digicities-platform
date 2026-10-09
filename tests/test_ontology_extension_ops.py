@@ -197,7 +197,7 @@ def test_remove_deletes_only_what_the_class_owns(funcs):
     funcs.link_attribute(EXT, str(DICI.WindTurbine), str(DICI.HubHeight))
     assert funcs.remove_component(EXT, str(DICI.Wind))[0]
     ext = _ext(funcs)
-    assert (DICI.hasWindTurbineHubHeight, RDF.type, OWL.ObjectProperty) in ext
+    assert (DICI.hasWindTurbineHubHeightAttribute, RDF.type, OWL.ObjectProperty) in ext
     assert (DICI.hasWindTurbineAttribute, RDF.type, OWL.ObjectProperty) in ext
     assert (DICI.hasWindAttribute, RDF.type, OWL.ObjectProperty) not in ext
 
@@ -211,9 +211,8 @@ def test_remove_attribute_deletes_only_its_own_properties(funcs):
         funcs.link_attribute(EXT, str(DICI.Plot), str(DICI[a]))
     assert funcs.remove_attribute(EXT, str(DICI.Area))[0]
     ext = _ext(funcs)
-    assert (DICI.hasPlotFloorArea, RDF.type, OWL.ObjectProperty) in ext
     assert (DICI.hasPlotFloorAreaAttribute, RDF.type, OWL.ObjectProperty) in ext
-    assert (DICI.hasPlotArea, RDF.type, OWL.ObjectProperty) not in ext
+    assert (DICI.hasPlotAreaAttribute, RDF.type, OWL.ObjectProperty) not in ext
     assert (DICI.hasPlotAttribute, RDF.type, OWL.ObjectProperty) in ext   # general stays
 
 
@@ -248,11 +247,15 @@ def test_rename_cascades_to_everything_generated(funcs):
     assert (DICI.WindPark, RDF.type, OWL.Class) in ext
     assert (DICI.GlobalWindAtlasSite, None, None) not in ext
     assert (None, None, DICI.GlobalWindAtlasSite) not in ext
+    assert (DICI.GlobalWindAtlasSiteAttribute, None, None) not in ext
     assert "WindPark" in _parents(ext, "SiteArray")                       # child follows
-    assert (DICI.hasWindParkRoughness, RDFS.domain, DICI.WindPark) in ext
-    assert (DICI.hasWindParkRoughnessAttribute, RDF.type, OWL.ObjectProperty) in ext
+    assert (DICI.hasWindParkRoughnessAttribute, RDFS.domain, DICI.WindPark) in ext
+    assert (DICI.hasWindParkRoughnessAttribute, RDFS.range, DICI.Roughness) in ext
+    assert (DICI.hasWindParkAttribute, RDFS.range, DICI.WindParkAttribute) in ext
     assert (DICI.WindParkAttribute, RDF.type, OWL.Class) in ext
-    assert (DICI.partOfWindPark, RDFS.range, DICI.WindPark) in ext        # link follows
+    # A link property points at the renamed class; its name is the user's and
+    # stays (nothing is renamed by matching its spelling).
+    assert (DICI.partOfGlobalWindAtlasSite, RDFS.range, DICI.WindPark) in ext
     assert str(next(ext.objects(DICI.WindPark, RDFS.label))) == "Wind Park"
     ok, msg = funcs.rename_component(EXT, str(DICI.WindPark), "Turbine")
     assert not ok and "core class" in msg

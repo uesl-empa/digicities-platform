@@ -1,34 +1,43 @@
 # Strengthening Digicities as a semantic layer
 
-Digicities earns its keep when it is the shared, self-describing vocabulary that sits
-between raw data and the models that consume it. The flexibility-optimizer integration
-proved the plumbing works end to end. This document is about the next mile: turning
-"a demo that runs" into "a layer you can trust and reuse".
+Digicities is a requirements-driven semantic layer that connects models to the data they
+need: each model states its inputs as requirements against a shared ontology, and the
+platform finds, checks and delivers that data from a knowledge graph.
 
-The honest current state: the integration works partly because the service-side
-adapter is forgiving. It matches attribute names loosely and fills in defaults for
-anything missing. That means today you can submit a half-described building and still
-get a confident-looking but meaningless answer. The vocabulary exists, but nothing yet
-guarantees that a scenario actually satisfies what a model needs before it is sent.
+This document says what that takes, what is in place and what is still missing. It is
+ordered by value, not by effort. For the dated list of everything that does not work
+yet, see [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md); this page no longer keeps its
+own list.
 
-The work below closes that gap. It is ordered by leverage, not by effort.
+Current state (2026-10-09): scenarios are checked against the service's contract before
+they are sent (see P0 below). Two gaps remain
+that matter most. The checks look at completeness, not at units, types or allowed
+values. And a service-side adapter (the flexibility optimiser's, for example) can still
+match names loosely and fill in defaults, which hides missing data from the user.
 
 ## P0 - Enforce the contract (validation before submission)
 
-This is the single highest-value change. Right now `ValidationResult` is defined in
-the API submission module but never used.
+Status: in place for completeness, not yet for units, types or allowed values.
 
-Make it real: before a scenario is submitted, validate the converted payload against
-the chosen service's requirements template and the ontology, and show the user:
+`validate_payload` (`backend/api_submission/validation.py`) checks every converted
+payload against the service's contract before it is sent:
 
-- which required attributes are missing,
-- which template references did not resolve (values still looking like
-  `Building.PeakSpaceHeatingPower` instead of a number),
-- which values fall outside the expected unit, type, or allowed set.
+- a template reference that did not resolve to a value is reported (an error when the
+  field is listed under `required_attributes`, a warning otherwise),
+- a value that still holds the unresolved reference (for example the text
+  `Building.PeakSpaceHeatingPower` instead of a number) is reported the same way,
+- a component link that produced no components is an error.
 
-Block (or loudly warn before) submission when required fields are missing. The goal is
-simple: a green tick should mean "this building genuinely has what the model needs",
-not "we sent something and the service filled the blanks".
+Where it runs: the REST convert (`POST .../submission/convert`) returns the report with the
+payload; the Streamlit Submit tab skips every scenario that fails and says which; the
+onboarding agent's payload check holds the contract to the same rules. The REST submit
+(`POST .../submission/submit`) does not re-check the report: it only refuses an empty payload
+(unless the caller passes `force=true`). See [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md).
+
+Still to do: check values against the expected unit, type and allowed set. That is the
+job of the SHACL shapes described below. The goal stays the same: a green tick should
+mean "this building genuinely has what the model needs", not "we sent something and the
+service filled the blanks".
 
 Why it matters: this is what turns a nice vocabulary into a dependable contract. It is
 also what makes results trustworthy, because you know the inputs were complete.
@@ -99,9 +108,9 @@ Why it matters: this is the other half of "connect raw data to services", done w
 turning the knowledge graph into a timeseries database (which it should never be).
 
 Progress: the configuration half is now explicit. A value that sets a boundary
-condition of a model run (a model choice, a calibration constant, a stream address)
+condition of a model run (a model choice, a calibration constant)
 is a `ConfigurationAttribute` in a `ServiceConfiguration` profile owned by the
-service, kept apart from the components' own attributes (core ontology v0.5.0).
+service, kept apart from the components' own attributes (since core ontology v0.5.0). A live data stream that delivers a component's values is not configuration: it belongs to that component, as the `hasLiveTimeSeriesReference` of one of its attributes.
 
 ## P2 - Bring results back into the graph
 

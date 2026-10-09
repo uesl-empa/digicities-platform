@@ -5,12 +5,12 @@
 
 Drives the same entry points the data-products processor calls
 (``parse_ttl_content`` → ``extract_components_from_graph`` →
-``get_component_summary``) over the shared fixture
-``tests/fixtures/use_case_data_product.ttl``, which carries one of each
+``get_component_summary``) over the fixture
+``tests/fixtures/data_product_linked.ttl``, which carries one of each
 attribute flavor: physical + QUDT unit, unit-based and simple costs
 (currency), a new-style categorical, a dynamic attribute with a live time
-series, a curve, and a temporal event. Attribute discovery here runs on the
-platform's path-style URI convention (``<component>/<AttributeName>``).
+series, a curve, and a temporal event. Attributes are the objects of the
+components' ``hasAttribute`` edges; the value shape comes from the hierarchy.
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ pytest.importorskip("rdflib")
 
 from backend.data_products.ttl_parser import TTLParser, get_component_summary  # noqa: E402
 
-FIXTURE = Path(__file__).parent / "fixtures" / "use_case_data_product.ttl"
+FIXTURE = Path(__file__).parent / "fixtures" / "data_product_linked.ttl"
 
 
 @pytest.fixture(scope="module")
@@ -139,3 +139,57 @@ def test_component_summary_counts(components):
     assert summary["components_with_resources"] == 1
     assert summary["attribute_categories"]["physical"] == 2
     assert summary["attribute_categories"]["cost"] == 2
+
+
+# ── classification by the hierarchy, never by names ─────────────────────────
+# Every name below would have misled the old substring rules: component
+# classes containing "Energy" / "Flow", an attribute class with no "Attribute"
+# in its name and no core kind type on the node, an attribute link that is not
+# spelt has...Attribute, attribute IRIs that do not sit under the component's
+# IRI, and a categorical whose value is not stated with hasCategoricalValue.
+SCHEMA_IN_PRODUCT = """
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix ex: <https://example.org/product#> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+ex:RatedThermalPower rdfs:subClassOf dici_onto:EnergyConverterAttribute,
+                                     dici_onto:PhysicalAttribute .
+ex:OperatingMode rdfs:subClassOf dici_onto:ComponentAttribute,
+                                 dici_onto:CategoricalAttribute .
+ex:carries rdfs:subPropertyOf dici_onto:hasAttribute .
+
+<https://example.org/c/HP1> a dici_onto:EnergyConverter ;
+    rdfs:label "Heat pump" ;
+    ex:carries <https://example.org/a/1> , <https://example.org/a/2> .
+<https://example.org/a/1> a ex:RatedThermalPower ;
+    qudt:value "50.0"^^xsd:decimal ; qudt:unit unit:KiloW .
+<https://example.org/a/2> a ex:OperatingMode, ex:Heating .
+
+<https://example.org/c/F1> a dici_onto:EnergyCarrierFlow ; rdfs:label "Flow one" .
+<https://example.org/r/1> a dici_onto:Reference ; rdfs:label "A paper" .
+"""
+
+
+@pytest.fixture(scope="module")
+def schema_components():
+    parser = TTLParser()
+    return parser.extract_components_from_graph(parser.parse_ttl_content(SCHEMA_IN_PRODUCT))
+
+
+def test_components_are_read_from_the_hierarchy(schema_components):
+    assert set(schema_components) == {"EnergyConverter", "EnergyCarrierFlow"}
+
+
+def test_attribute_kind_and_link_come_from_the_schema(schema_components):
+    attrs = _one(schema_components, "EnergyConverter")["attributes"]
+    power = attrs["1"]
+    assert power["attribute_type"] == "PhysicalAttribute"
+    assert power["category"] == "physical"
+    assert power["value"] == 50.0 and power["unit"] == "kW"
+    mode = attrs["2"]
+    assert mode["attribute_type"] == "CategoricalAttribute"
+    assert mode["category_value"] == "Heating"
+    assert mode["specific_attribute_type"] == "OperatingMode"

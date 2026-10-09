@@ -20,6 +20,7 @@ rdflib = pytest.importorskip("rdflib")
 openpyxl = pytest.importorskip("openpyxl")
 
 from backend.api_submission.ttl_converter import convert_scenario  # noqa: E402
+from workbook_schema import declare_workbook  # noqa: E402
 from backend.replica_builder.utils.create_class_and_attribute_graph import (  # noqa: E402
     process_excel_to_ttl,
 )
@@ -111,7 +112,8 @@ def replica_ttl(tmp_path_factory) -> str:
     tmp = tmp_path_factory.mktemp("curves")
     xlsx = _workbook(tmp / "wb.xlsx", {k: v[0] for k, v in CURVES.items()})
     out = tmp / "wb.ttl"
-    process_excel_to_ttl(PROJ, str(xlsx), str(out))
+    process_excel_to_ttl(PROJ, str(xlsx), str(out),
+                         ontology=declare_workbook(xlsx, tmp / "ws"))
     return out.read_text(encoding="utf-8")
 
 
@@ -137,7 +139,8 @@ def test_converter_returns_structured_curves(replica_ttl):
 def test_unparseable_points_are_reported_not_silently_dropped(tmp_path, capsys):
     xlsx = _workbook(tmp_path / "wb.xlsx", {"M1": "[(3,0);(4,oops);(5,6)]"})
     out = tmp_path / "wb.ttl"
-    process_excel_to_ttl(PROJ, str(xlsx), str(out))
+    process_excel_to_ttl(PROJ, str(xlsx), str(out),
+                         ontology=declare_workbook(xlsx, tmp_path / "ws"))
     printed = capsys.readouterr().out
     assert "Machine.M1.PerformanceCurve" in printed and "1 point(s)" in printed
     g = rdflib.Graph()
