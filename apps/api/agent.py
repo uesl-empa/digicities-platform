@@ -280,12 +280,15 @@ def state(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
 
 @router.get("/commands")
 def commands(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
-    """The commands that work in the conversation's current step, for the chat's
-    command list: ``{"stage", "commands": [{key, area, form, usage, description,
-    example, states, slots: [{name, kind, label, choices}]}]}``. Slot choices come
-    from the workspace (classes, attributes, scenarios) and the ontology (the
-    link predicates under ``linksComponent``). Generated from the agent's command
-    registry, the same list its router and help use."""
+    """The commands that can run in the conversation's current step, for the
+    chat's command list: ``{"stage", "commands": [{key, area, form, usage,
+    description, when_to_use, example, example_result, states, slots: [{name,
+    kind, label, help, choices: [{value, label}]}]}]}``. Each command says when to
+    use it and what its example does; each slot says what goes in it. Slot
+    choices come from the workspace (classes, attributes, scenarios, instances,
+    the numbered decisions) and the ontology (the link predicates under
+    ``linksComponent``). Generated from the agent's command registry, the same
+    list its router and help use."""
     return _get(session_id, ctx).commands()
 
 

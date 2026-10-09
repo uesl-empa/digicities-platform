@@ -2240,7 +2240,7 @@
     },
     "/api/workspaces/{workspace_id}/agent/commands": {
       "get": {
-        "description": "The commands that work in the conversation's current step, for the chat's\ncommand list: ``{\"stage\", \"commands\": [{key, area, form, usage, description,\nexample, states, slots: [{name, kind, label, choices}]}]}``. Slot choices come\nfrom the workspace (classes, attributes, scenarios) and the ontology (the\nlink predicates under ``linksComponent``). Generated from the agent's command\nregistry, the same list its router and help use.",
+        "description": "The commands that can run in the conversation's current step, for the\nchat's command list: ``{\"stage\", \"commands\": [{key, area, form, usage,\ndescription, when_to_use, example, example_result, states, slots: [{name,\nkind, label, help, choices: [{value, label}]}]}]}``. Each command says when to\nuse it and what its example does; each slot says what goes in it. Slot\nchoices come from the workspace (classes, attributes, scenarios, instances,\nthe numbered decisions) and the ontology (the link predicates under\n``linksComponent``). Generated from the agent's command registry, the same\nlist its router and help use.",
         "operationId": "commands_api_workspaces__workspace_id__agent_commands_get",
         "parameters": [
           {

@@ -1116,9 +1116,14 @@ class _FakeAgentSession:
             {"key": "set_link", "area": "Replica", "form": "set link {A}→{B} to {predicate}",
              "usage": "set link <Class>→<Class> to <predicate>",
              "description": "Change the predicate of the link between two classes",
-             "example": "set link WindTurbine→WindPark to hasLocation", "states": ["built"],
+             "when_to_use": "The predicate that links two classes' instances is not the one "
+                            "you want",
+             "example": "set link WindTurbine→WindPark to hasLocation",
+             "example_result": "a preview; reply yes to rebuild", "states": ["built"],
              "slots": [{"name": "predicate", "kind": "predicate", "label": "predicate",
-                        "choices": ["hasLocation", "partOf"]}]}]}
+                        "help": "A link predicate of the ontology",
+                        "choices": [{"value": "hasLocation", "label": "hasLocation"},
+                                    {"value": "partOf", "label": "partOf"}]}]}]}
 
 
 @pytest.fixture()
@@ -1164,7 +1169,8 @@ def test_agent_commands_for_the_current_step(client, agent_env):
     assert body["stage"] == "built"
     cmd = body["commands"][0]
     assert cmd["area"] == "Replica" and cmd["form"] == "set link {A}→{B} to {predicate}"
-    assert cmd["slots"][0]["choices"] == ["hasLocation", "partOf"]
+    assert cmd["when_to_use"] and cmd["example_result"] and cmd["slots"][0]["help"]
+    assert cmd["slots"][0]["choices"][0] == {"value": "hasLocation", "label": "hasLocation"}
     assert client.get(f"{B}/agent/commands", params={"session_id": "nope"}).status_code == 404
 
 
