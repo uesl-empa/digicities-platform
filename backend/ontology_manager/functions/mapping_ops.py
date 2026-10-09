@@ -292,6 +292,12 @@ class MappingMixin:
                 replace_existing=True,
                 split_size=100
             )
+            # The schema changed: recompute every inferred companion so no
+            # inference outlives the schema it came from.
+            from backend.workspace.graphdb_provisioning import refresh_inferred
+            if not refresh_inferred(self.graphdb_client):
+                return False, {"error": "ontology uploaded, but its inferred triples "
+                                        "could not be recomputed; re-provision the workspace"}
 
             self.set_active_extension(extension_filename)
 

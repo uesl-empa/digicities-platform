@@ -20,6 +20,7 @@ from backend.graphdb.graphs import (
     ONTOLOGY_GRAPH,
     CLASSES_AND_ATTRIBUTES_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
+    graph_union,
 )
 from backend.graphdb.queries._exec import run_df
 
@@ -30,9 +31,31 @@ _PREFIXES = (
     "PREFIX owl: <http://www.w3.org/2002/07/owl#>\n"
     "PREFIX prov: <http://www.w3.org/ns/prov#>\n"
 )
-_SYS = f"<{SYSTEM_DESCRIPTION_GRAPH}>"
-_CA = f"<{CLASSES_AND_ATTRIBUTES_GRAPH}>"
-_ONT = f"<{ONTOLOGY_GRAPH}>"
+
+
+def _sys(pattern: str) -> str:
+    return graph_union(SYSTEM_DESCRIPTION_GRAPH, pattern)
+
+
+def _ca(pattern: str) -> str:
+    # The instance graph with its inferred companion: a link or a type the
+    # platform inferred (``locatedIn`` from ``hasLocation``) still counts here.
+    return graph_union(CLASSES_AND_ATTRIBUTES_GRAPH, pattern)
+
+
+def _ont(pattern: str) -> str:
+    return graph_union(ONTOLOGY_GRAPH, pattern)
+
+
+def _component_types() -> str:
+    """Source and target typed under Component (one triple per graph union)."""
+    return f"""
+        {_ca("?source a ?sourceType .")}
+        {_ca("?target a ?targetType .")}
+        {_ont("?sourceType rdfs:subClassOf* dici_onto:Component .")}
+        {_ont("?targetType rdfs:subClassOf* dici_onto:Component .")}
+        FILTER(?sourceType != dici_onto:Component)
+        FILTER(?targetType != dici_onto:Component)"""
 
 
 def query_direct_located_in(client) -> pd.DataFrame:
@@ -41,20 +64,10 @@ def query_direct_located_in(client) -> pd.DataFrame:
     {_PREFIXES}
     SELECT DISTINCT ?source ?sourceType ?target ?targetType
     WHERE {{
-        {{ GRAPH {_SYS} {{ ?source dici_onto:locatedIn ?target . }} }}
+        {{ {_sys("?source dici_onto:locatedIn ?target .")} }}
         UNION
-        {{ GRAPH {_CA} {{ ?source dici_onto:locatedIn ?target . }} }}
-
-        GRAPH {_CA} {{
-            ?source a ?sourceType .
-            ?target a ?targetType .
-        }}
-        GRAPH {_ONT} {{
-            ?sourceType rdfs:subClassOf* dici_onto:Component .
-            ?targetType rdfs:subClassOf* dici_onto:Component .
-        }}
-        FILTER(?sourceType != dici_onto:Component)
-        FILTER(?targetType != dici_onto:Component)
+        {{ {_ca("?source dici_onto:locatedIn ?target .")} }}
+        {_component_types()}
     }}
     ORDER BY ?source ?target
     """
@@ -70,23 +83,11 @@ def query_links_with_subproperty(client) -> pd.DataFrame:
     {_PREFIXES}
     SELECT DISTINCT ?source ?sourceType ?linkProperty ?target ?targetType
     WHERE {{
-        {{ GRAPH {_SYS} {{ ?source ?linkProperty ?target . }} }}
+        {{ {_sys("?source ?linkProperty ?target .")} }}
         UNION
-        {{ GRAPH {_CA} {{ ?source ?linkProperty ?target . FILTER(isIRI(?target)) }} }}
-
-        GRAPH {_ONT} {{
-            ?linkProperty rdfs:subPropertyOf* dici_onto:linksComponent .
-        }}
-        GRAPH {_CA} {{
-            ?source a ?sourceType .
-            ?target a ?targetType .
-        }}
-        GRAPH {_ONT} {{
-            ?sourceType rdfs:subClassOf* dici_onto:Component .
-            ?targetType rdfs:subClassOf* dici_onto:Component .
-        }}
-        FILTER(?sourceType != dici_onto:Component)
-        FILTER(?targetType != dici_onto:Component)
+        {{ {_ca("?source ?linkProperty ?target .")} FILTER(isIRI(?target)) }}
+        {_ont("?linkProperty rdfs:subPropertyOf* dici_onto:linksComponent .")}
+        {_component_types()}
     }}
     ORDER BY ?source ?target
     """
@@ -104,30 +105,18 @@ def query_all_component_relationships(client) -> pd.DataFrame:
     {_PREFIXES}
     SELECT DISTINCT ?source ?sourceType ?linkProperty ?target ?targetType
     WHERE {{
-        {{ GRAPH {_SYS} {{ ?source ?linkProperty ?target . FILTER(isIRI(?target)) }} }}
+        {{ {_sys("?source ?linkProperty ?target .")} FILTER(isIRI(?target)) }}
         UNION
-        {{ GRAPH {_CA} {{
-            ?source ?linkProperty ?target .
+        {{
+            {_ca("?source ?linkProperty ?target .")}
             FILTER(isIRI(?target))
             FILTER(?linkProperty != rdf:type)
             FILTER(?linkProperty != dici_onto:hasAttribute)
-        }} }}
-
-        GRAPH {_CA} {{
-            ?source a ?sourceType .
-            ?target a ?targetType .
         }}
-        GRAPH {_ONT} {{
-            ?sourceType rdfs:subClassOf* dici_onto:Component .
-            ?targetType rdfs:subClassOf* dici_onto:Component .
-        }}
-        FILTER(?sourceType != dici_onto:Component)
-        FILTER(?targetType != dici_onto:Component)
-        GRAPH {_ONT} {{ ?linkProperty a owl:ObjectProperty . }}
-        FILTER NOT EXISTS {{ GRAPH {_ONT} {{
-            ?linkProperty rdfs:subPropertyOf* dici_onto:hasAttribute . }} }}
-        FILTER NOT EXISTS {{ GRAPH {_ONT} {{
-            ?linkProperty rdfs:subPropertyOf* prov:wasDerivedFrom . }} }}
+        {_component_types()}
+        {_ont("?linkProperty a owl:ObjectProperty .")}
+        FILTER NOT EXISTS {{ {_ont("?linkProperty rdfs:subPropertyOf* dici_onto:hasAttribute .")} }}
+        FILTER NOT EXISTS {{ {_ont("?linkProperty rdfs:subPropertyOf* prov:wasDerivedFrom .")} }}
     }}
     ORDER BY ?source ?target
     """

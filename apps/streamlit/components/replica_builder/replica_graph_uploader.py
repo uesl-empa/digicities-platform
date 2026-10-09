@@ -133,6 +133,11 @@ def upload_to_named_graph(client, graph_uri: str, ttl_content: str, mode: str) -
 
         status = getattr(response, "status_code", None)
         if status is None or status in (200, 201, 204):
+            from backend.graphdb.graphs import INFERRED_OF
+            from backend.workspace.graphdb_provisioning import refresh_inferred
+            if graph_uri.strip("<>") in INFERRED_OF and not refresh_inferred(client):
+                st.warning(f"Uploaded to {graph_uri}, but its inferred triples could not be "
+                           "recomputed; re-provision the workspace.")
             return True
 
         st.error(f"Upload failed with status {status}: {getattr(response, 'text', '')}")

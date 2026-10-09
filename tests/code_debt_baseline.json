@@ -91,7 +91,7 @@
   "backend/workspace/connections.py": 2,
   "backend/workspace/creation.py": 3,
   "backend/workspace/deletion.py": 10,
-  "backend/workspace/graphdb_provisioning.py": 14,
+  "backend/workspace/graphdb_provisioning.py": 9,
   "backend/workspace/lifecycle.py": 4,
   "backend/workspace/metadata.py": 3,
   "backend/workspace/mirror.py": 4,

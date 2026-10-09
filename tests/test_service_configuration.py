@@ -214,11 +214,17 @@ def test_provisioning_loads_the_services_graph(tmp_path, monkeypatch):
     ctx = WorkspaceContext(id="ws", name="ws", storage=WorkspaceStorage.local(str(tmp_path)),
                            graphdb_repository="ws")
     assert gp.ensure_workspace_repo(ctx)
-    g = rdflib.Graph().parse(data=uploads[SERVICES_GRAPH], format="turtle")
+    from backend.graphdb.graphs import INFERRED_OF
+    asserted = rdflib.Graph().parse(data=uploads[SERVICES_GRAPH], format="turtle")
+    inferred = rdflib.Graph().parse(data=uploads[INFERRED_OF[SERVICES_GRAPH]], format="turtle")
     D = rdflib.Namespace("https://digicities.info/ontology#")
     param = rdflib.URIRef(f"{P}/services/WindForecast/config/simulation_alkmaar/ModelType")
-    assert (param, rdflib.RDF.type, D.ConfigurationAttribute) in g
-    # the inverse is materialized, and the schema itself stays in its own graph
+    # the type the closure adds lives in the inferred companion, not with the services
+    assert (param, rdflib.RDF.type, D.ConfigurationAttribute) in inferred
+    assert (param, rdflib.RDF.type, D.ConfigurationAttribute) not in asserted
+    assert (param, rdflib.RDF.type, D.ModelType) in asserted
+    # the inverse is materialized there too, and the schema stays in its own graph
     profile = rdflib.URIRef(f"{P}/services/WindForecast/config/simulation_alkmaar")
-    assert (profile, D.configures, rdflib.URIRef(f"{P}/services/WindForecast")) in g
-    assert (D.ModelType, rdflib.RDFS.subClassOf, D.ConfigurationAttribute) not in g
+    assert (profile, D.configures, rdflib.URIRef(f"{P}/services/WindForecast")) in inferred
+    for g in (asserted, inferred):
+        assert (D.ModelType, rdflib.RDFS.subClassOf, D.ConfigurationAttribute) not in g

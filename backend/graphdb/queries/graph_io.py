@@ -47,15 +47,20 @@ def construct_ttl(client, query: str, timeout: int = 60) -> Optional[str]:
         return None
 
 
-def construct_named_graph(client, graph_iri: str) -> Optional[rdflib.Graph]:
+def construct_named_graph(client, graph_iri: str,
+                          inferred: bool = True) -> Optional[rdflib.Graph]:
     """CONSTRUCT every triple in a named graph and return it as an rdflib Graph.
 
-    ``graph_iri`` may be bare or angle-bracketed. Returns None on failure.
+    With ``inferred`` (the default) the graph's inferred companion is included,
+    so the result is what the graph held before inferred triples moved out;
+    ``inferred=False`` returns only what was asserted. ``graph_iri`` may be
+    bare or angle-bracketed. Returns None on failure.
     """
-    iri = graph_iri.strip()
-    if iri.startswith("<") and iri.endswith(">"):
-        iri = iri[1:-1]
-    query = f"CONSTRUCT {{ ?s ?p ?o }} WHERE {{ GRAPH <{iri}> {{ ?s ?p ?o }} }}"
+    from backend.graphdb.graphs import graph_union, read_scope
+
+    iri = read_scope(graph_iri, inferred=False)[0]
+    query = ("CONSTRUCT { ?s ?p ?o } WHERE { "
+             f"{graph_union(iri, '?s ?p ?o', inferred=inferred)} }}")
     ttl = construct_ttl(client, query)
     if ttl is None:
         return None
