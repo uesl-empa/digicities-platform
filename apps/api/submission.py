@@ -120,7 +120,8 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
     storage = getattr(ctx, "storage", None)
     schema = workspace_schema(storage, skipped=skipped_files)
     ttl_text = materialize_against_workspace(storage, scen.read_text(encoding="utf-8"), client,
-                                             skipped=skipped_files, ontology_graph=schema)
+                                             skipped=skipped_files, ontology_graph=schema,
+                                             template=template)
     try:
         raw = convert_scenario(template, ttl_text, clean=False, ontology_graph=schema)
     except Exception as exc:
@@ -133,6 +134,11 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
             validation.warnings.append(
                 f"The workspace ontology extension could not be read, so only the core "
                 f"hierarchy decided what each node is ({s['error']})")
+            continue
+        if s["file"] == "collections":
+            validation.warnings.append(
+                f"The derived values this service asks for could not be read from the "
+                f"collections graph, so they are missing from this payload ({s['error']})")
             continue
         validation.warnings.append(
             f"Replica file {s['file']} could not be parsed and was skipped; its "

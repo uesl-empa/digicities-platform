@@ -266,6 +266,20 @@ def render_scenario_selection_tab():
                             # Process file
                             filename = ttl_file['name']
                             ttl_content = ttl_file['content']
+                            # The derived values the template asks for
+                            # (District.FloorAreaMean) join the scenario's own
+                            # components; nothing else of the collections does.
+                            _derived_client = st.session_state.get("workspace_client")
+                            if _derived_client is not None:
+                                from backend.api_submission.materialize import (
+                                    with_derived_values,
+                                )
+                                unread_derived = []
+                                ttl_content = with_derived_values(
+                                    ttl_content, _derived_client, template_content,
+                                    skipped=unread_derived)
+                                for u in unread_derived:
+                                    st.warning(f"{filename}: {u['error']}.")
 
                             processor = RobustTTL2YAMLProcessor(ontology_graph=schema)
                             converted = processor.process(
