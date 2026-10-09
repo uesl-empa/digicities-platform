@@ -1,13 +1,28 @@
 # Digicities
 
-An open-source toolkit for modelling urban energy systems as a knowledge graph.
+Digicities is a requirements-driven semantic layer that connects models to the data they need: each model states its inputs as requirements against a shared ontology, and the platform finds, checks and delivers that data from a knowledge graph.
 
-Includes a shared OWL ontology, a Streamlit UI for building digital twins, a Python backend for programmatic access, and a triplestore (Apache Jena Fuseki by default). Describe buildings, generators, storage and flows in RDF. Run what-if scenarios. Hand the results off to external optimisation solvers.
+In practice it works like this. You describe your system (a wind park, a district, a building portfolio) once, as components with attributes, in a knowledge graph built on the [Digicities ontology](https://github.com/uesl-empa/digicities-ontology). A model you want to run states what it needs in a service contract, for example `WindTurbine.HubHeight` and a link from each turbine to its wind park. Digicities checks a scenario against that contract, tells you what is missing, and only then sends the model a payload in the shape it asked for.
 
-> 👋 **New here? Start with [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md)** — it takes you
-> from a fresh clone through two complete working pipelines (energy simulation and the
-> flexibility optimiser) and explains the concepts as you go. For a quick no-code click-tour,
-> see [`docs/FIRST_TIME_USER.md`](docs/FIRST_TIME_USER.md).
+The platform includes the shared OWL ontology, a web app (React, with the older Streamlit UI still available), a Python backend and REST API, an onboarding agent that turns a folder of model code and data into a workspace, and a triplestore (Apache Jena Fuseki by default).
+
+> **New here?** Start with [`docs/CONCEPTS.md`](docs/CONCEPTS.md) for the ideas, then
+> [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md), which takes you from a fresh clone
+> through two complete working pipelines (energy simulation and the flexibility optimiser).
+> For a quick no-code tour, see [`docs/FIRST_TIME_USER.md`](docs/FIRST_TIME_USER.md).
+
+## Read next
+
+In this order:
+
+1. [`docs/CONCEPTS.md`](docs/CONCEPTS.md): workspace, replica, scenario, service, requirement, collection, and how data moves between them.
+2. [`docs/SERVICE_REQUIREMENTS_SPEC.md`](docs/SERVICE_REQUIREMENTS_SPEC.md): the requirements language a model uses to state what it needs.
+3. [`docs/SEMANTIC_LAYER.md`](docs/SEMANTIC_LAYER.md): what makes Digicities a semantic layer, and what still has to be done.
+4. [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md): what does not work yet, dated and kept up to date.
+5. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how the code is organised.
+6. [`docs/POSITIONING.md`](docs/POSITIONING.md): why Digicities, and not FIWARE, IDS, Brick, SHACL alone, OEO or CESDM.
+7. [Linking to established domains](https://github.com/uesl-empa/digicities-ontology/blob/main/docs/LINKING_DOMAINS.md): how to connect the ontology to Brick, OEO, SAREF, BOT, IFC, CityGML and CIM.
+8. [`docs/ROADMAP.md`](docs/ROADMAP.md): what comes next.
 
 ## Quickstart
 
@@ -64,7 +79,7 @@ The schema (`dici_onto_core.ttl` plus QUDT units) lives in [`digicities-ontology
 
 To add new classes or properties for your project, use the **Ontology Manager** in the Streamlit UI. It writes TTLs into your workspace's `ontology/extensions/`. Extensions use the same `dici_onto:` namespace as core, so queries find core and extension terms uniformly.
 
-When a concept has been adopted across multiple workpackages and proven stable, propose it for **promotion into core** by opening a PR against `digicities-ontology/core/dici_onto_core.ttl`. Full lifecycle, criteria, and service-compatibility contract: [`digicities-ontology/docs/CORE_EVOLUTION.md`](https://github.com/uesl-empa/digicities-ontology/blob/main/docs/CORE_EVOLUTION.md).
+When a concept has been adopted across multiple workpackages and proven stable, propose it for **promotion into core** by opening a PR against the ontology repo. The core file is built, not edited: a new component class goes into `core/scaffold_instructions.json`, anything else into `core/bare_core.ttl`, and `tools/build_core.py` rebuilds `core/dici_onto_core.ttl`. Full process, criteria, and service-compatibility contract: [`digicities-ontology/docs/CORE_EVOLUTION.md`](https://github.com/uesl-empa/digicities-ontology/blob/main/docs/CORE_EVOLUTION.md).
 
 ## How to cite
 
@@ -72,12 +87,15 @@ If you use the Digicities platform in published work, please cite it:
 
 ```bibtex
 @software{digicities-platform,
-  title  = {Digicities Platform},
-  author = {Allan, James and Fricker, Reto and Akdodov, Khusrav},
-  year   = {2026},
-  url    = {https://github.com/uesl-empa/digicities-platform},
+  title   = {Digicities Platform},
+  author  = {Allan, James and Fricker, Reto and Akdodov, Khusrav},
+  year    = {2026},
+  version = {0.5.0},
+  url     = {https://github.com/uesl-empa/digicities-platform},
 }
 ```
+
+The same metadata is in [`CITATION.cff`](CITATION.cff) ("Cite this repository" on GitHub). A Zenodo DOI per release will be added once the Zenodo integration is enabled for this repository.
 
 Or in prose: *"… built on the Digicities platform (https://github.com/uesl-empa/digicities-platform)."*
 

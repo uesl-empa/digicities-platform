@@ -138,8 +138,8 @@ statistic of a group with too few members (a standard deviation of one value) is
 ### Settings the model needs: configuration, not data
 
 A value that sets a **boundary condition of the model run** (a model or algorithm choice,
-a calibration constant, a run name or frequency, a stream address) is configuration, not a
-property of a component. Do not model a config file as a component, and do not put such a
+a calibration constant, a run name or frequency) is configuration, not a
+property of a component. A live data stream that delivers a component's values is not configuration: it belongs to that component, as the `hasLiveTimeSeriesReference` of one of its attributes. Do not model a config file as a component, and do not put such a
 value on a component as an attribute. Record it as a `ConfigurationAttribute` in a
 `ServiceConfiguration` profile of the service, in `services/<service>.ttl` next to the
 requirements; `appliesTo` names the components a profile is tuned for:

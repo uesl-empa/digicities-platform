@@ -78,9 +78,9 @@ extension, a replica, scenarios, and a service template.
   a bespoke emitter, or you'll drop units/data-paths/categorical values.
 - **Model settings are configuration, never components.** A value that sets a
   boundary condition of a model run (a model choice, a calibration constant, a run
-  name, a stream address) is a `dici_onto:ConfigurationAttribute` in a
+  name) is a `dici_onto:ConfigurationAttribute` in a
   `dici_onto:ServiceConfiguration` profile of the service, in `services/<Name>.ttl`
-  (loaded into `<http://services>`). See `docs/INTEGRATING_A_SERVICE.md` step 3.
+  (loaded into `<http://services>`). A live data stream that delivers a component's values is not configuration: it belongs to that component, as the `hasLiveTimeSeriesReference` of one of its attributes. See `docs/INTEGRATING_A_SERVICE.md` step 3.
 - **Statistics over linked components are derived, never stored.** A service asks
   for `<Container>.<Attribute><Statistic>` (e.g. `Tree.WeightMean`) and lists it
   under `derived_attributes` in its template; the Collections module computes it at

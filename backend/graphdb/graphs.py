@@ -42,7 +42,7 @@ Asserted and inferred triples
 -----------------------------
 The graphs above hold exactly what was asserted. The platform's write-time
 closure (``backend.workspace.inference``) goes to an INFERRED companion of each
-closed graph (``INFERRED_OF``): ``locatedIn`` derived from an asserted
+closed graph (``INFERRED_OF``): ``locationOf`` derived from an asserted
 ``hasLocation`` lives in ``http://inferred/classes_and_attributes``, never next
 to the link the user chose. One companion per graph, so replacing a section
 (the ontology manager's upload, the replica builder's) can recompute its own

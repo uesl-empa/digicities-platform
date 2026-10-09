@@ -172,8 +172,10 @@ It runs on an open-source solver (SCIP) - no commercial licence needed.
    **Download results (JSON)**, **Results (JSON API)**. Open the dashboard to explore the
    optimised battery/PV/EV behaviour.
 
-**Live weather (optional).** A scenario can point a location at a live weather feed
-(`weather_stream`, e.g. `forecasts.met-no.VIENNA`). If that Redis stream (published by the
+**Live weather (optional).** A scenario can point a location at a live weather feed. In
+the graph, the stream address (e.g. `forecasts.met-no.VIENNA`) is the live time-series
+reference of the location's weather attribute (`Location.WeatherEPW.hasLiveTimeSeriesReference`);
+the optimiser's payload receives it as `weather_stream`. If that Redis stream (published by the
 weather-feed stack's data-crawler) has data, the optimiser uses live temperatures; otherwise it
 falls back to static archetype weather. The response tells you which via `weather_source`
 (`live`/`static`) and a `weather_detail` note. To try it without the crawler, seed the

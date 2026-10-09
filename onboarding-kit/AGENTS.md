@@ -84,9 +84,9 @@ its data. There is no prescribed answer.
    Two kinds of value are not component attributes:
    - **Settings of the model.** A value that sets a boundary condition of the
      model run (a model or algorithm choice, a calibration constant, a run name
-     or frequency, a stream address) is configuration of the service: a
+     or frequency) is configuration of the service: a
      `ConfigurationAttribute` in a `ServiceConfiguration` profile in
-     `services/<Name>.ttl`. A config file is never a component.
+     `services/<Name>.ttl`. A live data stream that delivers a component's values is not configuration: it belongs to that component, as the `hasLiveTimeSeriesReference` of one of its attributes. A config file is never a component.
    - **Statistics over a population.** A mean, standard deviation or count over
      the records linked to each container (the apples on each tree) is derived
      by the platform. Record the individual records with their link, and request

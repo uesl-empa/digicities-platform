@@ -16,16 +16,24 @@ Each workspace's dataset keeps its data in **named graphs**, and the default gra
 | `<http://scenarios>` | Scenarios |
 | `<http://services>` | Registered services: their requirements and configuration profiles (from `services/*.ttl`) |
 | `<http://collections>` | Derived sets, statistics and projected aggregates (computed, never authored) |
+| `<http://inferred/ontology_dici_onto>`, `<http://inferred/classes_and_attributes>`, `<http://inferred/services>` | What the platform's reasoner derived from the graph of the same name (super-classes, super-properties, inverses). See [`INFERENCE.md`](INFERENCE.md). |
 
 **Name the graphs a query reads with `FROM` clauses.** That makes their union the query's default graph and returns the same rows on Fuseki and GraphDB. A query with no `FROM` (and no `GRAPH` pattern) reads the empty default graph and returns nothing on Fuseki. The examples below leave the `FROM` lines out for brevity; add these to each:
 
 ```sparql
 FROM <http://ontology_dici_onto>
+FROM <http://inferred/ontology_dici_onto>
 FROM <http://classes_and_attributes>
+FROM <http://inferred/classes_and_attributes>
 FROM <http://system_description>
 ```
 
-(Platform code builds the same block with `backend.graphdb.graphs.from_clause(...)`.)
+The `inferred/` graphs hold what the reasoner derived. Many examples below rely on it:
+`?x dici_onto:hasAttribute ?attr` matches a typed predicate such as
+`hasWindTurbineHubHeightAttribute` only through the derived super-property. Leave the
+`inferred/` lines out when you want only what was asserted, for example "which link did the
+user choose". (Platform code builds the same block with
+`backend.graphdb.graphs.from_clause(...)`; `inferred=False` drops the companions.)
 
 ---
 
@@ -357,15 +365,19 @@ WHERE {
 
 ---
 
-## 8. Resource Attribute
+## 8. Data path (Resource) Attribute
+
+The value kind is `DataPathAttribute` (core v0.6.0). `ResourceAttribute` is only the
+category of the `Resource` component; data typed only `ResourceAttribute` comes from
+before v0.6.0 and is rebuilt on the next onboarding.
 
 ```turtle
 <{attr_uri}> a dici_onto:{AttributeName} ;
-    a dici_onto:ResourceAttribute ;
+    a dici_onto:DataPathAttribute ;
     dici_onto:hasDataPath "{file_or_resource_path}"^^xsd:string .
 ```
 
-### Query: All Resource attributes
+### Query: All data path attributes
 
 ```sparql
 PREFIX dici_onto: <https://digicities.info/ontology#>
@@ -375,7 +387,7 @@ SELECT ?instance ?instanceLabel ?attr ?dataPath
 WHERE {
     ?instance rdfs:label ?instanceLabel ;
         dici_onto:hasAttribute ?attr .
-    ?attr a dici_onto:ResourceAttribute ;
+    ?attr a dici_onto:DataPathAttribute ;
         dici_onto:hasDataPath ?dataPath .
 }
 ```
@@ -593,7 +605,7 @@ Add this to any query to retrieve provenance.
 
 ## 16. Service configuration
 
-A value that sets a boundary condition of a model run (a model choice, a calibration constant, a run name, a stream address) is **configuration**, not a property of a component. It is a `dici_onto:ConfigurationAttribute` node in a `dici_onto:ServiceConfiguration` profile owned by a `dici_onto:Service`, held in `<http://services>`:
+A value that sets a boundary condition of a model run (a model choice, a calibration constant, a run name) is **configuration**, not a property of a component. A live data stream that delivers a component's values is not configuration: it belongs to that component, as the `hasLiveTimeSeriesReference` of one of its attributes. It is a `dici_onto:ConfigurationAttribute` node in a `dici_onto:ServiceConfiguration` profile owned by a `dici_onto:Service`, held in `<http://services>`:
 
 ```turtle
 <{service_uri}> a dici_onto:Service ;
@@ -666,9 +678,9 @@ ORDER BY ?container ?aggregate
 | SimpleCost | `dici_onto:SimpleCostAttribute` | `qudt:value` (decimal) | `dici_onto:currency` | Currency only, no unit |
 | UnitBasedCost | `dici_onto:UnitBasedCostAttribute` | `qudt:value` (decimal) | `qudt:unit` + `dici_onto:hasUnitLabel` + `dici_onto:currency` | — |
 | Curve | `dici_onto:CurveAttribute` | `dici_onto:hasDataPoints` (string array) | `dici_onto:xUnit`/`xUnitLabel`, `dici_onto:yUnit`/`yUnitLabel` | x/y axis units separate |
-| Resource | `dici_onto:ResourceAttribute` | `dici_onto:hasDataPath` (string) | — | — |
+| Resource (data path) | `dici_onto:DataPathAttribute` | `dici_onto:hasDataPath` (string) | — | — |
 | SimpleValue | `dici_onto:SimpleValueAttribute` | `dici_onto:hasAttributeValue` (decimal or string) | — | — |
 | CustomPhysicalRatio | `dici_onto:CustomPhysicalRatioAttribute` | `qudt:value` (decimal) | `dici_onto:hasUnitLabel` **only** (format: `"Num/Den"`) | No `qudt:unit` IRI |
-| Identifier | `dici_onto:{AttrName}` only | `dici_onto:identifierValue` (plain literal) | — | Linked via `dici_onto:hasIdentifier` |
+| Identifier | `dici_onto:IdentifierAttribute` | `dici_onto:identifierValue` (plain literal) | — | Linked via `dici_onto:hasIdentifier` |
 | Geospatial | `dici_onto:GeospatialAttribute` | `dici_onto:hasAttributeValue` (string) | `qudt:unit` + `dici_onto:hasUnitLabel` | — |
 | ClassObject | — (direct predicate on instance) | `dici_onto:{predicate}` → target IRI | — | Stored in `<http://system_description>` |
