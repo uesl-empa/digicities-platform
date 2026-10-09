@@ -35,7 +35,7 @@ scenario_data:
     # data-crawler publishes, e.g. forecasts.met-no.VIENNA). When present the
     # optimizer reads live temperature from it; weather_location still selects
     # the static file used for solar irradiance.
-    weather_stream: Location.WeatherEPW.LiveTimeSeriesReference
+    weather_stream: Location.WeatherEPW.hasLiveTimeSeriesReference
     buildings:
       link: CL.Location.Building
       template:

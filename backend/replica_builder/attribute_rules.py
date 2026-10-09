@@ -15,15 +15,52 @@ headless, for any frontend.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from enum import Enum
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-# The editor's attribute kinds (the ontology's *Attribute classes minus the
-# suffix) — what the add/edit forms know how to render.
-ATTRIBUTE_TYPES = (
-    "Physical", "Dynamic", "Categorical", "Event", "SimpleCost",
-    "UnitBasedCost", "Curve", "Resource", "SimpleValue",
-    "CustomPhysicalRatio", "Identifier", "Annotation", "Geospatial",
-)
+from backend.ontology_kinds import AttributeKind
+
+# The editor's attribute kinds (the tags of ``AttributeKind``), in the order
+# the add/edit forms offer them.
+ATTRIBUTE_TYPES = tuple(k.value for k in (
+    AttributeKind.PHYSICAL, AttributeKind.DYNAMIC, AttributeKind.CATEGORICAL,
+    AttributeKind.EVENT, AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST,
+    AttributeKind.CURVE, AttributeKind.RESOURCE, AttributeKind.SIMPLE_VALUE,
+    AttributeKind.CUSTOM_PHYSICAL_RATIO, AttributeKind.IDENTIFIER,
+    AttributeKind.ANNOTATION, AttributeKind.GEOSPATIAL,
+))
+
+
+class WorkbookColumn(str, Enum):
+    """Replica workbook column types that are not attribute kinds."""
+    CLASS_OBJECT = "ClassObject"   # a direct link from the row to another instance
+    HISTORIC = "Historic"          # the three time series of one Dynamic attribute
+    LIVE = "Live"
+    FUTURE = "Future"
+
+
+TIME_SERIES_COLUMNS = (WorkbookColumn.HISTORIC, WorkbookColumn.LIVE, WorkbookColumn.FUTURE)
+
+
+def parse_column_type(cell: Any, where: str = "") -> Optional[Union[AttributeKind, WorkbookColumn]]:
+    """The type a workbook column header names (header row 2), parsed once.
+
+    Blank cells and pandas' ``Unnamed: n`` placeholders mean "no type" (None).
+    Spaces are ignored ("Simple Cost" reads as SimpleCost). Anything else must
+    be an ``AttributeKind`` or a ``WorkbookColumn``; an unknown type is an
+    error, never a guess.
+    """
+    if cell is None:
+        return None
+    text = "".join(str(cell).split())
+    if not text or text.startswith("Unnamed:") or text.startswith("Unnamed_") or text.lower() == "nan":
+        return None
+    for enum in (AttributeKind, WorkbookColumn):
+        if text in {member.value for member in enum}:
+            return enum(text)
+    valid = sorted([k.value for k in AttributeKind] + [c.value for c in WorkbookColumn])
+    raise ValueError(f"{where + ': ' if where else ''}unknown column type '{cell}' "
+                     f"(one of: {', '.join(valid)})")
 
 # Currency options offered by the cost forms.
 CURRENCY_OPTIONS = ["CHF", "EUR", "USD", "GBP"]
@@ -41,7 +78,7 @@ def default_attribute_type(constraints: Optional[Any]) -> str:
     the long-standing Physical fallback."""
     if constraints is not None and getattr(constraints, "attribute_type", None):
         return constraints.attribute_type
-    return "Physical"
+    return AttributeKind.PHYSICAL.value
 
 
 def unit_options(
@@ -106,15 +143,15 @@ def has_timeseries(attr_data: Mapping[str, Any]) -> bool:
 
 # Which key(s) must be present (non-empty) for an attribute config of each
 # kind to say anything at all in the generated TTL.
-_REQUIRED_KEYS: Dict[str, Tuple[str, ...]] = {
-    "Categorical": ("category_value",),
-    "Event": ("temporal_value",),
-    "Resource": ("data_path",),
-    "Identifier": ("identifier_value",),
-    "Annotation": ("text",),
-    "Curve": ("data_points",),
-    "Geospatial": ("value",),
-    "SimpleValue": ("value",),
+_REQUIRED_KEYS: Dict[AttributeKind, Tuple[str, ...]] = {
+    AttributeKind.CATEGORICAL: ("category_value",),
+    AttributeKind.EVENT: ("temporal_value",),
+    AttributeKind.RESOURCE: ("data_path",),
+    AttributeKind.IDENTIFIER: ("identifier_value",),
+    AttributeKind.ANNOTATION: ("text",),
+    AttributeKind.CURVE: ("data_points",),
+    AttributeKind.GEOSPATIAL: ("value",),
+    AttributeKind.SIMPLE_VALUE: ("value",),
 }
 
 
@@ -127,20 +164,23 @@ def validate_attribute_config(attr_type: str, data: Mapping[str, Any]) -> List[s
     """
     problems: List[str] = []
 
-    if attr_type not in ATTRIBUTE_TYPES:
+    try:
+        kind = AttributeKind(attr_type)
+    except ValueError:
         problems.append(f"Unknown attribute type: {attr_type}")
         return problems
 
-    for key in _REQUIRED_KEYS.get(attr_type, ()):
+    for key in _REQUIRED_KEYS.get(kind, ()):
         if not data.get(key):
             problems.append(f"{attr_type} attribute needs a '{key}'")
 
-    if attr_type == "Event":
+    if kind is AttributeKind.EVENT:
         precision = data.get("temporal_precision")
         if precision and precision not in TEMPORAL_PRECISIONS:
             problems.append(f"Unknown temporal precision: {precision}")
 
-    if attr_type in ("SimpleCost", "UnitBasedCost", "CustomPhysicalRatio"):
+    if kind in (AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST,
+                AttributeKind.CUSTOM_PHYSICAL_RATIO):
         value = data.get("value")
         try:
             float(value)  # type: ignore[arg-type]
@@ -152,6 +192,9 @@ def validate_attribute_config(attr_type: str, data: Mapping[str, Any]) -> List[s
 
 __all__ = [
     "ATTRIBUTE_TYPES",
+    "TIME_SERIES_COLUMNS",
+    "WorkbookColumn",
+    "parse_column_type",
     "CURRENCY_OPTIONS",
     "TEMPORAL_PRECISIONS",
     "DATA_FILE_TYPES",

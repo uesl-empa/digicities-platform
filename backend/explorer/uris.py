@@ -45,9 +45,11 @@ def extract_property_name(property_uri: str) -> str:
         'http://purl.org/dc/terms/'
     ]
 
-    # Try exact namespace matches first
+    # A term of one of these namespaces is named by its local name (exact
+    # namespace membership, so a deeper path under a namespace is not cut).
+    from backend.ontology_kinds import in_namespace
     for ns in namespaces:
-        if property_uri.startswith(ns):
+        if in_namespace(property_uri, ns):
             return property_uri[len(ns):]
 
     # Fallback to generic fragment extraction

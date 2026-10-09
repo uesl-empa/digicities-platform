@@ -26,6 +26,8 @@ from pydantic import BaseModel
 from backend.workspace import WorkspaceContext
 from backend.collections import (
     CollectionError,
+    CollectionKind,
+    collection_kind,
     delete_collection,
     list_collections,
     materialize_grouped_set,
@@ -96,7 +98,7 @@ def collections_index(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str
     out = []
     for row in _rows(list_collections(client)):
         row["name"] = _local(row["collection"])
-        row["kind"] = _local(row["kind"]) if row.get("kind") else None
+        row["kind"] = collection_kind(row["kind"]).value if row.get("kind") else None
         out.append(row)
     return out
 
@@ -121,10 +123,11 @@ def collection_detail(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> di
     client = graph_client(ctx)
     row = _collection_by_name(client, name)
     coll = str(row["collection"])
+    kind = collection_kind(row["kind"])
     detail = {
         "name": name,
         "collection": coll,
-        "kind": _local(row["kind"]),
+        "kind": kind.value,
         "attribute_type": _clean(row.get("attrType")),
         "grouped_by": _clean(row.get("groupedBy")),
         "dataset": _clean(row.get("dataset")),
@@ -132,7 +135,7 @@ def collection_detail(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         "statistics": _rows(set_statistics(client, coll)),
         "bins": _rows(set_bins(client, coll)),
     }
-    if detail["kind"] == "Set":
+    if kind is CollectionKind.SET:
         detail["member_count"] = member_count(client, coll)
     return detail
 
@@ -161,5 +164,5 @@ def remove(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any
     membership links and projected aggregates)."""
     client = graph_client(ctx)
     row = _collection_by_name(client, name)
-    delete_collection(client, str(row["collection"]))
+    delete_collection(client, str(row["collection"]), ctx.id)
     return {"deleted": name}

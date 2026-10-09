@@ -16,8 +16,32 @@ from __future__ import annotations
 from typing import Optional
 
 
+def workspace_schema(storage, *, skipped: Optional[list] = None):
+    """The workspace's ontology extension as one rdflib graph (its classes and
+    properties under the core hierarchy), for the "what is this" questions the
+    materializer and the converter ask. None when there is no storage or the
+    extension cannot be read; the reason is printed and, when a list is passed
+    as ``skipped``, appended to it as ``{"file": ..., "error": ...}``, so the
+    caller can say that only the core hierarchy was used."""
+    if storage is None:
+        return None
+    from backend.scenario_builder.graph_lookups import workspace_extensions
+    try:
+        return workspace_extensions(storage)
+    # Storage errors (OSError, NextCloud's requests errors included) and Turtle
+    # parse errors (rdflib's BadSyntax is a SyntaxError): reported, never hidden.
+    except (OSError, SyntaxError, ValueError) as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        print(f"[materialize] ERROR: the workspace ontology extension could not be "
+              f"read; only the core hierarchy is used. {error}")
+        if skipped is not None:
+            skipped.append({"file": "ontology/extensions", "error": error})
+        return None
+
+
 def materialize_against_workspace(storage, scenario_text: str, client=None,
-                                  *, skipped: Optional[list] = None) -> str:
+                                  *, skipped: Optional[list] = None,
+                                  ontology_graph=None) -> str:
     """Merge a scenario with the workspace replica into a self-contained TTL.
 
     Returns the original text on any problem (not a scenario, no replica to
@@ -30,6 +54,9 @@ def materialize_against_workspace(storage, scenario_text: str, client=None,
     passed as ``skipped`` each skipped file is appended to it as
     ``{"file": rel, "error": "..."}`` so callers can surface it — every
     component and attribute in that file is missing from the result.
+
+    ``ontology_graph`` is the workspace schema (``workspace_schema``); it is
+    read from ``storage`` when not given.
     """
     def _record_skip(rel: str, exc: Exception) -> None:
         error = f"{type(exc).__name__}: {exc}"
@@ -82,10 +109,13 @@ def materialize_against_workspace(storage, scenario_text: str, client=None,
         except Exception:
             pass                      # collections are optional enrichment
 
-        materialized: Optional[str] = materialize_scenario_graphs(scn, rep, str(scenarios[0]))
+        if ontology_graph is None:
+            ontology_graph = workspace_schema(storage, skipped=skipped)
+        materialized: Optional[str] = materialize_scenario_graphs(
+            scn, rep, str(scenarios[0]), ontology_graph=ontology_graph)
         return materialized or scenario_text
     except Exception:
         return scenario_text
 
 
-__all__ = ["materialize_against_workspace"]
+__all__ = ["materialize_against_workspace", "workspace_schema"]

@@ -301,7 +301,7 @@ _GENERIC_TEMPLATE = {"service_name": "svc", "scenario_data": {"machine": {
     "uri": "Machine.URI",
     "power": "Machine.RatedPower",
     "height": "Machine.Height",
-    "height_ref": "Machine.Height.HistoricTimeSeriesReference",
+    "height_ref": "Machine.Height.hasHistoricTimeSeriesReference",
 }}}
 
 
@@ -316,7 +316,45 @@ def test_generic_has_attribute_only_returns_the_named_attribute():
     assert "height" not in m1 and "height_ref" not in m1
 
 
-def test_generic_has_attribute_matches_untyped_node_by_uri_path():
+def test_untyped_attribute_node_is_not_guessed_from_its_uri_path():
+    """M2's Height node has no rdf:type, so nothing says it IS a Height. Its
+    IRI ends in /Height, which the converter used to take as the answer; the
+    value now stays unresolved instead of being read off the IRI."""
     raw = convert_scenario(_GENERIC_TEMPLATE, _GENERIC_TTL, clean=False)
     m2 = {m["uri"]: m for m in raw["scenario_data"]["machine"]}[f"{_GP}/Machine/M2"]
+    assert m2.get("height") in (None, "Machine.Height") and "power" not in m2
+
+
+def test_typed_attribute_resolves_by_class_not_by_predicate_name():
+    """The attribute is found because its node IS a Height (subclass of the
+    named class included), reached through an attribute edge whose name says
+    nothing (a typed predicate the old code would have had to spell)."""
+    ttl = _GENERIC_TTL.replace(
+        f"<{_GP}/Machine/M2/Height> qudt:value",
+        f"<{_GP}/Machine/M2/Height> a dici_onto:TowerHeight, dici_onto:PhysicalAttribute ;"
+        f" dici_onto:hasHistoricTimeSeriesReference \"h.csv\" ; qudt:value") + f"""
+dici_onto:TowerHeight <http://www.w3.org/2000/01/rdf-schema#subClassOf> dici_onto:Height .
+<{_GP}/Machine/M2> dici_onto:hasTowerAttribute <{_GP}/Machine/M2/Height> .
+"""
+    raw = convert_scenario(_GENERIC_TEMPLATE, ttl, clean=False)
+    m2 = {m["uri"]: m for m in raw["scenario_data"]["machine"]}[f"{_GP}/Machine/M2"]
     assert m2["height"] == 7.0 and "power" not in m2
+    assert m2["height_ref"] == "h.csv"
+
+
+def test_nested_reference_request_is_met_by_a_subproperty():
+    """A template asking for the generic hasTimeSeriesReference gets the
+    live reference (a subproperty in the core), not a guess by name."""
+    ttl = _GENERIC_TTL.replace(
+        f"<{_GP}/Machine/M1/RatedPower> a dici_onto:RatedPower, dici_onto:PhysicalAttribute ;",
+        f"<{_GP}/Machine/M1/RatedPower> a dici_onto:RatedPower, dici_onto:PhysicalAttribute ;"
+        f" dici_onto:hasLiveTimeSeriesReference \"stream.power\" ;")
+    template = {"service_name": "svc", "scenario_data": {"machine": {
+        "uri": "Machine.URI", "ref": "Machine.RatedPower.hasTimeSeriesReference",
+        "typo": "Machine.RatedPower.LiveTimeSeriesReference"}}}
+    raw = convert_scenario(template, ttl, clean=False)
+    m1 = {m["uri"]: m for m in raw["scenario_data"]["machine"]}[f"{_GP}/Machine/M1"]
+    assert m1["ref"] == "stream.power"
+    # Not a core property: nothing is read for it (the old substring match
+    # answered it).
+    assert m1.get("typo") in (None, "Machine.RatedPower.LiveTimeSeriesReference")

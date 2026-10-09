@@ -20,6 +20,7 @@ from typing import Optional, Set
 import pandas as pd
 import rdflib
 from rdflib import Graph, URIRef
+from rdflib.graph import ReadOnlyGraphAggregate
 from rdflib.namespace import RDF
 
 from backend.graphdb.graphs import (
@@ -30,6 +31,7 @@ from backend.graphdb.graphs import (
 )
 from backend.graphdb.queries._exec import run_df
 from backend.graphdb.queries.graph_io import construct_named_graph
+from backend.ontology_kinds import core_graph, is_attribute_node, is_attribute_predicate
 
 _PREFIXES = (
     "PREFIX dici_onto: <https://digicities.info/ontology#>\n"
@@ -64,48 +66,9 @@ def list_scenarios(client) -> pd.DataFrame:
     return run_df(client, query, _SCENARIO_COLS)
 
 
-def _scenario_node_set(graph: Graph, scenario_uri: URIRef) -> Set:
-    """Collect every node that belongs to one scenario within the scenarios graph.
-
-    Robust to both shapes we emit:
-      - Builder output tags components/attributes/links with
-        ``dici_onto:usedInScenario``.
-      - Hand-authored scenarios connect Scenario -> Location -> Building purely
-        through ``dici_onto:ComponentLink`` chains.
-
-    So we seed from the scenario node plus anything tagged ``usedInScenario``,
-    then walk the ComponentLink graph to a fixpoint, and finally pull in each
-    component's attribute individuals.
-    """
-    nodes: Set = {scenario_uri}
-    nodes.update(graph.subjects(_DICI.usedInScenario, scenario_uri))
-
-    # Walk ComponentLink chains (scenario -> location -> building -> ...).
-    changed = True
-    while changed:
-        changed = False
-        for link in graph.subjects(RDF.type, _DICI.ComponentLink):
-            endpoints = set(graph.objects(link, _DICI.hasInputEntity))
-            endpoints |= set(graph.objects(link, _DICI.linksInputyEntityTo))
-            if link in nodes or (endpoints & nodes):
-                for n in {link} | endpoints:
-                    if n not in nodes:
-                        nodes.add(n)
-                        changed = True
-
-    # Pull in each component's attribute individuals (explicit links and the
-    # builder's "<component>/<Attr>" naming convention).
-    for comp in list(nodes):
-        nodes.update(graph.objects(comp, _DICI.hasAttribute))
-        comp_str = str(comp)
-        for s in graph.subjects():
-            if isinstance(s, URIRef) and str(s).startswith(comp_str + "/"):
-                nodes.add(s)
-    return nodes
-
-
 def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
-                                scenario_uri) -> Optional[str]:
+                                scenario_uri,
+                                ontology_graph: Optional[Graph] = None) -> Optional[str]:
     """Materialize one scenario into a self-contained Turtle document.
 
     A scenario references the canonical replica components (``usedInScenario`` /
@@ -116,6 +79,13 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
     (ComponentLinks). Works for self-contained scenarios too (the replica graph
     can be empty), since component/attribute triples are read from whichever
     graph holds them.
+
+    An edge from a component counts as an attribute edge when the ontology says
+    so: its predicate is ``rdfs:subPropertyOf* dici_onto:hasAttribute``, or its
+    object is typed under ``dici_onto:Attribute``. ``ontology_graph`` is the
+    workspace schema (core + extension); the vendored core is always included,
+    so a typed predicate declared only in the extension is still recognised
+    through the attribute node's own core kind type.
     """
     scn, rep = scenario_graph, replica_graph
     DICI = _DICI
@@ -181,9 +151,14 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
     # Override map: superseded attribute -> superseding attribute.
     old_to_new = {old_a: new_a for new_a, _, old_a in scn.triples((None, SUP, None))}
 
-    def _is_attr_pred(p) -> bool:
-        ps = str(p)
-        return "hasAttribute" in ps or (ps.startswith(str(DICI)) and ps.endswith("Attribute"))
+    view = ReadOnlyGraphAggregate(
+        [g for g in (scn, rep, ontology_graph) if g is not None] + [core_graph()])
+    attr_pred: dict = {}
+
+    def _is_attr_edge(p, o) -> bool:
+        if p not in attr_pred:
+            attr_pred[p] = is_attribute_predicate(view, p)
+        return attr_pred[p] or is_attribute_node(view, o)
 
     def _po_union(node):
         seen = set()
@@ -200,7 +175,7 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
             continue
         attrs: Set = set()
         for p, o in _po_union(comp):
-            if _is_attr_pred(p) and isinstance(o, URIRef):
+            if isinstance(o, URIRef) and _is_attr_edge(p, o):
                 tgt = old_to_new.get(o, o)
                 out.add((comp, p, tgt))
                 attrs.add(tgt)
@@ -232,4 +207,5 @@ def construct_scenario_ttl(client, scenario_uri: str) -> Optional[str]:
         return None
 
     rep = construct_named_graph(client, CLASSES_AND_ATTRIBUTES_GRAPH) or Graph()
-    return materialize_scenario_graphs(scn, rep, uri)
+    onto = construct_named_graph(client, ONTOLOGY_GRAPH)
+    return materialize_scenario_graphs(scn, rep, uri, ontology_graph=onto)

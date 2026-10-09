@@ -51,6 +51,8 @@ import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
+from backend.ontology_kinds import AttributeKind
+
 
 # ---------------------------------------------------------------------------
 # Primitive helpers
@@ -108,6 +110,12 @@ def prefixed_or_iri(prefix: str, namespace: str, local: Any) -> str:
     if _SAFE_LOCAL_NAME.match(local):
         return f"{prefix}:{local}"
     return f"<{namespace}{escape_iri(local)}>"
+
+
+def kind_term(kind: AttributeKind) -> str:
+    """The ``dici_onto:`` term of a kind's core class (``kind.class_uri``),
+    e.g. ``dici_onto:SimpleCostAttribute``."""
+    return prefixed_or_iri("dici_onto", DICI_ONTO_NS, kind.class_uri[len(DICI_ONTO_NS):])
 
 
 def dici_term(name: Any) -> str:
@@ -273,9 +281,9 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
     logic lives here; callers must not duplicate it.
     """
     lines = []
-    attr_type = attr_data.get('type', 'Physical')
+    kind = AttributeKind(attr_data.get('type', AttributeKind.PHYSICAL.value))
 
-    if attr_type == "Physical":
+    if kind in (AttributeKind.PHYSICAL, AttributeKind.DYNAMIC):
         attr_properties = [f"a dici_onto:{attr_name}"]
 
         has_time_series = (
@@ -284,7 +292,7 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
             'live_reference' in attr_data
         )
 
-        if has_time_series:
+        if has_time_series or kind is AttributeKind.DYNAMIC:
             attr_properties.append("a dici_onto:DynamicAttribute")
         else:
             attr_properties.append("a dici_onto:PhysicalAttribute")
@@ -392,12 +400,12 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
             lines.append("")
             lines.extend(ts_declarations)
 
-    elif attr_type == "Categorical":
+    elif kind is AttributeKind.CATEGORICAL:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
         lines.append(f"\ta dici_onto:CategoricalAttribute ;")
         lines.append(f"\ta dici_onto:{attr_data.get('category_value', '')} .")
 
-    elif attr_type == "Event":
+    elif kind is AttributeKind.EVENT:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
         lines.append(f"\ta dici_onto:EventAttribute ;")
 
@@ -419,14 +427,14 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
         else:
             lines[-1] += " ."
 
-    elif attr_type in ("SimpleCost", "UnitBasedCost"):
+    elif kind in (AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST):
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
-        lines.append(f"\ta dici_onto:{attr_type}Attribute ;")
+        lines.append(f"\ta {kind_term(kind)} ;")
 
         decimal_str = format_decimal(float(attr_data.get('value', 0)))
         lines.append(f'\tqudt:value "{decimal_str}"^^xsd:decimal ;')
 
-        if attr_type == "UnitBasedCost" and attr_data.get('unit'):
+        if kind is AttributeKind.UNIT_BASED_COST and attr_data.get('unit'):
             unit = attr_data['unit']
             lines.append(f"\tqudt:unit <http://qudt.org/vocab/unit/{unit}> ;")
             lines.append(f'\tdici_onto:hasUnitLabel "{unit}"^^xsd:string ;')
@@ -436,7 +444,7 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
 
         lines.append(f"\tdici_onto:currency cur:{attr_data.get('currency', 'CHF')} .")
 
-    elif attr_type == "Curve":
+    elif kind is AttributeKind.CURVE:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
         lines.append(f"\ta dici_onto:CurveAttribute ;")
         lines.append(f"\tdici_onto:xUnit unit:{attr_data.get('x_unit', 'M')} ;")
@@ -452,14 +460,14 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
         else:
             lines[-1] += " ."
 
-    elif attr_type == "Resource":
+    elif kind is AttributeKind.RESOURCE:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
         lines.append(f"\ta dici_onto:ResourceAttribute ;")
         lines.append(
             f'\tdici_onto:hasDataPath "{escape_ttl_string(attr_data.get("data_path", ""))}"^^xsd:string .'
         )
 
-    elif attr_type == "SimpleValue":
+    elif kind is AttributeKind.SIMPLE_VALUE:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
         lines.append(f"\ta dici_onto:SimpleValueAttribute ;")
 
@@ -473,7 +481,7 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
         except (ValueError, TypeError):
             lines.append(f'\tdici_onto:hasAttributeValue "{escape_ttl_string(value)}"^^xsd:string .')
 
-    elif attr_type == "CustomPhysicalRatio":
+    elif kind is AttributeKind.CUSTOM_PHYSICAL_RATIO:
         # Ratio units cannot be expressed as a single qudt:Unit IRI.
         # Use dici_onto:hasUnitLabel EXCLUSIVELY (not qudt:unit).
         # custom_unit format: "NumeratorUnit/DenominatorUnit" e.g. "KiloW-HR/M2"
@@ -489,13 +497,13 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
             f'\tdici_onto:hasUnitLabel "{escape_ttl_string(attr_data.get("custom_unit", ""))}"^^xsd:string .'
         )
 
-    elif attr_type == "Identifier":
+    elif kind is AttributeKind.IDENTIFIER:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
         lines.append(
             f'\tdici_onto:identifierValue "{escape_ttl_string(attr_data.get("identifier_value", ""))}" .'
         )
 
-    elif attr_type == "Geospatial":
+    elif kind is AttributeKind.GEOSPATIAL:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
         lines.append(f"\ta dici_onto:GeospatialAttribute ;")
 

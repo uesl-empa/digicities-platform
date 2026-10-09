@@ -14,6 +14,8 @@ from typing import Dict, List, Optional
 import rdflib
 from rdflib import Namespace, URIRef
 
+from backend.ontology_kinds import in_namespace
+
 DICI = Namespace("https://digicities.info/ontology#")
 _QUDT_UNIT_NS = "http://qudt.org/vocab/unit/"
 
@@ -28,8 +30,8 @@ def build_default_unit_map(graphs) -> Dict[str, str]:
     out: Dict[str, str] = {}
     for g in graphs:
         for cls, unit in g.subject_objects(DICI.hasDefaultUnit):
-            if isinstance(unit, URIRef) and str(unit).startswith(_QUDT_UNIT_NS):
-                out[str(cls).split("#")[-1]] = str(unit).rstrip("/").split("/")[-1]
+            if isinstance(unit, URIRef) and in_namespace(unit, _QUDT_UNIT_NS):
+                out[str(cls).split("#")[-1]] = str(unit)[len(_QUDT_UNIT_NS):]
     return out
 
 

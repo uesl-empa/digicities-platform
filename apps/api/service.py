@@ -200,40 +200,28 @@ def ontology_upload(file: UploadFile = File(...),
                             detail="Could not parse the file as Turtle, RDF/XML, or N3 — "
                                    "or it contains no Component subclasses.")
 
-    # Associate attributes per component via the naming convention: <Name>'s
-    # attributes are the subclasses of <Name>Attribute (parse_ontology_content
-    # only discovers the flat sets).
-    per_component: dict[str, list[str]] = {name: [] for name in components}
-    try:
-        import rdflib
-        from rdflib.namespace import RDFS
+    # Associate attributes per component through each component's category:
+    # the range of its general predicate (has<X>Attribute rdfs:domain X ;
+    # rdfs:range <category>), read with the core underneath. The attributes are
+    # the classes under that category.
+    import rdflib
+    from backend.ontology_kinds import with_core
+    from backend.ontology_scaffold import ScaffoldError, category_members_by_component, local_name
 
-        g = rdflib.Graph()
-        for fmt in ("turtle", "xml", "n3"):
-            try:
-                g.parse(data=content, format=fmt)
-                break
-            except Exception:
-                continue
-        local = lambda u: str(u).rsplit("#", 1)[-1].rsplit("/", 1)[-1]  # noqa: E731
-        for name in components:
-            group = [s for s in g.subjects(RDFS.subClassOf, None)
-                     if local(s) == f"{name}Attribute"]
-            parents = {str(s) for s in group}
-            if not parents:
-                continue
-            todo = list(parents)
-            found: list[str] = []
-            while todo:
-                parent = todo.pop()
-                for sub in g.subjects(RDFS.subClassOf, rdflib.URIRef(parent)):
-                    n = local(sub)
-                    if n not in found and n != f"{name}Attribute":
-                        found.append(n)
-                        todo.append(str(sub))
-            per_component[name] = sorted(found)
-    except Exception:
-        pass
+    g = rdflib.Graph()
+    for fmt in ("turtle", "xml", "n3"):
+        try:
+            g.parse(data=content, format=fmt)
+            break
+        except Exception:
+            continue
+    try:
+        members = category_members_by_component(with_core(g))
+    except ScaffoldError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    per_component: dict[str, list[str]] = {
+        name: sorted({local_name(m) for m in members.get(rdflib.URIRef(c.uri), [])})
+        for name, c in components.items()}
 
     return {
         "components": [{

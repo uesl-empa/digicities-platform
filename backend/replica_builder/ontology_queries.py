@@ -18,8 +18,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+from rdflib import URIRef
 
 from backend.graphdb.queries import ontology as gq_ont
+from backend.ontology_kinds import KIND_CLASS, AttributeKind, kind_for_class
 
 
 @dataclass
@@ -85,6 +87,8 @@ def query_attributes_with_constraints(client) -> Dict[str, AttributeClass]:
         return {}
 
     attributes = {}
+    rank = {kind: i for i, kind in enumerate(KIND_CLASS)}
+    kinds: Dict[str, AttributeKind] = {}
     for _, row in result.iterrows():
         attr_uri = row['class']
         attr_name = extract_local_name(attr_uri)
@@ -100,11 +104,14 @@ def query_attributes_with_constraints(client) -> Dict[str, AttributeClass]:
         if pd.notna(row.get('quantityKind')):
             quantity_kind = extract_local_name(row['quantityKind'])
 
-        # Determine attribute type
-        attr_type = "Physical"  # default
-        if pd.notna(row.get('attrType')):
-            attr_type_uri = row['attrType']
-            attr_type = extract_local_name(attr_type_uri).replace('Attribute', '')
+        # Attribute type: the kind whose class the query found above this one
+        # (rdfs:subClassOf*), by exact IRI; the first in KIND_CLASS order when
+        # there are several rows; Physical when there is none.
+        kind = kind_for_class(URIRef(row['attrType'])) if pd.notna(row.get('attrType')) else None
+        best = kinds.get(attr_name)
+        if kind is not None and (best is None or rank[kind] < rank[best]):
+            kinds[attr_name] = kind
+        attr_type = kinds.get(attr_name, AttributeKind.PHYSICAL).value
 
         attributes[attr_name] = AttributeClass(
             uri=attr_uri,
@@ -118,37 +125,26 @@ def query_attributes_with_constraints(client) -> Dict[str, AttributeClass]:
 
 
 def query_component_attribute_mappings(client) -> Dict[str, List[str]]:
-    """Query component-attribute mappings using naming convention"""
-    components_result = gq_ont.get_component_subclasses(client)
-    if components_result is None or components_result.empty:
-        return {}
+    """Component -> attribute names: the attribute classes under each
+    component's own category, which the workspace ontology graph states as the
+    range of the component's general predicate
+    (:func:`backend.ontology_scaffold.category_members_by_component`). Every
+    component lists ``label`` first."""
+    from backend.graphdb.graphs import ONTOLOGY_GRAPH
+    from backend.graphdb.queries import graph_io
+    from backend.ontology_scaffold import category_members_by_component
 
-    component_attributes = {}
-
-    for _, row in components_result.iterrows():
-        component_uri = row['component']
-        component_name = extract_local_name(component_uri)
-        attribute_class_name = f"{component_name}Attribute"
-
-        try:
-            attributes_result = gq_ont.get_attribute_subclasses_for(client, attribute_class_name)
-
-            if attributes_result is not None and not attributes_result.empty:
-                component_attributes[component_name] = ['label']
-
-                for _, attr_row in attributes_result.iterrows():
-                    attr_uri = attr_row['attribute']
-                    attr_name = extract_local_name(attr_uri)
-
-                    if attr_name not in component_attributes[component_name]:
-                        component_attributes[component_name].append(attr_name)
-            else:
-                component_attributes[component_name] = ['label']
-
-        except Exception:
-            component_attributes[component_name] = ['label']
-            continue
-
+    onto = graph_io.construct_named_graph(client, ONTOLOGY_GRAPH)
+    if onto is None:
+        raise RuntimeError("the workspace ontology graph could not be read")
+    component_attributes: Dict[str, List[str]] = {}
+    for comp, members in category_members_by_component(onto).items():
+        names = ['label']
+        for member in members:
+            name = extract_local_name(str(member))
+            if name not in names:
+                names.append(name)
+        component_attributes[extract_local_name(str(comp))] = names
     return component_attributes
 
 

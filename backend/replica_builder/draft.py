@@ -33,8 +33,10 @@ Constructors:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Mapping, Optional, Sequence
+
+from backend.ontology_kinds import AttributeKind
 
 
 @dataclass
@@ -148,8 +150,11 @@ class ReplicaDraft:
                     _column(predicate, name=predicate, type="ClassObject",
                             predicate=predicate)
                     cell = target
+                    # The workbook writes a ClassObject cell as the target's
+                    # path under the project ("Sheet/id"), so the cell is that
+                    # path (file format, not a classification).
                     if project_uri and isinstance(target, str) \
-                            and target.startswith(f"{project_uri}/"):
+                            and PurePosixPath(target).is_relative_to(project_uri):
                         cell = target[len(project_uri) + 1:]
                     row[predicate] = cell
 
@@ -170,7 +175,7 @@ class ReplicaDraft:
 def _attribute_cells(name: str, data: Mapping[str, Any]) -> Dict[str, Any]:
     """Map one session attribute dict to workbook cells: {row_key: (column
     spec kwargs, cell value)}. Inverse of the converter's column handling."""
-    attr_type = data.get("type", "Physical")
+    kind = AttributeKind(data.get("type", AttributeKind.PHYSICAL.value))
     cells: Dict[str, Any] = {}
 
     def put(key: str, value: Any, **spec: Any) -> None:
@@ -179,9 +184,11 @@ def _attribute_cells(name: str, data: Mapping[str, Any]) -> Dict[str, Any]:
         spec.setdefault("name", name)
         cells[key] = (spec, value)
 
-    if attr_type in ("Physical", "Dynamic", "Geospatial"):
-        put(name, data.get("value"), type="Physical" if attr_type == "Dynamic" else attr_type,
-            unit=data.get("unit"))
+    if kind in (AttributeKind.PHYSICAL, AttributeKind.DYNAMIC, AttributeKind.GEOSPATIAL):
+        # A Dynamic attribute's scalar column is a Physical one; its time
+        # series go in the Historic/Future/Live columns below.
+        scalar = AttributeKind.PHYSICAL if kind is AttributeKind.DYNAMIC else kind
+        put(name, data.get("value"), type=scalar.value, unit=data.get("unit"))
         # Time-series variants: same column name, distinct type row.
         put(f"{name}::historic", data.get("historic_reference"),
             type="Historic", unit=data.get("unit"))
@@ -194,31 +201,31 @@ def _attribute_cells(name: str, data: Mapping[str, Any]) -> Dict[str, Any]:
             put(f"{name}::{str(data['time_series_type']).lower()}",
                 data.get("reference"), type=data["time_series_type"],
                 unit=data.get("unit"))
-    elif attr_type == "Categorical":
-        put(name, data.get("category_value"), type="Categorical")
-    elif attr_type == "Event":
-        put(name, data.get("temporal_value"), type="Event")
-    elif attr_type == "SimpleCost":
-        put(name, data.get("value"), type="SimpleCost", currency=data.get("currency"))
-    elif attr_type == "UnitBasedCost":
-        put(name, data.get("value"), type="UnitBasedCost",
+    elif kind is AttributeKind.CATEGORICAL:
+        put(name, data.get("category_value"), type=kind.value)
+    elif kind is AttributeKind.EVENT:
+        put(name, data.get("temporal_value"), type=kind.value)
+    elif kind is AttributeKind.SIMPLE_COST:
+        put(name, data.get("value"), type=kind.value, currency=data.get("currency"))
+    elif kind is AttributeKind.UNIT_BASED_COST:
+        put(name, data.get("value"), type=kind.value,
             unit=data.get("unit"), currency=data.get("currency"))
-    elif attr_type == "Curve":
-        put(name, data.get("data_points"), type="Curve",
+    elif kind is AttributeKind.CURVE:
+        put(name, data.get("data_points"), type=kind.value,
             unit=data.get("x_unit"), unit_y=data.get("y_unit"))
-    elif attr_type == "Resource":
-        put(name, data.get("data_path"), type="Resource")
-    elif attr_type == "SimpleValue":
-        put(name, data.get("value"), type="SimpleValue")
-    elif attr_type == "CustomPhysicalRatio":
+    elif kind is AttributeKind.RESOURCE:
+        put(name, data.get("data_path"), type=kind.value)
+    elif kind is AttributeKind.SIMPLE_VALUE:
+        put(name, data.get("value"), type=kind.value)
+    elif kind is AttributeKind.CUSTOM_PHYSICAL_RATIO:
         custom = str(data.get("custom_unit", "") or "")
         num, _, den = custom.partition("/")
-        put(name, data.get("value"), type="CustomPhysicalRatio",
+        put(name, data.get("value"), type=kind.value,
             unit=num or None, unit_y=den or None)
-    elif attr_type == "Identifier":
-        put(name, data.get("identifier_value"), type="Identifier")
+    elif kind is AttributeKind.IDENTIFIER:
+        put(name, data.get("identifier_value"), type=kind.value)
     else:
-        put(name, data.get("value"), type=attr_type, unit=data.get("unit"))
+        put(name, data.get("value"), type=kind.value, unit=data.get("unit"))
 
     if data.get("datasource"):
         put(f"{name}_datasource", data.get("datasource"), name=f"{name}_datasource")

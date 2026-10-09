@@ -8,6 +8,9 @@ FIXED: Enhanced validation now properly calls the nested attribute resolution
 import streamlit as st
 from typing import Dict, List, Any, Optional, Tuple
 
+from backend.scenario_builder.emitter import resolve_nested_attribute_requirement
+from backend.scenario_builder.semantics import is_time_series_key, is_time_series_reference_key
+
 # Import enhanced validation functions
 try:
     from components.scenario_builder.scenario_builder_components import (
@@ -163,35 +166,13 @@ def validate_component_attributes_detailed_basic(component, required_attrs):
                 sources.append(component.get('source', 'unknown'))
                 found = True
 
-        # Check for nested attributes
+        # Check for nested attributes (the same resolver the emitter uses)
         if not found and '.' in req_attr:
-            parts = req_attr.split('.')
-            if len(parts) >= 2:
-                base_attr = parts[0]
-                nested_prop = '.'.join(parts[1:])
-
-                # Check all possible variations of the base attribute in nested_properties
-                component_type = component.get('type', '')
-                possible_keys = [
-                    base_attr,
-                    f"{base_attr}Attribute",
-                    f"{component_type}{base_attr}",
-                    f"{component_type}{base_attr}Attribute"
-                ]
-
-                for key in possible_keys:
-                    if key in nested_properties:
-                        nested_data = nested_properties[key]
-                        if isinstance(nested_data, dict) and nested_prop in nested_data:
-                            value = nested_data[nested_prop]
-                            if value is not None and value != "":
-                                present.append(req_attr)
-                                sources.append(component.get('source', 'unknown'))
-                                found = True
-                                break
-
-                if found:
-                    continue
+            value = resolve_nested_attribute_requirement(component, req_attr)
+            if value is not None and value != "":
+                present.append(req_attr)
+                sources.append(component.get('source', 'unknown'))
+                found = True
 
         if not found:
             missing.append(req_attr)
@@ -366,18 +347,12 @@ def debug_nested_attribute_for_validation(component, missing_attr):
 
         # Check what's available in nested_properties
         nested_props = component.get('nested_properties', {})
-        component_type = component.get('type', '')
 
         # Show debug info in a compact way
         debug_info = []
 
-        # Check all possible keys
-        possible_keys = [
-            base_attr,
-            f"{base_attr}Attribute",
-            f"{component_type}{base_attr}",
-            f"{component_type}{base_attr}Attribute"
-        ]
+        # The attribute is stored under its own name
+        possible_keys = [base_attr]
 
         found_keys = []
         for key in possible_keys:
@@ -464,9 +439,9 @@ def get_attribute_guidance(comp_type, missing_attr, source):
             base_attr = parts[0]
             nested_prop = parts[1]
 
-            if 'TimeSeriesReference' in nested_prop:
+            if is_time_series_reference_key(nested_prop):
                 return f"Add a time series reference for {base_attr}. This should be a string pointing to your time series data file (e.g., 'power_data.csv')."
-            elif 'TimeSeries' in nested_prop:
+            elif is_time_series_key(nested_prop):
                 return f"Add a time series URI for {base_attr}. This should point to your time series data resource."
 
     # Get general source guidance

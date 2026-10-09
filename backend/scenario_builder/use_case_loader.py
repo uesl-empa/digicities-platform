@@ -35,13 +35,31 @@ from typing import Callable, Dict, List, Optional
 
 try:
     from rdflib import Graph, Namespace, URIRef
-    from rdflib.namespace import RDF, RDFS
+    from rdflib.namespace import OWL, RDF, RDFS
 
     RDFLIB_AVAILABLE = True
 except ImportError:
     RDFLIB_AVAILABLE = False
 
 from backend.nextcloud import NextcloudClient
+from backend.ontology_kinds import (
+    KIND_CLASS,
+    AttributeKind,
+    core_graph,
+    is_attribute_class,
+    is_attribute_node,
+    is_attribute_predicate,
+    is_component_class,
+    kind_of_node,
+    superclasses,
+    with_core,
+)
+from backend.scenario_builder.display_utils import get_uri_fragment
+
+
+def _core_classes():
+    """Every class the core ontology declares."""
+    return set(core_graph().subjects(RDF.type, OWL.Class))
 
 
 class NextCloudTTLUseCaseLoader:
@@ -50,7 +68,8 @@ class NextCloudTTLUseCaseLoader:
     """
 
     def __init__(self, workspace_id: str = None, data_processor=None,
-                 on_status: Optional[Callable[[str, str], None]] = None):
+                 on_status: Optional[Callable[[str, str], None]] = None,
+                 ontology: Optional["Graph"] = None):
         """Initialize loader with workspace context.
 
         Args:
@@ -62,8 +81,12 @@ class NextCloudTTLUseCaseLoader:
                 headlessly, the Streamlit shim builds the real one.
             on_status: ``(level, message)`` display callback; levels are
                 ``"warning"`` / ``"error"`` / ``"info"``. Defaults to a no-op.
+            ontology: The workspace extension (its classes under the core
+                hierarchy). Without it, instances of extension classes can't
+                be placed and are skipped with a warning.
         """
         self.workspace_id = workspace_id
+        self.ontology = ontology
         self.on_status = on_status
         self.nextcloud_client = None
         self.data_processor = data_processor  # New data product processor
@@ -82,29 +105,29 @@ class NextCloudTTLUseCaseLoader:
         # Legacy alias kept so old workspace TTLs (pre-cur switch) still parse cleanly.
         self.ISO4217 = Namespace("http://example.org/currency/")
 
-        # Define attribute type categories
+        # The display category of each attribute kind the extractors read.
         self.ATTRIBUTE_TYPES = {
-            'PhysicalAttribute': {
+            AttributeKind.PHYSICAL: {
                 'required_props': ['qudt:value', 'qudt:unit'],
                 'optional_props': [],
                 'category': 'physical'
             },
-            'SimpleCostAttribute': {
+            AttributeKind.SIMPLE_COST: {
                 'required_props': ['qudt:value', 'dici_onto:currency'],
                 'optional_props': [],
                 'category': 'cost'
             },
-            'UnitBasedCostAttribute': {
+            AttributeKind.UNIT_BASED_COST: {
                 'required_props': ['qudt:value', 'qudt:unit', 'dici_onto:currency'],
                 'optional_props': [],
                 'category': 'cost'
             },
-            'GeospatialAttribute': {
+            AttributeKind.GEOSPATIAL: {
                 'required_props': ['qudt:value', 'qudt:unit'],
                 'optional_props': [],
                 'category': 'geospatial'
             },
-            'DynamicAttribute': {
+            AttributeKind.DYNAMIC: {
                 'required_props': ['qudt:unit'],
                 'optional_props': [
                     'dici_onto:hasLiveTimeSeriesReference',
@@ -114,17 +137,17 @@ class NextCloudTTLUseCaseLoader:
                 ],
                 'category': 'dynamic'
             },
-            'CurveAttribute': {
+            AttributeKind.CURVE: {
                 'required_props': ['dici_onto:hasDataPoints'],
                 'optional_props': ['dici_onto:xUnit', 'dici_onto:yUnit'],
                 'category': 'curve'
             },
-            'CategoricalAttribute': {
+            AttributeKind.CATEGORICAL: {
                 'required_props': [],
                 'optional_props': [],
                 'category': 'categorical'
             },
-            'EventAttribute': {
+            AttributeKind.EVENT: {
                 'required_props': ['dici_onto:hasTemporalValue'],
                 'optional_props': ['dici_onto:hasTemporalPrecision'],
                 'category': 'temporal'
@@ -465,42 +488,64 @@ class NextCloudTTLUseCaseLoader:
             # Silently fail - workspace graphs are now loaded via GraphDB export
             return None
 
-    def extract_components_from_graph(self, graph: "Graph", source_file: str) -> Dict[str, List[Dict]]:
-        """Extract components from RDFLib graph with enhanced attribute type handling"""
+    def extract_components_from_graph(self, graph: "Graph", source_file: str,
+                                      ontology: Optional["Graph"] = None) -> Dict[str, List[Dict]]:
+        """Extract components from an RDFLib graph.
+
+        What is a component and what is an attribute comes from the class
+        hierarchy: the graph's own ``rdfs:subClassOf`` statements, the core
+        ontology, and ``ontology`` (the workspace extension) when given. A
+        class the hierarchy cannot place is reported (``on_status`` warning)
+        and its instances skipped: load the extension that declares it.
+        """
+        onto = self._hierarchy(graph, ontology if ontology is not None else self.ontology)
         components_by_type = {}
+        unplaced = set()
 
-        for subject, predicate, obj in graph.triples((None, RDF.type, None)):
-            if str(obj).startswith(str(self.DICI)):
-                component_type = str(obj).replace(str(self.DICI), "")
-                component_uri = str(subject)
+        for subject, obj in graph.subject_objects(RDF.type):
+            if not isinstance(obj, URIRef) or is_attribute_node(onto, subject):
+                continue
+            if not self._is_placed(onto, obj):
+                unplaced.add(obj)
+                continue
+            if not is_component_class(onto, obj):
+                continue
+            component_type = get_uri_fragment(str(obj))
+            component_data = self._extract_component_data(graph, subject, component_type, onto)
 
-                if not self._is_attribute_instance(component_type):
-                    component_data = self._extract_component_data(graph, subject, component_type)
+            if component_data:
+                if component_type not in components_by_type:
+                    components_by_type[component_type] = []
 
-                    if component_data:
-                        if component_type not in components_by_type:
-                            components_by_type[component_type] = []
+                component_data.setdefault('source', 'ttl_use_case')
+                component_data.setdefault('source_file', source_file)
+                component_data.setdefault('workspace_id', self.workspace_id)
 
-                        component_data.setdefault('source', 'ttl_use_case')
-                        component_data.setdefault('source_file', source_file)
-                        component_data.setdefault('workspace_id', self.workspace_id)
+                components_by_type[component_type].append(component_data)
 
-                        components_by_type[component_type].append(component_data)
-
+        for cls in sorted(unplaced):
+            self._notify('warning', f"{cls} is not placed in the ontology (no rdfs:subClassOf "
+                                    f"path to a core class); its instances are skipped")
         return components_by_type
 
-    def _is_attribute_instance(self, type_name: str) -> bool:
-        """Check if a type represents an attribute instance rather than a component"""
-        attribute_indicators = [
-            'Attribute', 'Cost', 'Power', 'Curve', 'Production', 'Height',
-            'Diameter', 'Elevation', 'Latitude', 'Longitude', 'Roughness',
-            'Irradiance', 'Efficiency', 'CAPEX', 'OPEX', 'TimeSeries'
-        ]
-        return any(indicator in type_name for indicator in attribute_indicators)
+    @staticmethod
+    def _hierarchy(graph: "Graph", ontology: Optional["Graph"] = None) -> "Graph":
+        """The graph plus the core ontology (and the extension, if given)."""
+        return with_core(graph + ontology if ontology is not None else graph)
 
-    def _extract_component_data(self, graph: "Graph", component_uri: "URIRef", component_type: str) -> Optional[Dict]:
+    @staticmethod
+    def _is_placed(onto: "Graph", cls) -> bool:
+        """``cls`` is a core class or ``rdfs:subClassOf+`` one. Anything else
+        (owl:NamedIndividual, owl:Thing, a class nobody declared) is not a
+        DigiCities class this loader can judge."""
+        return bool(superclasses(onto, cls) & _core_classes())
+
+    def _extract_component_data(self, graph: "Graph", component_uri: "URIRef", component_type: str,
+                                onto: Optional["Graph"] = None) -> Optional[Dict]:
         """Extract complete component data from graph with enhanced attribute handling"""
         try:
+            if onto is None:
+                onto = self._hierarchy(graph)
             component = {
                 'uri': str(component_uri),
                 'label': self._get_label(graph, component_uri),
@@ -524,50 +569,22 @@ class NextCloudTTLUseCaseLoader:
                 'category': 'system'
             }
 
+            # The component's attributes are the nodes it links to: through a
+            # link under dici_onto:hasAttribute, or any link to a node typed
+            # under dici_onto:Attribute.
             for predicate, attr_uri in graph.predicate_objects(component_uri):
-                predicate_str = str(predicate)
-
-                if 'hasAttribute' in predicate_str or (predicate_str.startswith(str(self.DICI)) and 'Attribute' in predicate_str):
-                    attr_name = self._extract_attribute_name_from_predicate(predicate_str, component_type)
+                if not isinstance(attr_uri, URIRef):
+                    continue
+                if is_attribute_predicate(onto, predicate) or is_attribute_node(onto, attr_uri):
+                    attr_name = get_uri_fragment(str(attr_uri))
                     if attr_name:
-                        attr_data = self._extract_enhanced_attribute_details(graph, attr_uri, attr_name)
+                        attr_data = self._extract_enhanced_attribute_details(graph, attr_uri, attr_name, onto)
                         if attr_data:
                             component['attributes'][attr_name] = attr_data
 
                             nested_props = self._extract_nested_properties(graph, attr_uri, attr_name)
                             if nested_props:
                                 component['nested_properties'][attr_name] = nested_props
-
-            component_uri_str = str(component_uri)
-
-            for attr_subject in graph.subjects():
-                attr_subject_str = str(attr_subject)
-
-                if (attr_subject_str.startswith(component_uri_str + '/') and
-                        attr_subject_str.count('/') == component_uri_str.count('/') + 1):
-
-                    attr_name = attr_subject_str.split('/')[-1]
-
-                    attr_types = [str(t).replace(str(self.DICI), "") for _, _, t in graph.triples((attr_subject, RDF.type, None)) if str(t).startswith(str(self.DICI))]
-
-                    if self._is_new_categorical_attribute(attr_types):
-                        attr_data = self._extract_new_categorical_attribute_data(graph, attr_subject, attr_name, attr_types)
-                        if attr_data:
-                            component['attributes'][attr_name] = attr_data
-                    else:
-                        for attr_type_obj in graph.objects(attr_subject, RDF.type):
-                            attr_type_str = str(attr_type_obj)
-                            if (attr_type_str.startswith(str(self.DICI)) and
-                                    any(attr_type in attr_type_str for attr_type in self.ATTRIBUTE_TYPES.keys())):
-
-                                attr_data = self._extract_enhanced_attribute_details(graph, attr_subject, attr_name)
-                                if attr_data:
-                                    component['attributes'][attr_name] = attr_data
-
-                                    nested_props = self._extract_nested_properties(graph, attr_subject, attr_name)
-                                    if nested_props:
-                                        component['nested_properties'][attr_name] = nested_props
-                                break
 
             return component
 
@@ -581,142 +598,74 @@ class NextCloudTTLUseCaseLoader:
             return str(label)
         return str(uri).split('/')[-1]
 
-    def _extract_attribute_name_from_predicate(self, predicate_str: str,
-                                               component_type: str = "") -> Optional[str]:
-        """Extract attribute name from predicate URI.
+    def _categorical_parts(self, graph: "Graph", onto: "Graph", attr_uri: "URIRef"):
+        """``(attribute class, category value)`` of a categorical attribute node.
 
-        A high-specificity predicate carries the owning component's class as a
-        prefix (``hasWindTurbineHubHeightAttribute`` on a WindTurbine) — strip
-        the ACTUAL class of the component being parsed, which the caller always
-        knows. The previous version scanned a hardcoded list of usecase class
-        names, which silently mis-parsed every domain not on the list (same fix
-        as data_products/ttl_parser, which duplicated this function)."""
-        if str(self.DICI) in predicate_str:
-            local_part = predicate_str.replace(str(self.DICI), "")
+        The node is typed with its attribute class and with the chosen value.
+        The value is the type that is a named individual of another of the
+        node's types (``LithiumIon a ChemistryType``); failing that, the one
+        type the hierarchy does not place under dici_onto:Attribute. When
+        neither settles it the value is unknown: it is never guessed from how
+        the classes are spelt.
+        """
+        kind_classes = set(KIND_CLASS.values())
+        types = [t for t in graph.objects(attr_uri, RDF.type)
+                 if isinstance(t, URIRef) and t not in kind_classes]
+        for value in types:
+            for attr_class in types:
+                if attr_class != value and (value, RDF.type, attr_class) in onto:
+                    return attr_class, value
+        attr_classes = [t for t in types if is_attribute_class(onto, t)]
+        values = [t for t in types if not is_attribute_class(onto, t)]
+        return (attr_classes[0] if len(attr_classes) == 1 else None,
+                values[0] if len(values) == 1 else None)
 
-            if local_part.startswith('has') and local_part.endswith('Attribute'):
-                attr_part = local_part[3:-9]
-
-                if component_type and attr_part.startswith(component_type):
-                    attr_part = attr_part[len(component_type):]
-
-                return attr_part if attr_part else None
-
-            elif local_part == 'hasAttribute':
-                return 'hasAttribute'
-
-        return None
-
-    def _is_new_categorical_attribute(self, attr_types: List[str]) -> bool:
-        """Check if this follows the new categorical attribute structure"""
-        if 'CategoricalAttribute' not in attr_types:
-            return False
-        if len(attr_types) < 3:
-            return False
-        non_categorical_types = [t for t in attr_types if t != 'CategoricalAttribute']
-        return len(non_categorical_types) >= 2
-
-    def _extract_new_categorical_attribute_data(self, graph: "Graph", attr_uri: "URIRef", attr_name: str, attr_types: List[str]) -> Optional[Dict]:
-        """Extract data for new categorical attribute structure - FIXED VERSION"""
-        try:
-            uri_fragment = str(attr_uri).split('/')[-1]
-            non_categorical_types = [t for t in attr_types if t != 'CategoricalAttribute']
-
-            if len(non_categorical_types) < 1:
-                return None
-
-            attribute_type = None
-            categorical_value = None
-
-            if uri_fragment in non_categorical_types:
-                attribute_type = uri_fragment
-                for type_name in non_categorical_types:
-                    if type_name != uri_fragment:
-                        categorical_value = type_name
-                        break
-            else:
-                for type_name in non_categorical_types:
-                    if any(pattern in type_name for pattern in ['Type', 'Supply', 'Category', 'Class', 'Mode', 'Status']):
-                        attribute_type = type_name
-                        break
-
-                for type_name in non_categorical_types:
-                    if type_name != attribute_type:
-                        categorical_value = type_name
-                        break
-
-            if len(non_categorical_types) == 1 and not categorical_value:
-                categorical_value = non_categorical_types[0]
-                attribute_type = uri_fragment
-
-            attr_data = {
-                'uri': str(attr_uri),
-                'value': categorical_value if categorical_value else "Unknown",
-                'category_value': categorical_value if categorical_value else "Unknown",
-                'unit': 'category',
-                'attribute_type': 'CategoricalAttribute',
-                'category': 'categorical',
-                'data_type': 'categorical',
-                'specific_attribute_type': attribute_type if attribute_type else uri_fragment
-            }
-
-            return attr_data
-
-        except Exception as e:
-            self._notify('warning', f"Error extracting categorical attribute data for {attr_uri}: {str(e)}")
-            return None
-
-    def _extract_enhanced_attribute_details(self, graph: "Graph", attr_uri: "URIRef", attr_name: str) -> Optional[Dict]:
+    def _extract_enhanced_attribute_details(self, graph: "Graph", attr_uri: "URIRef", attr_name: str,
+                                            onto: Optional["Graph"] = None) -> Optional[Dict]:
         """Extract attribute value, unit, type, and other details from graph"""
         try:
+            if onto is None:
+                onto = self._hierarchy(graph)
             attr_data = {
                 'uri': str(attr_uri),
                 'attribute_type': 'unknown',
                 'category': 'unknown'
             }
 
-            attribute_types = []
-            for attr_type in graph.objects(attr_uri, RDF.type):
-                if str(attr_type).startswith(str(self.DICI)):
-                    type_name = str(attr_type).replace(str(self.DICI), "")
-                    attribute_types.append(type_name)
+            kind = kind_of_node(onto, attr_uri)
 
-            if 'CategoricalAttribute' in attribute_types:
-                uri_fragment = str(attr_uri).split('/')[-1]
-                category_value = None
-                for type_name in attribute_types:
-                    if type_name != 'CategoricalAttribute' and type_name != uri_fragment:
-                        category_value = type_name
-                        break
+            if kind is AttributeKind.CATEGORICAL:
+                attr_class, value = self._categorical_parts(graph, onto, attr_uri)
+                if value is None:
+                    self._notify('warning', f"Could not determine categorical value for {attr_uri}")
+                category_value = get_uri_fragment(str(value)) if value is not None else "Unknown"
+                attr_data.update({
+                    'attribute_type': AttributeKind.CATEGORICAL,
+                    'category': 'categorical',
+                    'value': category_value,
+                    'category_value': category_value,
+                    'unit': 'category',
+                    'data_type': 'categorical',
+                    'specific_attribute_type': (get_uri_fragment(str(attr_class))
+                                                if attr_class is not None else attr_name),
+                })
+                return attr_data
 
-                if category_value:
-                    attr_data['attribute_type'] = 'CategoricalAttribute'
-                    attr_data['category'] = 'categorical'
-                    attr_data['value'] = category_value
-                    attr_data['category_value'] = category_value
-                    attr_data['unit'] = 'category'
-                    attr_data['data_type'] = 'categorical'
-                    attr_data['specific_attribute_type'] = uri_fragment
-                    return attr_data
-                else:
-                    return self._extract_new_categorical_attribute_data(graph, attr_uri, attr_name, attribute_types)
+            if kind is not None:
+                attr_data['attribute_type'] = kind
+                attr_data['category'] = self.ATTRIBUTE_TYPES.get(kind, {}).get('category', 'unknown')
 
-            primary_type = self._determine_primary_attribute_type(attribute_types)
-            if primary_type:
-                attr_data['attribute_type'] = primary_type
-                attr_data['category'] = self.ATTRIBUTE_TYPES[primary_type]['category']
-
-            if primary_type == 'PhysicalAttribute' or primary_type == 'GeospatialAttribute':
+            if kind in (AttributeKind.PHYSICAL, AttributeKind.GEOSPATIAL):
                 self._extract_physical_attribute_data(graph, attr_uri, attr_data)
-            elif primary_type == 'SimpleCostAttribute':
+            elif kind is AttributeKind.SIMPLE_COST:
                 self._extract_simple_cost_attribute_data(graph, attr_uri, attr_data)
-            elif primary_type == 'UnitBasedCostAttribute':
+            elif kind is AttributeKind.UNIT_BASED_COST:
                 self._extract_unit_based_cost_attribute_data(graph, attr_uri, attr_data)
-            elif primary_type == 'DynamicAttribute':
+            elif kind is AttributeKind.DYNAMIC:
                 self._extract_dynamic_attribute_data(graph, attr_uri, attr_data)
-            elif primary_type == 'CurveAttribute':
+            elif kind is AttributeKind.CURVE:
                 self._extract_curve_attribute_data(graph, attr_uri, attr_data)
-            elif primary_type == 'EventAttribute':
+            elif kind is AttributeKind.EVENT:
                 self._extract_event_attribute_data(graph, attr_uri, attr_data)
             else:
                 self._extract_generic_attribute_data(graph, attr_uri, attr_data)
@@ -734,25 +683,6 @@ class NextCloudTTLUseCaseLoader:
             self._notify('warning', f"Error extracting attribute details for {attr_uri}: {str(e)}")
             return None
 
-    def _determine_primary_attribute_type(self, attribute_types: List[str]) -> Optional[str]:
-        """Determine the primary attribute type from a list of types"""
-        priority_order = [
-            'EventAttribute',
-            'CategoricalAttribute',
-            'DynamicAttribute',
-            'CurveAttribute',
-            'UnitBasedCostAttribute',
-            'SimpleCostAttribute',
-            'GeospatialAttribute',
-            'PhysicalAttribute'
-        ]
-
-        for priority_type in priority_order:
-            if priority_type in attribute_types:
-                return priority_type
-
-        return None
-
     def _extract_physical_attribute_data(self, graph: "Graph", attr_uri: "URIRef", attr_data: Dict):
         """Extract data for PhysicalAttribute and GeospatialAttribute"""
         for value in graph.objects(attr_uri, self.QUDT.value):
@@ -766,11 +696,9 @@ class NextCloudTTLUseCaseLoader:
         for value in graph.objects(attr_uri, self.QUDT.value):
             attr_data['value'] = self._convert_literal_value(value)
 
+        # A simple cost's unit is its currency.
         for currency in graph.objects(attr_uri, self.DICI.currency):
-            attr_data['currency'] = self._map_currency_uri_to_string(str(currency))
-
-        if 'currency' in attr_data:
-            attr_data['unit'] = attr_data['currency']
+            attr_data['currency'] = attr_data['unit'] = self._map_currency_uri_to_string(str(currency))
 
     def _extract_unit_based_cost_attribute_data(self, graph: "Graph", attr_uri: "URIRef", attr_data: Dict):
         """Extract data for UnitBasedCostAttribute"""
@@ -824,38 +752,6 @@ class NextCloudTTLUseCaseLoader:
         for y_unit in graph.objects(attr_uri, self.DICI.yUnit):
             attr_data['y_unit'] = self._map_unit_uri_to_string(str(y_unit))
 
-    def _extract_categorical_attribute_data(self, graph: "Graph", attr_uri: "URIRef", attr_data: Dict, attribute_types: List[str]):
-        """Extract data for CategoricalAttribute"""
-        uri_fragment = str(attr_uri).split('/')[-1]
-        category_value = None
-
-        for attr_type in attribute_types:
-            if attr_type != 'CategoricalAttribute' and attr_type != uri_fragment:
-                category_value = attr_type
-                break
-
-        if not category_value:
-            for attr_type in attribute_types:
-                if (attr_type != 'CategoricalAttribute' and
-                        attr_type != uri_fragment and
-                        not any(pattern in attr_type for pattern in ['Type', 'Supply', 'Category', 'Class'])):
-                    category_value = attr_type
-                    break
-
-        if category_value:
-            attr_data['value'] = category_value
-            attr_data['category_value'] = category_value
-            attr_data['unit'] = 'category'
-            attr_data['data_type'] = 'categorical'
-            attr_data['specific_attribute_type'] = uri_fragment
-        else:
-            self._notify('warning', f"Could not determine categorical value for {attr_uri}")
-            attr_data['value'] = "Unknown"
-            attr_data['category_value'] = "Unknown"
-            attr_data['unit'] = 'category'
-            attr_data['data_type'] = 'categorical'
-            attr_data['specific_attribute_type'] = uri_fragment
-
     def _extract_event_attribute_data(self, graph: "Graph", attr_uri: "URIRef", attr_data: Dict):
         """Extract data for EventAttribute (temporal data)"""
         for temporal_value in graph.objects(attr_uri, self.DICI.hasTemporalValue):
@@ -866,7 +762,7 @@ class NextCloudTTLUseCaseLoader:
             attr_data['data_type'] = 'temporal'
 
         for precision in graph.objects(attr_uri, self.DICI.hasTemporalPrecision):
-            precision_str = str(precision).replace(str(self.DICI), "")
+            precision_str = get_uri_fragment(str(precision))
             attr_data['temporal_precision'] = precision_str
 
         if 'temporal_value' not in attr_data:

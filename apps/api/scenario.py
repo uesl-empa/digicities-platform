@@ -112,14 +112,28 @@ def scenario_draft(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
     (components as uri/type/label, links with the 'scenario' pseudo-source),
     so an existing scenario can be reloaded, edited, and rebuilt."""
     from backend.scenario_builder.reload import draft_from_ttl
+    # The sync gate's read: the graph's instance types plus the reads that
+    # failed, so an unreachable graph is told apart from an empty one.
+    from backend.scenario_builder.sync import _instance_types as read_instance_types
 
     p = ws_root(ctx) / "scenarios" / name
     if not p.exists():
         raise HTTPException(status_code=404, detail="scenario not found")
+    text = p.read_text(encoding="utf-8")
     try:
-        out = draft_from_ttl(p.read_text(encoding="utf-8"))
+        out = draft_from_ttl(text)
     except Exception as bad_ttl:
         raise HTTPException(status_code=400, detail=f"could not parse the scenario TTL: {bad_ttl}")
+    # A thin scenario references instances without their types; the workspace
+    # graph holds them. Without the graph those components stay untyped, with
+    # a warning (never a type guessed from the IRI).
+    if any(not c.get("type") for c in out.get("components", [])):
+        types, failures = read_instance_types(graph_client(ctx))
+        out = draft_from_ttl(text, instance_types=types)
+        if failures:
+            out.setdefault("warnings", []).insert(
+                0, f"The workspace graph gave no instance types ({'; '.join(failures)}); "
+                   "components the scenario does not type itself are left untyped.")
     out["file"] = name
     return out
 

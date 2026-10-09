@@ -5,9 +5,13 @@ Pure, dependency-free helpers for shaping component dicts for display.
 
 Relocated out of the legacy ``ttl_use_case_loader`` so the Scenario Builder,
 Assumptions, and links modules can share them without importing that loader.
-These operate on plain dicts/URIs only — no graph, storage, or network access.
+These operate on plain dicts/URIs only — no storage or network access; an
+attribute's kind is read through ``backend.scenario_builder.semantics``.
 """
 from typing import Dict, Optional
+
+from backend.ontology_kinds import AttributeKind
+from backend.scenario_builder.semantics import kind_of
 
 
 def get_uri_fragment(uri: str) -> str:
@@ -62,14 +66,15 @@ def format_ttl_component_for_display(component: Dict) -> Dict:
                 if 'data_points' in attr_data:
                     formatted_attr['data_points'] = attr_data['data_points']
 
-            if attr_data.get('attribute_type') == 'CategoricalAttribute':
+            kind = kind_of(attr_data)
+            if kind is AttributeKind.CATEGORICAL:
                 formatted_attr['data_type'] = 'categorical'
                 if 'category_value' in attr_data:
                     formatted_attr['category_value'] = attr_data['category_value']
                 if 'specific_attribute_type' in attr_data:
                     formatted_attr['specific_attribute_type'] = attr_data['specific_attribute_type']
 
-            if attr_data.get('attribute_type') == 'EventAttribute':
+            if kind is AttributeKind.EVENT:
                 formatted_attr['data_type'] = 'temporal'
                 if 'temporal_value' in attr_data:
                     formatted_attr['temporal_value'] = attr_data['temporal_value']

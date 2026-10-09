@@ -251,13 +251,23 @@ def render_scenario_selection_tab():
                     except Exception:
                         pass
 
+                    # The workspace schema decides what each node is during
+                    # conversion; without it only the core hierarchy is used.
+                    from backend.api_submission.materialize import workspace_schema
+                    _ctx = st.session_state.get("workspace_context")
+                    unread = []
+                    schema = workspace_schema(getattr(_ctx, "storage", None), skipped=unread)
+                    for u in unread:
+                        st.warning(f"The workspace ontology extension could not be read, so "
+                                   f"only the core hierarchy is used ({u['error']}).")
+
                     for ttl_file in ttl_files_to_process:
                         try:
                             # Process file
                             filename = ttl_file['name']
                             ttl_content = ttl_file['content']
 
-                            processor = RobustTTL2YAMLProcessor()
+                            processor = RobustTTL2YAMLProcessor(ontology_graph=schema)
                             converted = processor.process(
                                 template_content=template_content,
                                 ttl_source=ttl_content,

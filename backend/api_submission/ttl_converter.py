@@ -25,8 +25,16 @@ import yaml
 try:
     import rdflib
     from rdflib import Graph, URIRef, Literal, Namespace
+    from rdflib.graph import ReadOnlyGraphAggregate
     from rdflib.namespace import RDF, RDFS, XSD
     RDFLIB_AVAILABLE = True
+
+    from backend.ontology_kinds import (
+        AttributeKind, core_graph, in_dici_namespace, is_attribute_class,
+        is_attribute_node, is_attribute_predicate, is_component_link_class,
+        is_scenario_class, is_subproperty_of, is_time_series_reference_predicate,
+        kind_of_node, superclasses,
+    )
 except ImportError:
     RDFLIB_AVAILABLE = False
 
@@ -126,20 +134,26 @@ class RobustTTL2YAMLProcessor:
     Modified to always return arrays for all link results.
     """
 
-    def __init__(self):
+    def __init__(self, ontology_graph: Optional["Graph"] = None):
         if not RDFLIB_AVAILABLE:
             raise ImportError("rdflib is required for TTL processing")
 
         self.g = Graph()
+        # What a node or class IS is read from the ontology hierarchy: the
+        # scenario data, the workspace schema when the caller has it, and the
+        # vendored core (always). Built once the TTL is parsed.
+        self.ontology_graph = ontology_graph
+        self.view = None
         self.DICI = Namespace("https://digicities.info/ontology#")
         self.QUDT = Namespace("http://qudt.org/schema/qudt/")
         self.current_scenario = None
         self.debug = False
 
-        # Caches
-        self.components_by_type = {}
+        # Indexes and caches
+        self.typed_nodes = []       # every typed node except scenarios and links
         self.component_links = []
-        self.attribute_cache = {}
+        self._classes_cache = {}    # node -> every class it is an instance of
+        self._instances_cache = {}  # template class name -> its instances
 
     def process(self, template_content: Dict, ttl_source: str, is_ttl_file: bool = True, debug: bool = False) -> OrderedDict:
         """Main processing method."""
@@ -159,6 +173,9 @@ class RobustTTL2YAMLProcessor:
             if self.debug:
                 print(f"Error parsing TTL: {e}")
             raise e
+
+        self.view = ReadOnlyGraphAggregate(
+            [g for g in (self.g, self.ontology_graph) if g is not None] + [core_graph()])
 
         # Find scenario
         scenarios = list(self.g.subjects(RDF.type, self.DICI.Scenario))
@@ -182,32 +199,73 @@ class RobustTTL2YAMLProcessor:
 
     def _build_indexes(self):
         """Build indexes of components and links for efficient lookup."""
-        # Index components by type
-        self.components_by_type = {}
-        for s, p, o in self.g.triples((None, RDF.type, None)):
-            if str(o).startswith(str(self.DICI)):
-                type_name = self._extract_name(str(o))
-                if type_name not in ['Scenario', 'ComponentLink']:
-                    if type_name not in self.components_by_type:
-                        self.components_by_type[type_name] = []
-                    self.components_by_type[type_name].append(s)
+        # Every typed node except the scenario and its ComponentLinks (by the
+        # hierarchy), ordered by IRI: graph order depends on how the scenario
+        # was materialized, and the payload must not change from run to run.
+        # Which template class a node answers to is asked per class
+        # (``_is_a``), never read off a name.
+        self.typed_nodes = []
+        self._classes_cache = {}
+        self._instances_cache = {}
+        for s in sorted(set(self.g.subjects(RDF.type, None)), key=str):
+            if any(is_scenario_class(self.view, t) or is_component_link_class(self.view, t)
+                   for t in self.g.objects(s, RDF.type)):
+                continue
+            self.typed_nodes.append(s)
 
-        # Index component links
+        # Index component links, ordered by their ends for the same reason.
         self.component_links = []
         for link in self.g.subjects(RDF.type, self.DICI.ComponentLink):
-            sources = list(self.g.objects(link, self.DICI.hasInputEntity))
-            targets = list(self.g.objects(link, self.DICI.linksInputyEntityTo))
+            sources = sorted(self.g.objects(link, self.DICI.hasInputEntity), key=str)
+            targets = sorted(self.g.objects(link, self.DICI.linksInputyEntityTo), key=str)
             if sources and targets:
                 self.component_links.append({
                     'source': sources[0],
                     'target': targets[0]
                 })
+        self.component_links.sort(key=lambda link: (str(link['source']), str(link['target'])))
 
         if self.debug:
-            print(f"Indexed {len(self.components_by_type)} component types")
+            print(f"Indexed {len(self.typed_nodes)} typed nodes")
             print(f"Indexed {len(self.component_links)} links")
-            for type_name, components in self.components_by_type.items():
-                print(f"  {type_name}: {len(components)} components")
+
+    # A template names classes and properties by their dici_onto: local name
+    # (``WindTurbine.HubHeight``). The token becomes that IRI; a token that
+    # cannot be a local name names nothing.
+    _LOCAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*")
+
+    def _term(self, name: str) -> Optional[URIRef]:
+        """The dici_onto: IRI a template token names, or None."""
+        if not isinstance(name, str) or not self._LOCAL_NAME.fullmatch(name):
+            return None
+        return self.DICI[name]
+
+    def _classes_of(self, node) -> set:
+        """Every class ``node`` is an instance of: its rdf:types and their
+        superclasses in the data, the workspace schema and the core."""
+        cached = self._classes_cache.get(node)
+        if cached is None:
+            cached = set()
+            for t in self.g.objects(node, RDF.type):
+                cached |= superclasses(self.view, t)
+            self._classes_cache[node] = cached
+        return cached
+
+    def _is_a(self, node, type_name: str) -> bool:
+        """``node`` is an instance of the class the template names."""
+        cls = self._term(type_name)
+        return cls is not None and cls in self._classes_of(node)
+
+    def _instances_of(self, type_name: str) -> List[URIRef]:
+        """Every indexed node that is an instance of the named class."""
+        if type_name not in self._instances_cache:
+            self._instances_cache[type_name] = [
+                n for n in self.typed_nodes if self._is_a(n, type_name)]
+        return self._instances_cache[type_name]
+
+    def _type_label(self, node) -> str:
+        """The node's asserted classes, for debug output only."""
+        return ", ".join(sorted(self._extract_name(str(t)) for t in self.g.objects(node, RDF.type)))
 
     def _process_value(self, value: Any, context_component: Optional[URIRef]) -> Any:
         """Process any value based on its type and context."""
@@ -247,7 +305,7 @@ class RobustTTL2YAMLProcessor:
                     print(f">>> FOUND IMPLICIT COMPONENT: {component_type}")
 
                 # If we already have a context of this type, use it
-                if context_component and self._get_component_type(context_component) == component_type:
+                if context_component and self._is_a(context_component, component_type):
                     if self.debug:
                         print(f"Using existing context for {component_type}")
                     result = OrderedDict()
@@ -299,7 +357,7 @@ class RobustTTL2YAMLProcessor:
         for key, value in template_dict.items():
             if isinstance(value, str) and '.' in value:
                 parts = value.split('.')
-                if len(parts) >= 2 and parts[0] in self.components_by_type:
+                if len(parts) >= 2 and self._instances_of(parts[0]):
                     return parts[0]
         return None
 
@@ -320,44 +378,16 @@ class RobustTTL2YAMLProcessor:
             # Check forward links (source -> target)
             if link['source'] == source:
                 target = link['target']
-                if self._get_component_type(target) == target_type:
+                if self._is_a(target, target_type):
                     results.append(target)
 
             # Check reverse links (target -> source)
             if link['target'] == source:
                 target = link['source']
-                if self._get_component_type(target) == target_type:
+                if self._is_a(target, target_type):
                     results.append(target)
 
         return results
-
-    # Abstract/base classes that are never the intended concrete component type.
-    # A node can carry several rdf:type values - its concrete type plus inferred
-    # superclasses (Component, owl:Thing, ...). When reading from the triplestore
-    # these inferred bases are present (they are not in a hand-authored file), so
-    # we must skip them, otherwise a Location reached via the graph reads back as
-    # its base "Component" and CL.Scenario.Location fails to match.
-    _BASE_TYPES = {'Scenario', 'ComponentLink', 'Component', 'Attribute',
-                   'PhysicalAttribute', 'CategoricalAttribute',
-                   'StaticAttribute', 'DynamicAttribute', 'EventAttribute'}
-
-    def _get_component_type(self, component: URIRef) -> Optional[str]:
-        """Get the concrete component type (e.g. Building, Location).
-
-        Skips the abstract base classes above, returning the specific type so link
-        resolution isn't thrown off by an inferred superclass. Falls back to a base
-        type only if no concrete one is present.
-        """
-        fallback = None
-        for type_uri in self.g.objects(component, RDF.type):
-            if not str(type_uri).startswith(str(self.DICI)):
-                continue
-            type_name = self._extract_name(str(type_uri))
-            if type_name in self._BASE_TYPES:
-                fallback = fallback or type_name
-                continue
-            return type_name
-        return fallback
 
     def _process_link(self, link_spec: str, template: Any, context: Optional[URIRef], additional_fields: Optional[Dict] = None) -> Any:
         """
@@ -366,7 +396,7 @@ class RobustTTL2YAMLProcessor:
         Modified to always return arrays.
         """
         if self.debug:
-            context_info = f"context: {self._extract_name(str(context))} ({self._get_component_type(context)})" if context else "no context"
+            context_info = f"context: {self._extract_name(str(context))} ({self._type_label(context)})" if context else "no context"
             print(f"\n*** PROCESSING LINK: {link_spec} with {context_info} ***")
 
         if not link_spec.startswith('CL.'):
@@ -382,16 +412,18 @@ class RobustTTL2YAMLProcessor:
         # Determine sources based on link specification and context
         sources = []
 
-        if source_type == 'Scenario':
+        # The template names classes; the ontology says which one is a Scenario.
+        source_cls = self._term(source_type)
+        if source_cls is not None and is_scenario_class(self.view, source_cls):
             sources = [self.current_scenario]
-        elif context and self._get_component_type(context) == source_type:
+        elif context and self._is_a(context, source_type):
             # Use the current context as source
             sources = [context]
             if self.debug:
                 print(f"Using context as source: {self._extract_name(str(context))}")
         else:
             # Look up components of source_type
-            sources = self.components_by_type.get(source_type, [])
+            sources = self._instances_of(source_type)
 
         if self.debug:
             print(f"Sources ({source_type}): {len(sources)}")
@@ -488,7 +520,7 @@ class RobustTTL2YAMLProcessor:
                 comp_type = parts[0]
 
                 # Check if we have context of the right type
-                if context and self._get_component_type(context) == comp_type:
+                if context and self._is_a(context, comp_type):
                     if parts[1].lower() == 'uri':
                         return str(context)
                     elif parts[1].lower() == 'label':
@@ -504,38 +536,24 @@ class RobustTTL2YAMLProcessor:
 
         return value
 
-    @staticmethod
-    def _norm_attr_name(name: str) -> str:
-        # Same cleaning the scenario emitter applies to attribute local names
-        # (drops "_", " ", "."), compared case-insensitively.
-        return re.sub(r'[\s_.]', '', name).lower()
-
-    def _attribute_is(self, attr_uri: URIRef, attr_name: str) -> bool:
-        """True if the attribute node IS ``attr_name``: one of its dici_onto
-        rdf:types is that class, or (untyped node) its path-style URI ends in
-        ``/<attr_name>``."""
-        want = self._norm_attr_name(attr_name)
-        for t in self.g.objects(attr_uri, RDF.type):
-            if str(t).startswith(str(self.DICI)) and \
-                    self._norm_attr_name(self._extract_name(str(t))) == want:
-                return True
-        return self._norm_attr_name(self._extract_name(str(attr_uri))) == want
-
     def _find_attribute(self, component: URIRef, comp_type: str, attr_name: str) -> Optional[URIRef]:
         """The component's attribute node for ``attr_name``, or None.
 
-        The typed predicates name the attribute, so their first object is it.
-        The generic ``hasAttribute`` links EVERY attribute of the component, so
-        only an object that actually is ``attr_name`` may be used — taking the
-        first one handed a missing attribute some other attribute's value.
+        ``attr_name`` names an attribute class. The node is the one the
+        component links through an attribute edge (a predicate under
+        ``dici_onto:hasAttribute``, or any edge to an attribute node) that IS an
+        instance of that class. Only that node may be used: taking the first
+        attribute linked handed a missing attribute some other attribute's
+        value. An untyped node is no attribute of any class.
         """
-        for pattern in (f"has{comp_type}{attr_name}Attribute", f"has{attr_name}Attribute"):
-            attrs = list(self.g.objects(component, self.DICI[pattern]))
-            if attrs:
-                return attrs[0]
-        for attr in self.g.objects(component, self.DICI.hasAttribute):
-            if self._attribute_is(attr, attr_name):
-                return attr
+        want = self._term(attr_name)
+        if want is None:
+            return None
+        for pred, node in self.g.predicate_objects(component):
+            if not isinstance(node, URIRef) or want not in self._classes_of(node):
+                continue
+            if is_attribute_predicate(self.view, pred) or is_attribute_node(self.view, node):
+                return node
         return None
 
     def _get_attribute_value(self, component: URIRef, comp_type: str, attr_name: str) -> Any:
@@ -543,7 +561,7 @@ class RobustTTL2YAMLProcessor:
         attr = self._find_attribute(component, comp_type, attr_name)
         if attr is None:
             return None
-        return self._extract_attribute_value(attr)
+        return self._extract_attribute_value(attr, attr_name)
 
     def _get_nested_attribute(self, component: URIRef, comp_type: str, attr_path: List[str]) -> Any:
         """Get nested attribute value."""
@@ -555,51 +573,45 @@ class RobustTTL2YAMLProcessor:
         if not attr_uri:
             return None
 
-        # Get nested property
-        prop_name = attr_path[1]
-
-        # Handle time series references
-        if 'TimeSeriesReference' in prop_name:
-            if 'Historic' in prop_name:
-                refs = list(self.g.objects(attr_uri, self.DICI.hasHistoricTimeSeriesReference))
-            elif 'Future' in prop_name:
-                refs = list(self.g.objects(attr_uri, self.DICI.hasFutureTimeSeriesReference))
-            elif 'Live' in prop_name:
-                refs = list(self.g.objects(attr_uri, self.DICI.hasLiveTimeSeriesReference))
-            else:
-                refs = list(self.g.objects(attr_uri, self.QUDT.value))
-
-            if refs:
-                return str(refs[0])
-
+        # The nested name is a property. A time series reference is read
+        # through that property or any of its subproperties, so a request for
+        # hasTimeSeriesReference is met by hasLiveTimeSeriesReference.
+        prop = self._term(attr_path[1])
+        if prop is None or not is_time_series_reference_predicate(self.view, prop):
+            return None
+        for pred, ref in self.g.predicate_objects(attr_uri):
+            if is_subproperty_of(self.view, pred, prop):
+                return str(ref)
         return None
 
-    def _extract_attribute_value(self, attr_uri: URIRef) -> Any:
-        """Extract value from attribute URI."""
-
-        # Get types
-        types = []
+    def _category_value(self, attr_uri: URIRef, attr_name: Optional[str]) -> Optional[str]:
+        """The category a categorical attribute holds: its
+        ``dici_onto:hasCategoricalValue``, else the DigiCities type that is
+        neither an attribute class (by the hierarchy) nor the attribute class
+        the template asked for (``attr_name``; needed when the caller passed no
+        workspace schema, so the extension's attribute classes are unknown)."""
+        for value in self.g.objects(attr_uri, self.DICI.hasCategoricalValue):
+            return self._extract_name(str(value))
+        want = self._term(attr_name) if attr_name else None
         for t in self.g.objects(attr_uri, RDF.type):
-            if str(t).startswith(str(self.DICI)):
-                types.append(self._extract_name(str(t)))
+            if t == want or not in_dici_namespace(t) or is_attribute_class(self.view, t):
+                continue
+            return self._extract_name(str(t))
+        return None
 
-        # Handle categorical
-        if 'CategoricalAttribute' in types:
-            attr_name = self._extract_name(str(attr_uri))
-            for t in types:
-                if t in ('CategoricalAttribute', 'PhysicalAttribute'):
-                    continue
-                # Skip the attribute's kind class (e.g. DHWSupply) so only the
-                # category value (e.g. ElectricallyHeated) is returned. A baseline
-                # attribute instance is named after its class (DHWSupply); a scenario
-                # override is <Class>_<suffix> (DHWSupply_retrofit) — so the kind
-                # class is the type the instance name equals or is prefixed by.
-                if t == attr_name or attr_name.startswith(t + '_'):
-                    continue
-                return t
+    def _extract_attribute_value(self, attr_uri: URIRef,
+                                 attr_name: Optional[str] = None) -> Any:
+        """Extract value from attribute URI. ``attr_name`` is the template's
+        name for the attribute."""
+        kind = kind_of_node(self.view, attr_uri)
+
+        if kind is AttributeKind.CATEGORICAL:
+            category = self._category_value(attr_uri, attr_name)
+            if category is not None:
+                return category
 
         # Handle event/temporal
-        if 'EventAttribute' in types:
+        if kind is AttributeKind.EVENT:
             for val in self.g.objects(attr_uri, self.DICI.hasTemporalValue):
                 val_str = str(val)
                 year_match = re.search(r'(\d{4})', val_str)
@@ -610,7 +622,7 @@ class RobustTTL2YAMLProcessor:
         # CurveAttribute stores its points in dici_onto:hasDataPoints (a JSON
         # [[x, y], ...] literal) with axis units alongside — return a
         # structured value (previously curves converted to null).
-        if 'CurveAttribute' in types:
+        if kind is AttributeKind.CURVE:
             for val in self.g.objects(attr_uri, self.DICI.hasDataPoints):
                 raw = str(val)
                 try:
@@ -777,14 +789,16 @@ def clean_placeholder_values(data: Any, template: Any = _NO_TEMPLATE) -> Any:
 # --------------------------------------------------------------------------- #
 
 def convert_scenario(template: Dict, ttl_text: str, *, clean: bool = True,
-                     debug: bool = False) -> Dict:
+                     debug: bool = False, ontology_graph=None) -> Dict:
     """Convert a scenario TTL string to a service payload dict.
 
     ``template`` is the full service template (service_name / description /
     scenario_data), the same dict the Convert tab feeds the processor. Set
     ``clean=False`` to keep unresolved placeholders instead of dropping them.
+    ``ontology_graph`` is the workspace schema (core + extension), when the
+    caller has it; the vendored core is always used.
     """
-    processor = RobustTTL2YAMLProcessor()
+    processor = RobustTTL2YAMLProcessor(ontology_graph=ontology_graph)
     payload = processor.process(template, ttl_text, is_ttl_file=False, debug=debug)
     if clean:
         payload = clean_placeholder_values(payload, template) or {}

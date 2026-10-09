@@ -21,6 +21,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.scenario_builder.semantics import names_scenario_class
+
+
 def extract_component_links(yaml_content: dict) -> list[str]:
     """All ``CL.Source.Target`` patterns found under any ``link:`` key."""
     links: list[str] = []
@@ -181,12 +184,11 @@ def extract_all_required_component_types(yaml_content: dict) -> list[str]:
             component_types.add(parts[2])
 
     required_attributes, _ = extract_required_attributes_enhanced(yaml_content)
-    component_types.update(t for t in required_attributes if t != "Scenario")
-
+    component_types.update(required_attributes)
     component_types.update(extract_component_types_from_templates(yaml_content))
 
-    component_types.discard("Scenario")
-    return sorted(component_types)
+    # The scenario itself is a link endpoint, never a component to pick.
+    return sorted(t for t in component_types if not names_scenario_class(t))
 
 
 def parse_service_requirements(yaml_content: dict) -> dict[str, Any]:

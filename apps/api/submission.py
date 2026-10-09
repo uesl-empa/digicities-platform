@@ -92,7 +92,9 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
     references are reported instead of silently stripped."""
     from dataclasses import asdict
 
-    from backend.api_submission.materialize import materialize_against_workspace
+    from backend.api_submission.materialize import (
+        materialize_against_workspace, workspace_schema,
+    )
     from backend.api_submission.ttl_converter import clean_placeholder_values, convert_scenario
     from backend.api_submission.validation import validate_payload
 
@@ -115,17 +117,23 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
         except Exception:
             pass                      # an unresolved aggregate is reported by validation
     skipped_files: list[dict[str, str]] = []
-    ttl_text = materialize_against_workspace(getattr(ctx, "storage", None),
-                                             scen.read_text(encoding="utf-8"), client,
-                                             skipped=skipped_files)
+    storage = getattr(ctx, "storage", None)
+    schema = workspace_schema(storage, skipped=skipped_files)
+    ttl_text = materialize_against_workspace(storage, scen.read_text(encoding="utf-8"), client,
+                                             skipped=skipped_files, ontology_graph=schema)
     try:
-        raw = convert_scenario(template, ttl_text, clean=False)
+        raw = convert_scenario(template, ttl_text, clean=False, ontology_graph=schema)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
     validation = validate_payload(raw, template, template.get("required_attributes"))
     # A replica file that does not parse drops every component in it — say so
     # next to the payload instead of only in the server log.
     for s in skipped_files:
+        if s["file"] == "ontology/extensions":
+            validation.warnings.append(
+                f"The workspace ontology extension could not be read, so only the core "
+                f"hierarchy decided what each node is ({s['error']})")
+            continue
         validation.warnings.append(
             f"Replica file {s['file']} could not be parsed and was skipped; its "
             f"components and attributes are missing from this payload ({s['error']})")

@@ -39,6 +39,9 @@ overrides at materialisation time — the same contract every thin scenario has.
 
 from typing import Dict, List
 
+from backend.ontology_kinds import AttributeKind
+from backend.scenario_builder.semantics import as_attribute_kind, local_key
+
 _PREFIXES = [
     "@prefix dici_onto: <https://digicities.info/ontology#> .",
     "@prefix qudt: <http://qudt.org/schema/qudt/> .",
@@ -49,15 +52,15 @@ _PREFIXES = [
     "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
 ]
 
-# Attribute-type families, matched to the canonical serialiser's predicates.
-_QUDT_VALUE_TYPES = {
-    "PhysicalAttribute", "DynamicAttribute",
-    "SimpleCostAttribute", "UnitBasedCostAttribute",
-    "CustomPhysicalRatioAttribute",
+# Attribute kind families, matched to the canonical serialiser's predicates.
+_QUDT_VALUE_KINDS = {
+    AttributeKind.PHYSICAL, AttributeKind.DYNAMIC,
+    AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST,
+    AttributeKind.CUSTOM_PHYSICAL_RATIO,
 }
-_ATTRVALUE_TYPES = {"GeospatialAttribute", "SimpleValueAttribute"}
-_UNIT_TYPES = {"PhysicalAttribute", "DynamicAttribute", "UnitBasedCostAttribute"}
-_CURRENCY_TYPES = {"SimpleCostAttribute", "UnitBasedCostAttribute"}
+_ATTRVALUE_KINDS = {AttributeKind.GEOSPATIAL, AttributeKind.SIMPLE_VALUE}
+_UNIT_KINDS = {AttributeKind.PHYSICAL, AttributeKind.DYNAMIC, AttributeKind.UNIT_BASED_COST}
+_CURRENCY_KINDS = {AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST}
 
 
 def _fmt_decimal(value) -> str:
@@ -93,14 +96,14 @@ def _override_lines(attr_name: str, attr: Dict, scenario_uri: str) -> List[str]:
     if not original_uri:
         return []
 
-    attr_type = attr.get("attribute_type", "PhysicalAttribute")
+    kind = as_attribute_kind(attr.get("attribute_type", AttributeKind.PHYSICAL))
     category = attr.get("category", "")
     attr_class = _clean_class(attr.get("attr_class", attr_name))
 
     types = [f"dici_onto:{attr_class}"]
     props: List[str] = []
 
-    is_categorical = attr_type == "CategoricalAttribute" or category == "categorical"
+    is_categorical = kind is AttributeKind.CATEGORICAL or category == "categorical"
 
     if is_categorical:
         types.append("dici_onto:CategoricalAttribute")
@@ -109,30 +112,30 @@ def _override_lines(attr_name: str, attr: Dict, scenario_uri: str) -> List[str]:
             return []
         types.append(f"dici_onto:{value_class}")
     else:
-        types.append(f"dici_onto:{attr_type}")
+        if kind not in _QUDT_VALUE_KINDS | _ATTRVALUE_KINDS:
+            # Unsupported scalar family — leave the replica value untouched.
+            return []
+        types.append(f"dici_onto:{local_key(kind.class_uri)}")
 
-        if attr_type in _QUDT_VALUE_TYPES:
+        if kind in _QUDT_VALUE_KINDS:
             dec = _fmt_decimal(attr.get("value"))
             if dec is not None:
                 props.append(f'qudt:value "{dec}"^^xsd:decimal')
             else:
                 props.append(f'qudt:value "{_esc(attr.get("value", ""))}"^^xsd:string')
-        elif attr_type in _ATTRVALUE_TYPES:
+        elif kind in _ATTRVALUE_KINDS:
             dec = _fmt_decimal(attr.get("value"))
             if dec is not None:
                 props.append(f'dici_onto:hasAttributeValue "{dec}"^^xsd:decimal')
             else:
                 props.append(f'dici_onto:hasAttributeValue "{_esc(attr.get("value", ""))}"^^xsd:string')
-        else:
-            # Unsupported scalar family — leave the replica value untouched.
-            return []
 
         unit = attr.get("unit")
-        if unit and unit not in ("", "dimensionless", "category", "text") and attr_type in _UNIT_TYPES:
+        if unit and unit not in ("", "dimensionless", "category", "text") and kind in _UNIT_KINDS:
             props.append(f"qudt:unit <http://qudt.org/vocab/unit/{unit}>")
             props.append(f'dici_onto:hasUnitLabel "{_esc(unit)}"^^xsd:string')
 
-        if attr_type in _CURRENCY_TYPES and attr.get("currency"):
+        if kind in _CURRENCY_KINDS and attr.get("currency"):
             props.append(f"dici_onto:currency cur:{_clean_class(attr['currency'])}")
 
     props.append(f"dici_onto:supersedesAttribute <{original_uri}>")

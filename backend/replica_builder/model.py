@@ -146,13 +146,11 @@ def get_instances_by_type(instances: List[ComponentInstance], component_type: st
 def component_type_names(ontology_components: Dict[str, Any]) -> List[str]:
     """Instantiable component types from the loaded ontology components map.
 
-    Filters out the attribute-class side of the naming convention and the
-    abstract roots — same rule the Instances tab has always applied.
+    The map comes from ``ontology_queries.query_components``, which already
+    selects ``rdfs:subClassOf* dici_onto:Component`` minus the root itself, so
+    every key is a component class. Nothing is filtered by name.
     """
-    return [
-        name for name in ontology_components
-        if not name.endswith('Attribute') and name not in ['Attribute', 'Component']
-    ]
+    return list(ontology_components)
 
 
 # ---------------------------------------------------------------------------

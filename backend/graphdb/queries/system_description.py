@@ -27,6 +27,8 @@ _PREFIXES = (
     "PREFIX dici_onto: <https://digicities.info/ontology#>\n"
     "PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>\n"
     "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
+    "PREFIX owl: <http://www.w3.org/2002/07/owl#>\n"
+    "PREFIX prov: <http://www.w3.org/ns/prov#>\n"
 )
 _SYS = f"<{SYSTEM_DESCRIPTION_GRAPH}>"
 _CA = f"<{CLASSES_AND_ATTRIBUTES_GRAPH}>"
@@ -92,7 +94,9 @@ def query_links_with_subproperty(client) -> pd.DataFrame:
 
 
 def query_all_component_relationships(client) -> pd.DataFrame:
-    """Broad fallback: any dici_onto predicate linking two components.
+    """Broad fallback: any object property the workspace schema declares that
+    links two components, other than an attribute edge or provenance (a
+    catalogue or data-source reference never fulfils a link requirement).
 
     Columns: source, sourceType, linkProperty, target, targetType.
     """
@@ -119,7 +123,11 @@ def query_all_component_relationships(client) -> pd.DataFrame:
         }}
         FILTER(?sourceType != dici_onto:Component)
         FILTER(?targetType != dici_onto:Component)
-        FILTER(STRSTARTS(str(?linkProperty), "https://digicities.info/ontology#"))
+        GRAPH {_ONT} {{ ?linkProperty a owl:ObjectProperty . }}
+        FILTER NOT EXISTS {{ GRAPH {_ONT} {{
+            ?linkProperty rdfs:subPropertyOf* dici_onto:hasAttribute . }} }}
+        FILTER NOT EXISTS {{ GRAPH {_ONT} {{
+            ?linkProperty rdfs:subPropertyOf* prov:wasDerivedFrom . }} }}
     }}
     ORDER BY ?source ?target
     """

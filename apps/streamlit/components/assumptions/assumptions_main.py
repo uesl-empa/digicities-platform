@@ -271,9 +271,13 @@ def parse_scenario_ttl_with_builder(ttl_content: str, workspace_id: str, filenam
         # …), ComponentLinks, the Scenario, and categorical value-classes also come
         # back here. Real components are the ones that own attributes; drop the rest
         # so the "Select Components to Modify" list shows only replica components.
+        from backend.scenario_builder.semantics import (
+            names_component_link_class, names_scenario_class,
+        )
+
         all_components = []
         for comp_type, components in components_by_type.items():
-            if comp_type in ('ComponentLink', 'Scenario'):
+            if names_component_link_class(comp_type) or names_scenario_class(comp_type):
                 continue
             for c in components:
                 real_attrs = {
@@ -321,14 +325,18 @@ def parse_scenario_ttl_with_builder(ttl_content: str, workspace_id: str, filenam
         if not namespace:
             namespace = f'https://digicities.info/proj/{workspace_id}'
 
-        # Extract component links if present
+        from backend.ontology_kinds import is_subproperty_of, with_core
+
+        # Extract component links if present: each link's input entity and the
+        # entity it links to (dici_onto:linksInputEntityTo or a subproperty).
+        onto = with_core(graph)
         component_links = []
         for s, p, o in graph.triples((None, RDF.type, DICI.ComponentLink)):
             link_props = {}
             for pred, obj in graph.predicate_objects(s):
-                pred_str = str(pred)
-                if 'hasInputEntity' in pred_str or 'linksInputyEntityTo' in pred_str:
-                    link_props[pred_str.split('#')[-1]] = str(obj)
+                if (is_subproperty_of(onto, pred, DICI.hasInputEntity)
+                        or is_subproperty_of(onto, pred, DICI.linksInputEntityTo)):
+                    link_props[str(pred).split('#')[-1]] = str(obj)
 
             if link_props:
                 component_links.append({

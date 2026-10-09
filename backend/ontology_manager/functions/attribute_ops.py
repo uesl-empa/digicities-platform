@@ -12,22 +12,36 @@ import rdflib
 from rdflib import Namespace, RDF, RDFS, Literal, URIRef, OWL, BNode
 from typing import List, Dict, Tuple
 
+from backend.ontology_kinds import AttributeKind, is_attribute_class
+from backend.ontology_scaffold import (
+    attributes_of, categories as scaffold_categories, ensure_scaffold, link_predicates,
+    local_name, own_category, own_general_predicate, specific_predicates_of,
+)
+
 dici_onto = Namespace("https://digicities.info/ontology#")
 
 
-# The attribute-type superclass each Ontology Manager type string lands under.
-_TYPE_CLASS = {
-    "Physical": dici_onto.PhysicalAttribute,
-    "Simple Cost": dici_onto.SimpleCostAttribute,
-    "Unit-Based Cost": dici_onto.UnitBasedCostAttribute,
-    "Curve": dici_onto.CurveAttribute,
-    "Categorical": dici_onto.CategoricalAttribute,
-    "Geospatial": dici_onto.GeospatialAttribute,
-    "CustomPhysicalRatio": dici_onto.CustomPhysicalRatioAttribute,
-    "Event": dici_onto.EventAttribute,
-    "SimpleValue": dici_onto.SimpleValueAttribute,
+# The Ontology Manager's attribute type strings (its form labels) and the kind
+# each one is. Parsed once here; the code below dispatches on the kind and
+# files the new class under the kind's core class.
+OM_TYPE_KIND = {
+    "Physical": AttributeKind.PHYSICAL,
+    "Simple Cost": AttributeKind.SIMPLE_COST,
+    "Unit-Based Cost": AttributeKind.UNIT_BASED_COST,
+    "Curve": AttributeKind.CURVE,
+    "Categorical": AttributeKind.CATEGORICAL,
+    "Geospatial": AttributeKind.GEOSPATIAL,
+    "CustomPhysicalRatio": AttributeKind.CUSTOM_PHYSICAL_RATIO,
+    "Event": AttributeKind.EVENT,
+    "SimpleValue": AttributeKind.SIMPLE_VALUE,
 }
 
+# Kinds ``explore_attributes_by_type`` narrows to; any other type lists every
+# attribute class.
+_BY_TYPE_KINDS = (
+    AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST, AttributeKind.CATEGORICAL,
+    AttributeKind.CUSTOM_PHYSICAL_RATIO, AttributeKind.EVENT, AttributeKind.SIMPLE_VALUE,
+)
 
 class AttributeMixin:
     """Mixin for attribute operations"""
@@ -69,22 +83,17 @@ class AttributeMixin:
             if g is None:
                 return []
 
-            type_map = {
-                "SimpleCost": "SimpleCostAttribute",
-                "UnitBasedCost": "UnitBasedCostAttribute",
-                "Categorical": "CategoricalAttribute",
-                "CustomPhysicalRatio": "CustomPhysicalRatioAttribute",
-                "Event": "EventAttribute",
-                "SimpleValue": "SimpleValueAttribute"
-            }
-
-            ontology_class = type_map.get(attribute_type, "Attribute")
+            try:
+                kind = AttributeKind(attribute_type)
+            except ValueError:
+                kind = None
+            ontology_class = kind.class_uri if kind in _BY_TYPE_KINDS else dici_onto.Attribute
 
             query = f"""
             PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
             PREFIX dici_onto: <https://digicities.info/ontology#>
             SELECT DISTINCT ?attribute ?label WHERE {{
-              ?attribute rdfs:subClassOf* dici_onto:{ontology_class} .
+              ?attribute rdfs:subClassOf* <{ontology_class}> .
               OPTIONAL {{ ?attribute rdfs:label ?label. }}
             }}
             """
@@ -103,29 +112,17 @@ class AttributeMixin:
 
     def get_component_attributes(self, extension_filename: str,
                                  component_uri: str) -> List[Dict[str, str]]:
-        """Get all attributes linked to a specific component"""
+        """The attributes linked to a component: the ranges of its specific
+        predicates (:func:`backend.ontology_scaffold.attributes_of`)."""
         try:
             g = self._load_temp_graph(extension_filename)
             if g is None:
                 return []
-
-            component_local = component_uri.split('#')[-1]
-            query = f"""
-            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-            PREFIX dici_onto: <https://digicities.info/ontology#>
-            SELECT DISTINCT ?attribute ?label WHERE {{
-              dici_onto:has{component_local}Attribute rdfs:range ?attribute .
-              OPTIONAL {{ ?attribute rdfs:label ?label. }}
-            }}
-            """
-
-            results = g.query(query)
             attributes = []
-            for row in results:
-                attributes.append({
-                    "class": str(row.attribute),
-                    "label": str(row.label) if row.label else ""
-                })
+            for attribute in attributes_of(g, URIRef(component_uri)):
+                label = g.value(attribute, RDFS.label)
+                attributes.append({"class": str(attribute),
+                                   "label": str(label) if label else ""})
             return attributes
         except Exception as e:
             print(f"Error getting component attributes: {e}")
@@ -139,17 +136,20 @@ class AttributeMixin:
                       temporal_precision: str = "", parent_property: str = "") -> Tuple[bool, str]:
         """Add a new attribute to the ontology"""
         try:
+            kind = OM_TYPE_KIND.get(attribute_type)
+
             # Validate type-specific requirements
-            if attribute_type in ["Physical", "Geospatial", "Unit-Based Cost"] and not qudt_unit:
+            if kind in (AttributeKind.PHYSICAL, AttributeKind.GEOSPATIAL,
+                        AttributeKind.UNIT_BASED_COST) and not qudt_unit:
                 return False, f"QUDT unit is required for {attribute_type} attributes"
 
-            if attribute_type == "Curve" and (not qudt_unit or not y_qudt_unit):
+            if kind is AttributeKind.CURVE and (not qudt_unit or not y_qudt_unit):
                 return False, "Both X and Y axis units are required for Curve attributes"
 
-            if attribute_type == "CustomPhysicalRatio" and (not x_unit or not y_qudt_unit):
+            if kind is AttributeKind.CUSTOM_PHYSICAL_RATIO and (not x_unit or not y_qudt_unit):
                 return False, "Both X and Y units are required for CustomPhysicalRatio"
 
-            if attribute_type == "Event" and not temporal_precision:
+            if kind is AttributeKind.EVENT and not temporal_precision:
                 return False, "Temporal precision is required for Event attributes"
 
             from ..naming import check_class_name, class_name
@@ -165,9 +165,9 @@ class AttributeMixin:
             else:
                 ext_graph = self.load_extension(extension_filename)
 
-            if not parent_property and attribute_type not in _TYPE_CLASS:
+            if not parent_property and kind is None:
                 return False, (f"Unknown attribute type `{attribute_type}` — one of "
-                               f"{', '.join(sorted(_TYPE_CLASS))}")
+                               f"{', '.join(sorted(OM_TYPE_KIND))}")
             chk = check_class_name(new_attribute,
                                    core=None if core_mod else self.load_core_ontology(),
                                    existing=hierarchy.classes(ext_graph), label=attribute_label)
@@ -187,14 +187,14 @@ class AttributeMixin:
                 ext_graph.add((new_attribute_uri, RDFS.subClassOf, parent_property_uri))
             else:
                 # Make it a direct subclass of the appropriate attribute type class
-                ext_graph.add((new_attribute_uri, RDFS.subClassOf, _TYPE_CLASS[attribute_type]))
+                ext_graph.add((new_attribute_uri, RDFS.subClassOf, kind.class_uri))
 
             # Handle different attribute types with their specific properties
-            if attribute_type in ["Physical", "Geospatial"]:
+            if kind in (AttributeKind.PHYSICAL, AttributeKind.GEOSPATIAL):
                 default_unit = URIRef("http://qudt.org/vocab/unit/" + qudt_unit)
                 ext_graph.add((new_attribute_uri, dici_onto.hasDefaultUnit, default_unit))
 
-            elif attribute_type == "Unit-Based Cost":
+            elif kind is AttributeKind.UNIT_BASED_COST:
                 selected_unit_uri = URIRef("http://qudt.org/vocab/unit/" + qudt_unit)
                 ext_graph.add((new_attribute_uri, dici_onto.hasDefaultUnit, selected_unit_uri))
                 restriction_bnode = BNode()
@@ -203,7 +203,7 @@ class AttributeMixin:
                 ext_graph.add((restriction_bnode, OWL.hasValue, selected_unit_uri))
                 ext_graph.add((new_attribute_uri, RDFS.subClassOf, restriction_bnode))
 
-            elif attribute_type == "Curve":
+            elif kind is AttributeKind.CURVE:
                 default_units_bnode = BNode()
                 x_unit_uri = URIRef("http://qudt.org/vocab/unit/" + qudt_unit)
                 y_unit_uri = URIRef("http://qudt.org/vocab/unit/" + y_qudt_unit)
@@ -211,7 +211,7 @@ class AttributeMixin:
                 ext_graph.add((default_units_bnode, dici_onto.xUnit, x_unit_uri))
                 ext_graph.add((default_units_bnode, dici_onto.yUnit, y_unit_uri))
 
-            elif attribute_type == "CustomPhysicalRatio":
+            elif kind is AttributeKind.CUSTOM_PHYSICAL_RATIO:
                 ratio_units_bnode = BNode()
                 x_unit_uri = URIRef("http://qudt.org/vocab/unit/" + x_unit)
                 y_unit_uri = URIRef("http://qudt.org/vocab/unit/" + y_qudt_unit)
@@ -219,7 +219,7 @@ class AttributeMixin:
                 ext_graph.add((ratio_units_bnode, dici_onto.numeratorUnit, x_unit_uri))
                 ext_graph.add((ratio_units_bnode, dici_onto.denominatorUnit, y_unit_uri))
 
-            elif attribute_type == "Event":
+            elif kind is AttributeKind.EVENT:
                 precision_uri = dici_onto[temporal_precision]
                 ext_graph.add((new_attribute_uri, dici_onto.hasDefaultTemporalPrecision, precision_uri))
 
@@ -296,18 +296,18 @@ class AttributeMixin:
         except Exception as e:
             return False, f"Error setting default unit: {str(e)}"
 
-    # Canonical base attribute value-types (mirrors add_attribute's type_class_map).
-    BASE_ATTRIBUTE_TYPES = {
-        "PhysicalAttribute", "SimpleCostAttribute", "UnitBasedCostAttribute",
-        "CurveAttribute", "CategoricalAttribute", "GeospatialAttribute",
-        "CustomPhysicalRatioAttribute", "EventAttribute",
-        "SimpleValueAttribute", "ResourceAttribute",
-    }
+    # Canonical base attribute value-types: the core classes of these kinds.
+    BASE_ATTRIBUTE_TYPES = {k.class_uri for k in (
+        AttributeKind.PHYSICAL, AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST,
+        AttributeKind.CURVE, AttributeKind.CATEGORICAL, AttributeKind.GEOSPATIAL,
+        AttributeKind.CUSTOM_PHYSICAL_RATIO, AttributeKind.EVENT,
+        AttributeKind.SIMPLE_VALUE, AttributeKind.RESOURCE,
+    )}
     # Of those, the ones that carry a dici_onto:hasDefaultUnit.
-    _UNIT_BEARING_BASE_TYPES = {
-        "PhysicalAttribute", "GeospatialAttribute", "UnitBasedCostAttribute",
-        "CurveAttribute", "CustomPhysicalRatioAttribute",
-    }
+    _UNIT_BEARING_BASE_TYPES = {k.class_uri for k in (
+        AttributeKind.PHYSICAL, AttributeKind.GEOSPATIAL, AttributeKind.UNIT_BASED_COST,
+        AttributeKind.CURVE, AttributeKind.CUSTOM_PHYSICAL_RATIO,
+    )}
 
     def set_attribute_base_type(self, extension_filename: str, attribute: str,
                                 base_type: str) -> Tuple[bool, str]:
@@ -331,9 +331,11 @@ class AttributeMixin:
         """
         try:
             base_local = base_type.split('#')[-1].split('/')[-1]
-            if base_local not in self.BASE_ATTRIBUTE_TYPES:
+            base_uri = dici_onto[base_local]
+            if base_uri not in self.BASE_ATTRIBUTE_TYPES:
+                known = sorted(str(u)[len(str(dici_onto)):] for u in self.BASE_ATTRIBUTE_TYPES)
                 return False, (f"'{base_local}' is not a known base attribute type "
-                               f"(one of: {', '.join(sorted(self.BASE_ATTRIBUTE_TYPES))})")
+                               f"(one of: {', '.join(known)})")
 
             local = attribute.split('#')[-1].split('/')[-1]
             attr_uri = dici_onto[local]
@@ -351,12 +353,12 @@ class AttributeMixin:
             # Swap the base value-type: drop subClassOf to any known base type,
             # leaving domain/other superclasses untouched, then add the new one.
             for parent in list(ext_graph.objects(attr_uri, RDFS.subClassOf)):
-                if isinstance(parent, URIRef) and str(parent).split('#')[-1] in self.BASE_ATTRIBUTE_TYPES:
+                if parent in self.BASE_ATTRIBUTE_TYPES:
                     ext_graph.remove((attr_uri, RDFS.subClassOf, parent))
-            ext_graph.add((attr_uri, RDFS.subClassOf, dici_onto[base_local]))
+            ext_graph.add((attr_uri, RDFS.subClassOf, base_uri))
 
             # Units are meaningless for non-unit-bearing types — remove any default.
-            if base_local not in self._UNIT_BEARING_BASE_TYPES:
+            if base_uri not in self._UNIT_BEARING_BASE_TYPES:
                 for u in list(ext_graph.objects(attr_uri, dici_onto.hasDefaultUnit)):
                     ext_graph.remove((attr_uri, dici_onto.hasDefaultUnit, u))
 
@@ -372,245 +374,133 @@ class AttributeMixin:
             return False, f"Error setting base type: {str(e)}"
 
     def remove_attribute(self, extension_filename: str, attribute_uri: str) -> Tuple[bool, str]:
-        """Remove an attribute and all its associated triples"""
+        """Remove an attribute, every triple that mentions it and the specific
+        predicates that link it to a component (found by their domain, range
+        and general predicate, never by name)."""
         try:
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                if self.use_nextcloud:
-                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
-                ext_graph = self.load_core_ontology()
-            else:
-                ext_graph = self.load_extension(extension_filename)
-
+            ext_graph = self._edit_graph(extension_filename)
+            view = self._schema_view(extension_filename, ext_graph)
             attribute_ref = URIRef(attribute_uri)
 
-            # The per-component properties link_attribute declared for THIS attribute
-            # (has<Comp><Attr> and has<Comp><Attr>Attribute: range = the attribute,
-            # sub-property of a has<Comp>Attribute), collected before their range
-            # triples go. Exactly those — never every predicate whose name merely
-            # CONTAINS the attribute's name (removing `Area` used to hit `FloorArea`'s).
-            attr_local = attribute_uri.split('#')[-1]
+            # The links to this attribute, collected before its range triples go.
             owned = set()
-            for prop in ext_graph.subjects(RDFS.range, attribute_ref):
-                local = str(prop).split('#')[-1]
-                for dom in ext_graph.objects(prop, RDFS.domain):
-                    comp = str(dom).split('#')[-1]
-                    if local in (f"has{comp}{attr_local}", f"has{comp}{attr_local}Attribute"):
+            for prop in set(view.subjects(RDFS.range, attribute_ref)):
+                for dom in set(view.objects(prop, RDFS.domain)):
+                    if prop in specific_predicates_of(view, dom):
                         owned.add(prop)
 
-            # Remove all triples where this attribute is the subject
-            triples_to_remove = list(ext_graph.triples((attribute_ref, None, None)))
-            for triple in triples_to_remove:
+            for triple in list(ext_graph.triples((attribute_ref, None, None))):
                 ext_graph.remove(triple)
-
-            # Remove all triples where this attribute is the object
-            triples_to_remove = list(ext_graph.triples((None, None, attribute_ref)))
-            for triple in triples_to_remove:
+            for triple in list(ext_graph.triples((None, None, attribute_ref))):
                 ext_graph.remove(triple)
-
             for prop in owned:
                 for triple in list(ext_graph.triples((prop, None, None))):
                     ext_graph.remove(triple)
                 for triple in list(ext_graph.triples((None, prop, None))):
                     ext_graph.remove(triple)
 
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                self.save_core_ontology(ext_graph)
-                self.update_temp_and_export_core_mod()
-            else:
-                self.save_extension(extension_filename, ext_graph)
-                self.update_temp_and_export(extension_filename)
-
+            self._persist(extension_filename, ext_graph)
             return True, "Attribute removed successfully"
         except Exception as e:
             return False, f"Error removing attribute: {str(e)}"
 
     def link_attribute(self, extension_filename: str, component: str,
                        attribute_property: str) -> Tuple[bool, str]:
-        """Link an attribute to a component"""
+        """Link an attribute to a component: the component gets its scaffold if
+        it has none (:func:`backend.ontology_scaffold.ensure_scaffold`), the
+        attribute goes under the component's category, and one specific
+        predicate ``has<Component><Attribute>Attribute`` (under the general
+        predicate, domain the component, range the attribute) states the link.
+        The general predicate keeps its category as its only range."""
         try:
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                if self.use_nextcloud:
-                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
-                ext_graph = self.load_core_ontology()
-            else:
-                ext_graph = self.load_extension(extension_filename)
+            ext_graph = self._edit_graph(extension_filename)
+            view = self._schema_view(extension_filename, ext_graph)
+            component_ref = URIRef(component)
+            attribute_ref = URIRef(attribute_property)
+            if not is_attribute_class(view, attribute_ref):
+                return False, f"`{local_name(attribute_ref)}` is not an attribute class"
 
-            component_local = component.split('#')[1]
-            property_name = attribute_property.split('#')[1]
-            general_property = dici_onto["has" + component_local + "Attribute"]
-            attribute_property_uri = URIRef(attribute_property)
+            general, category = ensure_scaffold(view, ext_graph, component_ref)
+            if (attribute_ref, RDFS.subClassOf, category) not in view:
+                ext_graph.add((attribute_ref, RDFS.subClassOf, category))
 
-            # Ensure the complete component attribute hierarchy exists
-            self.create_component_attribute_hierarchy_safe(ext_graph, component_local, URIRef(component))
+            if not link_predicates(view, component_ref, attribute_ref):
+                specific = dici_onto[f"has{local_name(component_ref)}"
+                                     f"{local_name(attribute_ref)}Attribute"]
+                if (specific, None, None) in view:
+                    return False, (f"`{local_name(specific)}` already exists and does not "
+                                   f"link `{local_name(component_ref)}` to "
+                                   f"`{local_name(attribute_ref)}`")
+                ext_graph.add((specific, RDF.type, OWL.ObjectProperty))
+                ext_graph.add((specific, RDFS.subPropertyOf, general))
+                ext_graph.add((specific, RDFS.domain, component_ref))
+                ext_graph.add((specific, RDFS.range, attribute_ref))
 
-            # Make the attribute a subclass of the component's attribute category
-            component_attribute_class = dici_onto[component_local + "Attribute"]
-            ext_graph.add((attribute_property_uri, RDFS.subClassOf, component_attribute_class))
-
-            # Check if this specific range already exists
-            existing_specific_range = False
-            for triple in ext_graph.triples((general_property, RDFS.range, attribute_property_uri)):
-                existing_specific_range = True
-                break
-
-            # Add the range relationship
-            if not existing_specific_range:
-                ext_graph.add((general_property, RDFS.range, attribute_property_uri))
-
-            # Create the specific property for this attribute
-            specific_property = dici_onto["has" + component_local + property_name]
-
-            # Check if the specific property already exists
-            specific_exists = False
-            for triple in ext_graph.triples((specific_property, RDF.type, OWL.ObjectProperty)):
-                specific_exists = True
-                break
-
-            if not specific_exists:
-                ext_graph.add((specific_property, RDF.type, OWL.ObjectProperty))
-                ext_graph.add((specific_property, RDFS.subPropertyOf, general_property))
-                ext_graph.add((specific_property, RDFS.range, attribute_property_uri))
-                ext_graph.add((specific_property, RDFS.domain, URIRef(component)))
-
-            # The predicate instance data actually uses: the replica converter writes
-            # has<Comp><Attr>Attribute for every attribute value (and the payload
-            # converter / collections read it). Declare it too, so the data's predicate
-            # is in the schema (sub-property of has<Comp>Attribute -> hasAttribute).
-            data_property = dici_onto["has" + component_local + property_name + "Attribute"]
-            if (data_property, RDF.type, OWL.ObjectProperty) not in ext_graph:
-                ext_graph.add((data_property, RDF.type, OWL.ObjectProperty))
-                ext_graph.add((data_property, RDFS.subPropertyOf, general_property))
-                ext_graph.add((data_property, RDFS.range, attribute_property_uri))
-                ext_graph.add((data_property, RDFS.domain, URIRef(component)))
-
-            # Ensure the general property has the correct domain
-            has_domain = False
-            for triple in ext_graph.triples((general_property, RDFS.domain, URIRef(component))):
-                has_domain = True
-                break
-
-            if not has_domain:
-                ext_graph.add((general_property, RDFS.domain, URIRef(component)))
-
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                self.save_core_ontology(ext_graph)
-                self.update_temp_and_export_core_mod()
-            else:
-                self.save_extension(extension_filename, ext_graph)
-                self.update_temp_and_export(extension_filename)
-
+            self._persist(extension_filename, ext_graph)
             return True, "Attribute linked to component successfully"
         except Exception as e:
             return False, f"Error linking attribute: {str(e)}"
 
     def remove_attribute_link(self, extension_filename: str, component_uri: str,
                               attribute_uri: str) -> Tuple[bool, str]:
-        """Remove the link between a component and an attribute"""
+        """Undo ``link_attribute``: remove the specific predicate(s) linking the
+        component to the attribute, and the attribute's place under the
+        component's category when no link to it is left and it keeps another
+        superclass (its value kind)."""
         try:
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                if self.use_nextcloud:
-                    return False, "Cannot modify core ontology in NextCloud mode (read-only)"
-                ext_graph = self.load_core_ontology()
-            else:
-                ext_graph = self.load_extension(extension_filename)
-
-            component_local = component_uri.split('#')[-1]
-            attribute_local = attribute_uri.split('#')[-1]
+            ext_graph = self._edit_graph(extension_filename)
+            view = self._schema_view(extension_filename, ext_graph)
+            component_ref = URIRef(component_uri)
             attribute_ref = URIRef(attribute_uri)
 
-            # Remove general property range
-            general_property = dici_onto["has" + component_local + "Attribute"]
-            ext_graph.remove((general_property, RDFS.range, attribute_ref))
+            found = link_predicates(view, component_ref, attribute_ref)
+            general = own_general_predicate(view, component_ref)
+            # The form an older Ontology Manager wrote: the attribute as a range
+            # of the general predicate.
+            legacy = general is not None and (general, RDFS.range, attribute_ref) in ext_graph
+            if not found and not legacy:
+                return False, (f"`{local_name(attribute_ref)}` is not linked to "
+                               f"`{local_name(component_ref)}` in this extension")
+            category = own_category(view, component_ref)
+            for prop in found:
+                for triple in list(ext_graph.triples((prop, None, None))):
+                    ext_graph.remove(triple)
+                for triple in list(ext_graph.triples((None, None, prop))):
+                    ext_graph.remove(triple)
+            if legacy:
+                ext_graph.remove((general, RDFS.range, attribute_ref))
+            if category is not None and (attribute_ref, RDFS.subClassOf, category) in ext_graph:
+                others = set(view.objects(attribute_ref, RDFS.subClassOf)) - {category}
+                if others:
+                    ext_graph.remove((attribute_ref, RDFS.subClassOf, category))
 
-            # Remove specific property and all its triples
-            specific_property = dici_onto["has" + component_local + attribute_local]
-            triples_to_remove = list(ext_graph.triples((specific_property, None, None)))
-            for triple in triples_to_remove:
-                ext_graph.remove(triple)
-
-            if extension_filename == "CORE_ONTOLOGY_MODIFICATION":
-                self.save_core_ontology(ext_graph)
-                self.update_temp_and_export_core_mod()
-            else:
-                self.save_extension(extension_filename, ext_graph)
-                self.update_temp_and_export(extension_filename)
-
+            self._persist(extension_filename, ext_graph)
             return True, "Attribute link removed successfully"
         except Exception as e:
             return False, f"Error removing attribute link: {str(e)}"
 
-    def create_component_attribute_hierarchy_safe(self, graph: rdflib.Graph,
-                                                  component_local: str,
-                                                  component_uri: URIRef):
-        """Create the complete attribute hierarchy without interfering with existing properties"""
-        parent_component_uri = None
-        for triple in graph.triples((component_uri, RDFS.subClassOf, None)):
-            if str(triple[2]).startswith(str(dici_onto)):
-                parent_component_uri = triple[2]
-                break
-
-        if parent_component_uri:
-            component_chain = self.get_component_hierarchy_chain(graph, parent_component_uri)
-            component_chain.append(component_local)
-
-            previous_attribute_class = dici_onto["ComponentAttribute"]
-
-            for comp_local in component_chain:
-                current_attribute_class = dici_onto[comp_local + "Attribute"]
-
-                attribute_exists = False
-                for triple in graph.triples((current_attribute_class, RDF.type, OWL.Class)):
-                    attribute_exists = True
-                    break
-
-                if not attribute_exists:
-                    graph.add((current_attribute_class, RDF.type, OWL.Class))
-                    graph.add((current_attribute_class, RDFS.subClassOf, previous_attribute_class))
-                    graph.add((current_attribute_class, RDFS.label, Literal(comp_local + " Attribute")))
-
-                previous_attribute_class = current_attribute_class
-
-            component_property = dici_onto["has" + component_local + "Attribute"]
-
-            property_exists = False
-            for triple in graph.triples((component_property, RDF.type, OWL.ObjectProperty)):
-                property_exists = True
-                break
-
-            if not property_exists:
-                parent_local = str(parent_component_uri).split('#')[-1]
-                parent_property = dici_onto["has" + parent_local + "Attribute"]
-
-                graph.add((component_property, RDF.type, OWL.ObjectProperty))
-                graph.add((component_property, RDFS.subPropertyOf, parent_property))
-                graph.add((component_property, RDFS.domain, component_uri))
-
     # =================== Category Management ===================
 
+    def _category_classes(self, g: rdflib.Graph) -> set:
+        """The attribute categories: ``Attribute``, its direct subclasses (the
+        value kinds and ``ComponentAttribute``) and every component's own
+        category (:func:`backend.ontology_scaffold.categories`)."""
+        out = {dici_onto.Attribute}
+        out |= {c for c in g.subjects(RDFS.subClassOf, dici_onto.Attribute)
+                if isinstance(c, URIRef)}
+        out |= set(scaffold_categories(g))
+        return out
+
     def get_attribute_categories(self, extension_filename: str) -> List[Dict[str, str]]:
-        """Get all attribute categories (classes ending with 'Attribute')"""
+        """Get all attribute categories that carry a label."""
         try:
             g = self._load_temp_graph(extension_filename)
             if g is None:
                 return []
-
-            query = """
-            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-            PREFIX dici_onto: <https://digicities.info/ontology#>
-            SELECT DISTINCT ?category ?label WHERE {
-              ?category rdfs:subClassOf* dici_onto:Attribute .
-              ?category rdfs:label ?label .
-              FILTER(CONTAINS(STR(?category), "Attribute"))
-            }
-            """
-
-            results = g.query(query)
             categories = []
-            for row in results:
-                categories.append({
-                    "class": str(row.category),
-                    "label": str(row.label) if row.label else ""
-                })
+            for category in sorted(self._category_classes(g)):
+                for label in g.objects(category, RDFS.label):
+                    categories.append({"class": str(category), "label": str(label)})
             return categories
         except Exception as e:
             print(f"Error getting attribute categories: {e}")
@@ -623,25 +513,11 @@ class AttributeMixin:
             g = self._load_temp_graph(extension_filename)
             if g is None:
                 return []
-
-            query = f"""
-            PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-            PREFIX dici_onto: <https://digicities.info/ontology#>
-            SELECT DISTINCT ?category ?label WHERE {{
-              <{attribute_uri}> rdfs:subClassOf ?category .
-              ?category rdfs:subClassOf* dici_onto:Attribute .
-              FILTER(CONTAINS(STR(?category), "Attribute"))
-              OPTIONAL {{ ?category rdfs:label ?label. }}
-            }}
-            """
-
-            results = g.query(query)
+            cats = self._category_classes(g)
             categories = []
-            for row in results:
-                categories.append({
-                    "class": str(row.category),
-                    "label": str(row.label) if row.label else ""
-                })
+            for category in sorted(set(g.objects(URIRef(attribute_uri), RDFS.subClassOf)) & cats):
+                label = g.value(category, RDFS.label)
+                categories.append({"class": str(category), "label": str(label) if label else ""})
             return categories
         except Exception as e:
             print(f"Error getting categories for attribute: {e}")

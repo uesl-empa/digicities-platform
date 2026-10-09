@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from backend.ontology_manager.functions.attribute_ops import OM_TYPE_KIND
 from backend.workspace import WorkspaceContext
 
 from .deps import get_ctx, graph_client
@@ -112,10 +113,9 @@ def component_range(
     return of.get_component_range(extension, component)
 
 
-ATTRIBUTE_TYPES = [
-    "Physical", "Simple Cost", "Unit-Based Cost", "Curve", "Categorical",
-    "Geospatial", "CustomPhysicalRatio", "Event", "SimpleValue",
-]
+# The Ontology Manager's attribute type labels, in form order: one list,
+# defined once next to the kind each label means.
+ATTRIBUTE_TYPES = list(OM_TYPE_KIND)
 
 
 @router.get("/meta")

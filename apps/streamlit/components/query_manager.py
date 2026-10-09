@@ -6,7 +6,7 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # Import Nextcloud client for global folder access (legacy fallback)
 from components.nextcloud_module import get_nextcloud_client
@@ -726,7 +726,9 @@ def load_saved_queries_from_global(workspace_id):
         try:
             global_client = get_nextcloud_client("global")
             files = global_client.list_files()
-            query_files = [f for f in files if f['name'].startswith(f"queries/{workspace_id}/") and f['name'].endswith('.sparql')]
+            query_files = [f for f in files
+                           if PurePosixPath(f['name']).is_relative_to(PurePosixPath("queries", workspace_id))
+                           and f['name'].endswith('.sparql')]
             for file_info in query_files:
                 filename = file_info['name']
                 query_name = filename.split('/')[-1].replace('.sparql', '')

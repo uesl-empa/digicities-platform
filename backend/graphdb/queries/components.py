@@ -31,6 +31,7 @@ _PREFIXES = (
     "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>\n"
     "PREFIX qudt: <http://qudt.org/schema/qudt/>\n"
     "PREFIX prov: <http://www.w3.org/ns/prov#>\n"
+    "PREFIX owl: <http://www.w3.org/2002/07/owl#>\n"
     "PREFIX dcterms: <http://purl.org/dc/terms/>\n"
     "PREFIX schema: <https://schema.org/>\n"
 )
@@ -46,6 +47,50 @@ NOT_ATTRIBUTE_NODE = (
     "    ?attrOwner ?attrEdge ?instance .\n"
     "    ?attrEdge rdfs:subPropertyOf* dici_onto:hasAttribute .\n"
     "  }\n"
+)
+
+# A "direct" property of a component instance is one that is not an attribute
+# edge, not a link to another component and not provenance (where the record
+# came from). Decided by the ontology, so a typed attribute predicate such as
+# has<Class><Name>Attribute and a link such as partOf are both recognised
+# whatever they are called.
+NOT_STRUCTURAL_PROPERTY = (
+    "  FILTER(?property != rdf:type)\n"
+    "  FILTER NOT EXISTS { ?property rdfs:subPropertyOf* dici_onto:hasAttribute . }\n"
+    "  FILTER NOT EXISTS { ?property rdfs:subPropertyOf* dici_onto:linksComponent . }\n"
+    "  FILTER NOT EXISTS { ?property rdfs:subPropertyOf* prov:wasDerivedFrom . }\n"
+    # An edge whose predicate the schema never declared (older workspaces wrote
+    # typed attribute and link predicates without declaring them) is still an
+    # attribute edge or a link when its object is an attribute or a component.
+    "  FILTER NOT EXISTS { ?value a/rdfs:subClassOf* dici_onto:Attribute . }\n"
+    "  FILTER NOT EXISTS { ?value a/rdfs:subClassOf* dici_onto:Component . }\n"
+)
+
+# A categorical attribute written without ``hasCategoricalValue`` states its
+# value only as an rdf:type of the node (``<.../MountingType> a MountingType,
+# Rooftop``). The schema says which type is the value: it sits strictly below
+# a categorical attribute class (one strictly below CategoricalAttribute), as
+# an individual of it (``Rooftop a owl:NamedIndividual, MountingType``) or, in
+# older extensions, as a subclass of it (``SFH rdfs:subClassOf
+# SIA2024BuildingType``). This UNION branch yields that value as the
+# ``hasCategoricalValue`` row the node would carry, so readers never have to
+# tell the value from the class by name. An individual counts only when it is
+# not also a class: a materialised OWL closure can type a CLASS as an instance
+# of an attribute class. Needs ``?attribute`` bound and the ontology graph in
+# the FROM clause.
+DERIVED_CATEGORICAL_VALUE = (
+    "      {\n"
+    "        ?attribute a ?value .\n"
+    "        ?attribute a ?attrClass .\n"
+    "        ?attrClass rdfs:subClassOf+ dici_onto:CategoricalAttribute .\n"
+    "        FILTER(?attrClass != dici_onto:CategoricalAttribute && ?value != ?attrClass)\n"
+    "        { ?value a owl:NamedIndividual , ?attrClass .\n"
+    "          FILTER NOT EXISTS { ?value a owl:Class . } }\n"
+    "        UNION\n"
+    "        { ?value rdfs:subClassOf+ ?attrClass . }\n"
+    "        FILTER NOT EXISTS { ?attribute dici_onto:hasCategoricalValue ?stated . }\n"
+    "        BIND(dici_onto:hasCategoricalValue AS ?property)\n"
+    "      }\n"
 )
 
 # List an instance only under its MOST SPECIFIC class. Provisioning
@@ -84,6 +129,12 @@ _EMPTY_COLS = {
     "sources": ["instance", "scope", "attributeName", "source", "sourceLabel",
                 "sourceType", "sourceUrl", "sourceDate", "sourceComment"],
 }
+
+
+def _display_name(iri) -> str:
+    """The local name of an IRI, for display when a class has no label."""
+    iri = str(iri)
+    return iri.rsplit("#", 1)[-1] if "#" in iri else iri.rstrip("/").rsplit("/", 1)[-1]
 
 
 def _run(client, query: str, empty_key: str) -> pd.DataFrame:
@@ -213,23 +264,20 @@ def get_all_attribute_values(client) -> pd.DataFrame:
 
 
 def get_all_instance_direct_properties(client) -> pd.DataFrame:
-    """Direct (non-type, non-hasAttribute) properties of every component instance,
-    in one query — for annotations like rdfs:comment/description. Restricted to
+    """Direct properties of every component instance (see
+    ``NOT_STRUCTURAL_PROPERTY``), in one query — for annotations like
+    rdfs:comment/description. Restricted to
     subjects that are instances of a Component subclass so attribute nodes are
     excluded. Columns: instance, property, value.
     """
     query = f"""
     {_PREFIXES}
-    PREFIX owl: <http://www.w3.org/2002/07/owl#>
     SELECT DISTINCT ?instance ?property ?value
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?instance a ?type .
       ?type rdfs:subClassOf* dici_onto:Component .
 {NOT_ATTRIBUTE_NODE}      ?instance ?property ?value .
-      FILTER(?property != dici_onto:hasAttribute)
-      FILTER(!STRSTARTS(STR(?property), STR(dici_onto:has)))
-      FILTER(?property != rdf:type)
-    }}
+{NOT_STRUCTURAL_PROPERTY}    }}
     ORDER BY ?instance ?property
     """
     return _run(client, query, "all_direct_props")
@@ -259,19 +307,21 @@ def get_component_types_with_instances(client, most_specific_only: bool = True) 
       ?componentType rdfs:subClassOf* dici_onto:Component .
       FILTER(?componentType != dici_onto:Component)
       ?instance a ?componentType .
-{NOT_ATTRIBUTE_NODE}{specific}      OPTIONAL {{ ?componentType rdfs:label ?label }}
-      BIND(COALESCE(
-        ?label,
-        IF(CONTAINS(STR(?componentType), "#"),
-           STRAFTER(STR(?componentType), "#"),
-           REPLACE(STR(?componentType), "^.*/([^/]+)$", "$1"))
-      ) as ?componentName)
-      FILTER(BOUND(?componentName) && STR(?componentName) != "")
+{NOT_ATTRIBUTE_NODE}{specific}      OPTIONAL {{ ?componentType rdfs:label ?componentName }}
     }}
     GROUP BY ?componentType ?componentName
-    ORDER BY DESC(?instanceCount) ?componentName
     """
-    return _run(client, query, "types_with_instances")
+    df = _run(client, query, "types_with_instances")
+    if df.empty:
+        return df
+    # Display name: the class label, else its local name.
+    df = df.copy()
+    df["componentName"] = [
+        str(name) if isinstance(name, str) and name else _display_name(t)
+        for t, name in zip(df["componentType"], df["componentName"])]
+    df["instanceCount"] = pd.to_numeric(df["instanceCount"])
+    return (df.sort_values(["instanceCount", "componentName"], ascending=[False, True])
+              .reset_index(drop=True))
 
 
 def get_component_instances(client, component_type_label: str,
@@ -334,8 +384,9 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
       ?instance a ?componentType .
       ?instance ?attrPredicate ?attribute .
       ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
-      ?attribute ?property ?value .
-    }}
+      {{ ?attribute ?property ?value . }}
+      UNION
+{DERIVED_CATEGORICAL_VALUE}    }}
     ORDER BY ?instance ?attribute ?property
     """
     return _run(client, query, "comprehensive")
@@ -407,10 +458,7 @@ def get_component_basic_properties(client, component_type_label: str) -> pd.Data
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
 {NOT_ATTRIBUTE_NODE}      ?instance ?property ?value .
-      FILTER(?property != dici_onto:hasAttribute)
-      FILTER(!STRSTARTS(STR(?property), STR(dici_onto:has)))
-      FILTER(?property != rdf:type)
-    }}
+{NOT_STRUCTURAL_PROPERTY}    }}
     ORDER BY ?instance ?property
     """
     return _run(client, query, "basic")
@@ -487,7 +535,6 @@ def get_component_attribute_object_properties(client) -> pd.DataFrame:
     """
     query = f"""
     {_PREFIXES}
-    PREFIX owl: <http://www.w3.org/2002/07/owl#>
     SELECT DISTINCT ?component ?property ?attribute
     {from_clause(ONTOLOGY_GRAPH)}WHERE {{
       ?property a owl:ObjectProperty ;
@@ -497,7 +544,7 @@ def get_component_attribute_object_properties(client) -> pd.DataFrame:
       {{ ?attribute rdfs:subClassOf* dici_onto:StaticAttribute . }}
       UNION
       {{ ?attribute rdfs:subClassOf* dici_onto:DynamicAttribute . }}
-      FILTER(CONTAINS(STR(?property), "Attribute"))
+      ?property rdfs:subPropertyOf* dici_onto:hasAttribute .
     }}
     ORDER BY ?component ?property ?attribute
     """

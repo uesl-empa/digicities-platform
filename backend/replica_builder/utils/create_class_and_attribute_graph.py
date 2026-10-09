@@ -3,10 +3,17 @@
 
 import pandas as pd
 
+from backend.ontology_kinds import AttributeKind
+from backend.replica_builder.attribute_rules import (
+    TIME_SERIES_COLUMNS,
+    WorkbookColumn,
+    parse_column_type,
+)
 from backend.replica_builder.utils.ttl_attribute_helpers import (
     curve_points_literal,
     dici_term,
     escape_iri,
+    kind_term,
     parse_curve_points,
     prefixed_or_iri,
 )
@@ -19,7 +26,7 @@ _CURRENCY_NS = "http://qudt.org/vocab/currency/"
 
 
 def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="default",
-                         default_units=None):
+                         default_units=None, *, ontology):
     """
     Extended script to handle different attribute types.
     Now with fixed curve data processing and correct annotation format.
@@ -66,6 +73,13 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
         file_path (str): Path to the Excel file
         output_ttl_path (str): Path for the output TTL file
         uri_mode (str): URI generation mode - "default", "full-uri-in-cell", or "complete-project-uri"
+        ontology (rdflib.Graph, required): the workspace ontology extension(s);
+            the core is added here. Each attribute value is linked by the
+            predicate the ontology declares for that class and attribute (the
+            specific predicate of the sheet's class or of its nearest ancestor,
+            :func:`backend.ontology_scaffold.link_predicate`); a column no
+            declared predicate links is an error naming it. A predicate is
+            never made up from the sheet and column names.
     """
     import pandas as pd
     import math
@@ -138,8 +152,29 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
         else:
             raise ValueError(f"Unknown uri_mode: {uri_mode}")
 
+    if not isinstance(ontology, rdflib.Graph):
+        raise TypeError("process_excel_to_ttl needs the workspace ontology as an rdflib "
+                        f"Graph (got {type(ontology).__name__})")
+    from backend.ontology_kinds import DICI as _DICI, with_core as _with_core
+    from backend.ontology_scaffold import link_predicate as _link_predicate
+    _schema = _with_core(ontology)
+    link_cache = {}
+
+    def specific_predicate(sheet, attr_name):
+        """The predicate linking a ``sheet`` instance to its ``attr_name`` value."""
+        key = (sheet, attr_name)
+        if key not in link_cache:
+            pred = _link_predicate(_schema, _DICI[sheet], _DICI[attr_name])
+            if pred is None:
+                raise ValueError(
+                    f"{sheet}.{attr_name}: the ontology declares no predicate linking "
+                    f"`{sheet}` to `{attr_name}`; link the attribute to the class in the "
+                    "Ontology Manager first")
+            link_cache[key] = f"<{pred}>"
+        return link_cache[key]
+
     def add_specific_attr_uri(sheet, attr_name, attr_uri, specific_attr_list):
-        s_attr_uri = f"dici_onto:has{sheet}{attr_name}Attribute {attr_uri}"
+        s_attr_uri = f"{specific_predicate(sheet, attr_name)} {attr_uri}"
         if s_attr_uri not in specific_attr_list:
             specific_attr_list.append(s_attr_uri)
 
@@ -202,7 +237,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             # Read raw Excel without treating rows as headers
             raw_sheets = pd.read_excel(file_path, sheet_name=None, header=None, nrows=7)
             for sheet_name, raw_df in raw_sheets.items():
-                if sheet_name in ("Data Validation", "Reference"):
+                if sheet_name in ("Data Validation", "Reference"):  # debt-ok: workbook sheet names, not ontology terms
                     continue
                 if len(raw_df) >= 7:
                     # Check row index 6 (7th row, 0-indexed) for "LinkedClassObjectType"
@@ -254,7 +289,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
     ref_uri_map = {}  # maps reference ID string -> URI string e.g. "<project_uri/Reference/ref_id>"
 
     # --- Process Reference tab (before main loop so ref_uri_map is populated) ---
-    if "Reference" in sheets:
+    if "Reference" in sheets:  # debt-ok: the workbook's Reference sheet name
         ref_df = sheets["Reference"]
 
         reference_declarations.extend([
@@ -296,7 +331,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
 
                     if attr_name_r == "description":
                         ref_props.append(f'\trdfs:label "{_lit(val_str)}"')
-                    elif attr_name_r == "ReferenceType":
+                    elif attr_name_r == "ReferenceType":  # debt-ok: Reference sheet column header
                         ref_props.append(f'\tdici_onto:hasReferenceType {dici_term(val_str)}')
                     elif attr_name_r == "URL":
                         ref_props.append(f'\tschema:url "{_lit(val_str)}"^^xsd:anyURI')
@@ -334,7 +369,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
     # collect the real ids up front and refuse to link to anything else.
     known_instances = defaultdict(set)          # sheet name -> {row id}
     for _name, _df in sheets.items():
-        if _name in ("Data Validation", "Reference"):
+        if _name in ("Data Validation", "Reference"):  # debt-ok: workbook sheet names, not ontology terms
             continue
         _id_col = next((c for c in _df.columns if c[0] == "id"), None)
         if _id_col is None:
@@ -363,7 +398,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
         return row_id in known_instances[sheet]
 
     for sheet_name, df in sheets.items():
-        if sheet_name in ("Data Validation", "Reference"):
+        if sheet_name in ("Data Validation", "Reference"):  # debt-ok: workbook sheet names, not ontology terms
             continue
 
         # Find the "id" column
@@ -409,9 +444,10 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                 non_time_cols = []
 
                 for col in cols:
-                    attr_type = col[1] if len(col) > 1 else None
-                    if attr_type in ["Historic", "Live", "Future"]:
-                        time_variants[attr_type] = col
+                    column_type = parse_column_type(col[1] if len(col) > 1 else None,
+                                                    f"{sheet_name}.{attr_name}")
+                    if column_type in TIME_SERIES_COLUMNS:
+                        time_variants[column_type.value] = col
                     else:
                         non_time_cols.append(col)
 
@@ -542,13 +578,10 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
 
                 # Process non-time-based columns (existing logic)
                 for col in non_time_cols:
-                    attr_type = col[1] if len(col) > 1 else None
-                    # Clean up attribute type - remove spaces and handle variations
-                    if attr_type:
-                        attr_type = attr_type.strip().replace(" ", "")
-                        # Filter out pandas "Unnamed" placeholders
-                        if attr_type.startswith("Unnamed:") or attr_type.startswith("Unnamed_"):
-                            attr_type = None
+                    # The column's kind (or ClassObject), parsed from header row 2;
+                    # None when the header leaves it blank.
+                    kind = parse_column_type(col[1] if len(col) > 1 else None,
+                                             f"{sheet_name}.{attr_name}")
 
                     qudt_unit = get_clean_header_value(col, 2, is_nonempty)
                     if not qudt_unit and default_units and attr_name in default_units:
@@ -574,7 +607,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                     attr_uri = generate_attribute_uri(instance_uri, attr_name, uri_mode)
 
                     # Handle different attribute types
-                    if attr_type == "Annotation":
+                    if kind is AttributeKind.ANNOTATION:
                         # `rdfs:` is reserved for W3C-defined annotation
                         # properties (label, comment, seeAlso, isDefinedBy).
                         # Pinning an arbitrary column name like `BaseCarrier`
@@ -611,7 +644,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             )
                         continue
 
-                    elif attr_type == "ClassObject":
+                    elif kind is WorkbookColumn.CLASS_OBJECT:
                         # Handle Class Object type - create direct predicate relationship.
                         # ClassObject attributes express entity relationships, not measured quantities,
                         # so no unit label is applicable here.
@@ -651,7 +684,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                 class_object_lines.append(f'\t{dici_term(predicate)} {target_uri}')
                         continue
 
-                    elif attr_type == "Identifier":
+                    elif kind is AttributeKind.IDENTIFIER:
                         # Handle Identifier type.
                         # Identifiers are string keys with no physical unit, so no unit label needed.
                         identifier_uri = generate_attribute_uri(instance_uri, attr_name, uri_mode)
@@ -666,7 +699,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         identifier_declarations.append("")
                         continue
 
-                    elif attr_type == "Resource":
+                    elif kind is AttributeKind.RESOURCE:
                         # Handle Resource type
                         if attr_uri not in instance_attr_uris:
                             instance_attr_uris.add(attr_uri)
@@ -682,7 +715,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         attribute_value_declarations.append("")
                         continue
 
-                    elif attr_type == "SimpleValue":
+                    elif kind is AttributeKind.SIMPLE_VALUE:
                         # Handle SimpleValue type - a basic attribute with just a value, NO units.
                         # SimpleValue attributes carry no physical dimension, so no unit label is needed.
                         if attr_uri not in instance_attr_uris:
@@ -719,7 +752,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         attribute_value_declarations.append("")
                         continue
 
-                    elif attr_type == "CustomPhysicalRatio":
+                    elif kind is AttributeKind.CUSTOM_PHYSICAL_RATIO:
                         # Handle CustomPhysicalRatio type.
                         # Ratio units (e.g. KWh/yr) cannot be expressed as a single qudt:Unit IRI,
                         # so dici_onto:hasUnitLabel is used exclusively here — replacing the previous
@@ -771,7 +804,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         attribute_value_declarations.append("")
                         continue
 
-                    elif attr_type == "Event":
+                    elif kind is AttributeKind.EVENT:
                         # Handle Event type for temporal data.
                         # Events represent points in time, not physical quantities, so no unit label.
                         if attr_uri not in instance_attr_uris:
@@ -875,7 +908,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         attribute_value_declarations.append("")
                         continue
 
-                    elif attr_type == "Categorical":
+                    elif kind is AttributeKind.CATEGORICAL:
                         # Handle categorical attributes - use the value as the category type.
                         # Categorical attributes classify instances, not measured quantities,
                         # so no unit label is needed.
@@ -912,7 +945,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                     if ds_col:
                         datasource_value = row[ds_col]
 
-                    if attr_type == "Curve":
+                    if kind is AttributeKind.CURVE:
                         # Handle Curve type.
                         # xUnit / yUnit (ObjectProperties → qudt:Unit IRI) with their
                         # xUnitLabel / yUnitLabel (DatatypeProperties → xsd:string) alongside,
@@ -948,13 +981,13 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         else:
                             attr_lines[-1] += ' .'
 
-                    elif attr_type in ["SimpleCost", "UnitBasedCost"]:
+                    elif kind in (AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST):
                         # Handle cost attributes.
                         # SimpleCost has no physical unit (currency only), so no unit label.
                         # UnitBasedCost carries a QUDT unit IRI; a hasUnitLabel string is added
                         # alongside it for backwards-compatible string access.
                         attr_lines.append(f"{attr_uri} a dici_onto:{attr_name} ;")
-                        attr_lines.append(f"\ta dici_onto:{attr_type}Attribute ;")
+                        attr_lines.append(f"\ta {kind_term(kind)} ;")
 
                         try:
                             numeric_val = float(value)
@@ -966,7 +999,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         except:
                             attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
 
-                        if attr_type == "UnitBasedCost" and qudt_unit:
+                        if kind is AttributeKind.UNIT_BASED_COST and qudt_unit:
                             # Preserve existing qudt:unit IRI
                             attr_lines.append(f"\tqudt:unit <http://qudt.org/vocab/unit/{escape_iri(qudt_unit)}> ;")
                             # Add string label for backwards-compatible string-based access
@@ -989,9 +1022,9 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         # access the unit as a plain string (e.g. SPARQL query without QUDT vocab).
                         attr_lines.append(f"{attr_uri} a dici_onto:{attr_name} ;")
 
-                        # Add the attribute type if specified, always with "Attribute" suffix
-                        if attr_type:
-                            attr_lines.append(f"\ta dici_onto:{attr_type}Attribute ;")
+                        # Add the kind's core class when the header names one
+                        if kind is not None:
+                            attr_lines.append(f"\ta {kind_term(kind)} ;")
 
                         if qudt_unit:
                             # Preserve the existing IRI-based unit triple

@@ -17,6 +17,7 @@ from rdflib import Graph
 
 from backend.graphdb.graphs import (
     CLASSES_AND_ATTRIBUTES_GRAPH,
+    ONTOLOGY_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
 )
 from backend.graphdb.queries import graph_io
@@ -53,11 +54,14 @@ def load_existing_graphs(client, populate_instances=False) -> bool:
                 # attribute nodes with SPARQL over the ontology hierarchy
                 # (rdfs:subClassOf* / rdfs:subPropertyOf*). The constructed graph
                 # below is used only to read literal values off those nodes.
+                # The workspace ontology answers "what is this" for classes the
+                # data alone cannot place (as backend load_replica_model does).
+                ontology = graph_io.construct_named_graph(client, ONTOLOGY_GRAPH)
                 discovered = components_q.get_all_component_instances(client)
                 attr_links = components_q.get_all_instance_attribute_links(client)
                 attr_kinds = components_q.get_attribute_kinds(client)
-                instances = parse_instances_from_graph(classes_graph, discovered)
-                attributes = parse_attributes_from_graph(classes_graph, attr_links, attr_kinds)
+                instances = parse_instances_from_graph(classes_graph, discovered, attr_links, ontology)
+                attributes = parse_attributes_from_graph(classes_graph, attr_links, attr_kinds, ontology)
 
                 # Convert to replica builder format (must be done before links!)
                 st.session_state.replica_instances = convert_to_replica_instances(instances, attributes)

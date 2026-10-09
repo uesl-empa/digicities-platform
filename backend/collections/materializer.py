@@ -25,6 +25,7 @@ import pandas as pd
 from rdflib import Graph, Literal, Namespace, RDF, RDFS, URIRef, XSD
 
 from backend.graphdb.graphs import COLLECTIONS_GRAPH
+from backend.ontology_kinds import kind_for_class
 from . import queries
 from .registry import (
     BASE_TYPE_FAMILY, BOOLEAN, CATEGORICAL, NUMERIC, SIMPLE_VALUE_BASE,
@@ -56,24 +57,26 @@ def detect_family(client, attribute_class_iri: str) -> Tuple[str, bool]:
     """Datatype family of an attribute class, from its base value-type in the
     schema graph. Returns ``(family, is_simple_value)`` — a SimpleValue result
     still needs refinement by value sniffing."""
-    bases = set(queries.base_types_of(client, attribute_class_iri))
+    bases = queries.base_types_of(client, attribute_class_iri)
     if not bases:
         raise CollectionError(
             f"{attribute_class_iri} is not an Attribute subclass in this "
             f"workspace's schema graph")
-    unsupported = bases & UNSUPPORTED_BASE_TYPES
+    kinds = {kind_for_class(b) for b in bases} - {None}
+    unsupported = [k for k in UNSUPPORTED_BASE_TYPES if k in kinds]
     if unsupported:
         raise CollectionError(
-            f"{_local(attribute_class_iri)} is a {sorted(unsupported)[0]} — "
+            f"{_local(attribute_class_iri)} is a "
+            f"{_local(sorted(unsupported)[0].class_uri)} — "
             f"its values are not scalar and cannot form a Set")
-    for base, family in BASE_TYPE_FAMILY.items():
-        if base in bases:
+    for kind, family in BASE_TYPE_FAMILY.items():
+        if kind in kinds:
             return family, False
-    if SIMPLE_VALUE_BASE in bases:
+    if SIMPLE_VALUE_BASE in kinds:
         return CATEGORICAL, True     # refined by sniff_family on the raw values
     raise CollectionError(
         f"{_local(attribute_class_iri)} has no recognised base value-type "
-        f"(found: {sorted(bases)})")
+        f"(found: {sorted(_local(b) for b in bases)})")
 
 
 def _row_value(row, family: str, num_col: str, simple_col: str,
@@ -157,36 +160,45 @@ def _provenance(g: Graph, coll_iri: URIRef, attribute_class_iri: str,
         g.add((URIRef(dataset_iri), dici_onto.hasSet, coll_iri))
 
 
-def _replace_collection(client, root_iri: str, g: Graph) -> None:
-    """Surgically replace one collection's triples in the collections graph:
-    delete everything minted under the root IRI (subjects AND objects — the
-    membership/hasSet triples point at it), then insert the new content.
+# The links that hang a collection's own nodes off its root: member Sets of a
+# GroupedSet, statistics, distributions and their bins.
+_COLLECTION_STRUCTURE = "|".join(
+    f"<{p}>" for p in (dici_onto.hasGroup, dici_onto.hasDescriptiveStatistics,
+                       dici_onto.hasDistribution, dici_onto.hasBin))
 
-    Projected aggregate nodes live under their CONTAINER's IRI, not the
-    collection root, so they are found via their ``aggregateOf`` link to a
-    group Set under the root — first the edges pointing at them, then their
-    own triples. (Shared aggregate CLASS declarations are left in place: they
-    are identical across collections and re-asserted on insert.)"""
+
+def _replace_collection(client, root_iri: str, g: Graph) -> None:
+    """Surgically replace one collection's triples in the collections graph,
+    then insert the new content.
+
+    The collection's own nodes are the root and everything reached from it
+    over the collection structure links (``_COLLECTION_STRUCTURE``). Every
+    triple about one of them goes, and every triple pointing at one (the
+    members' ``aggregatedIn``, a dataset's ``hasSet``), in ONE update: the
+    WHERE clause is matched before anything is deleted, so the structure links
+    still connect the subtree while it is being found.
+
+    Projected aggregate nodes live under their CONTAINER, not the collection,
+    so they are found via their ``aggregateOf`` link to one of the
+    collection's Sets: first the edges pointing at them, then their own
+    triples. (Shared aggregate CLASS declarations are left in place: they are
+    identical across collections and re-asserted on insert.)"""
     graph = f"<{COLLECTIONS_GRAPH}>"
-    root = str(root_iri)
-    under_root = (f'(STR(?set) = "{root}" || STRSTARTS(STR(?set), "{root}/"))')
-    agg_updates = (
+    subtree = f"<{root_iri}> ({_COLLECTION_STRUCTURE})* ?set ."
+    updates = (
         # edges INTO each projected node (hasAttribute / has<C><A>Attribute)
         f"DELETE {{ GRAPH {graph} {{ ?s ?p ?n }} }} WHERE {{ GRAPH {graph} {{ "
-        f"?n <{dici_onto.aggregateOf}> ?set . FILTER({under_root}) ?s ?p ?n }} }}",
+        f"{subtree} ?n <{dici_onto.aggregateOf}> ?set . ?s ?p ?n }} }}",
         # the projected nodes' own triples (removes aggregateOf itself last)
         f"DELETE {{ GRAPH {graph} {{ ?n ?p ?o }} }} WHERE {{ GRAPH {graph} {{ "
-        f"?n <{dici_onto.aggregateOf}> ?set . FILTER({under_root}) ?n ?p ?o }} }}",
+        f"{subtree} ?n <{dici_onto.aggregateOf}> ?set . ?n ?p ?o }} }}",
+        # the collection's own nodes: their triples and the triples into them
+        f"DELETE {{ GRAPH {graph} {{ ?set ?p ?o . ?s ?q ?set }} }} "
+        f"WHERE {{ GRAPH {graph} {{ {subtree} "
+        f"{{ ?set ?p ?o }} UNION {{ ?s ?q ?set }} }} }}",
     )
-    for upd in agg_updates:
+    for upd in updates:
         client.sparql_update(upd)
-    for pattern, flt in (
-        ("?s ?p ?o", f'FILTER(STR(?s) = "{root}" || STRSTARTS(STR(?s), "{root}/"))'),
-        ("?s ?p ?o", f'FILTER(isIRI(?o) && (STR(?o) = "{root}" || STRSTARTS(STR(?o), "{root}/")))'),
-    ):
-        client.sparql_update(
-            f"DELETE {{ GRAPH {graph} {{ {pattern} }} }} "
-            f"WHERE {{ GRAPH {graph} {{ {pattern} . {flt} }} }}")
     nt = g.serialize(format="nt")
     if nt.strip():
         client.sparql_update(f"INSERT DATA {{ GRAPH {graph} {{\n{nt}\n}} }}")
@@ -204,12 +216,14 @@ def _touch_activity(workspace_id: str) -> None:
         pass
 
 
-def delete_collection(client, collection_iri: str) -> None:
+def delete_collection(client, collection_iri: str, workspace_id: Optional[str] = None) -> None:
     """Remove a materialized collection (and its stats/bins/groups/membership
-    triples) from the collections graph."""
+    triples) from the collections graph. ``workspace_id`` is the workspace the
+    caller is working in; its activity marker is stamped (the IRI is never
+    parsed for it)."""
     _replace_collection(client, collection_iri, Graph())
-    if "/proj/" in str(collection_iri):
-        _touch_activity(str(collection_iri).split("/proj/")[1].split("/")[0])
+    if workspace_id:
+        _touch_activity(workspace_id)
 
 
 def materialize_set(client, workspace_id: str, attribute_class_iri: str,

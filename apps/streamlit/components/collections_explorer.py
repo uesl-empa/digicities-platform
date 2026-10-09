@@ -16,6 +16,8 @@ import streamlit as st
 
 from backend.collections import (
     CollectionError,
+    CollectionKind,
+    collection_kind,
     delete_collection,
     list_collections,
     materialize_grouped_set,
@@ -90,7 +92,7 @@ def render_collection_body(client, row) -> None:
     Collections module and the Digital Replica Explorer's collections
     dropdown. Renders inline (no expander, no mutation buttons)."""
     coll = str(row["collection"])
-    kind = _local(row["kind"])
+    kind = collection_kind(row["kind"])
     subtitle = [f"attribute: `{_local(row['attrType'])}`"]
     if _has(row, "groupedBy"):
         subtitle.append(f"grouped by: `{_local(row['groupedBy'])}`")
@@ -105,7 +107,7 @@ def render_collection_body(client, row) -> None:
         st.info("No statistics recorded for this collection.")
     else:
         wide = _stats_table(stats)
-        if kind == "GroupedSet":
+        if kind is CollectionKind.GROUPED_SET:
             st.dataframe(
                 wide.drop(columns=["set"]).rename(columns={"groupKey": "group"}),
                 use_container_width=True, hide_index=True)
@@ -125,7 +127,7 @@ def render_collection_body(client, row) -> None:
             st.caption(f"members: {member_count(client, coll)}")
 
     bins = set_bins(client, coll)
-    if not bins.empty and kind == "Set":
+    if not bins.empty and kind is CollectionKind.SET:
         bins = bins.sort_values(["lower", "binLabel"], na_position="last")
         chart = bins[["binLabel", "frequency"]].copy()
         chart["frequency"] = pd.to_numeric(chart["frequency"], errors="coerce")
@@ -137,8 +139,9 @@ def _render_collection(client, row) -> None:
     """One collection card in the Collections module: expander + shared body
     + recompute/delete controls."""
     coll = str(row["collection"])
-    kind = _local(row["kind"])
-    with st.expander(f"{'📊' if kind == 'Set' else '🗂️'} **{_local(coll)}** ({kind})"):
+    kind = collection_kind(row["kind"])
+    icon = "📊" if kind is CollectionKind.SET else "🗂️"
+    with st.expander(f"{icon} **{_local(coll)}** ({kind.value})"):
         render_collection_body(client, row)
 
         c1, c2 = st.columns(2)
@@ -150,7 +153,7 @@ def _render_collection(client, row) -> None:
             }
             st.rerun()
         if c2.button("Delete", key=f"delete_{coll}"):
-            delete_collection(client, coll)
+            delete_collection(client, coll, _workspace_id())
             st.rerun()
 
 

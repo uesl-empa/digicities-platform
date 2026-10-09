@@ -33,9 +33,16 @@ class _ReadRecorder:
     an unreachable graph looks exactly like "this component has no
     attributes". The sync must tell the two apart before it prunes anything,
     so every read goes through here and a raise or a None is recorded.
+
+    A client that cannot run SPARQL at all is a programming error, not an
+    outage: it is refused here with a TypeError instead of being recorded as
+    a failed read.
     """
 
     def __init__(self, inner):
+        if not callable(getattr(inner, "sparql_api_query", None)):
+            raise TypeError(f"{type(inner).__name__} is not a graph client: it has no "
+                            "sparql_api_query")
         self._inner = inner
         self.failures: list[str] = []
 
@@ -117,6 +124,22 @@ def attach_graph_attributes(client, comps: list[dict[str, Any]]) -> list[str]:
     return failures
 
 
+def _instance_types(client) -> tuple[dict[str, str], list[str]]:
+    """The workspace graph's ``{instance IRI: class local name}`` and the reads
+    that failed (empty list = the graph answered)."""
+    from backend.scenario_builder.graph_lookups import instance_types
+
+    if client is None:
+        return {}, ["no graph client"]
+    reader = _ReadRecorder(client)
+    types = instance_types(reader)
+    if reader.failures:
+        return {}, [f"instance types ({reader.failures[0]})"]
+    if not types:
+        return {}, ["instance types (graph holds no component instances)"]
+    return types, []
+
+
 def _workspace_id_from_ttl(ttl_text: str, scenario_uri: str) -> str:
     try:
         from rdflib import Graph, Namespace, URIRef
@@ -181,6 +204,8 @@ def sync_scenarios_for_service(storage, client, service_file: str,
     if not service_name:
         return report
 
+    graph_types: Optional[dict[str, str]] = None
+    type_failures: list[str] = []
     for rel in sorted(storage.glob("scenarios/*.ttl")):
         if rel.rsplit("/", 1)[-1].endswith("_full.ttl"):
             # A materialized (fat) export of a thin scenario: same URI, same
@@ -199,6 +224,22 @@ def sync_scenarios_for_service(storage, client, service_file: str,
             continue
         if draft.get("service_name") != service_name:
             continue                          # built for another service (or none)
+
+        # A thin scenario's bare instance references take their type from the
+        # workspace graph. A component whose type is still unknown can't be
+        # judged against the requirements, so the scenario is left alone.
+        if any(not c.get("type") for c in draft.get("components", [])):
+            if graph_types is None:
+                graph_types, type_failures = _instance_types(client)
+            for c in draft["components"]:
+                c["type"] = c.get("type") or graph_types.get(c["uri"])
+            untyped = [c["uri"] for c in draft["components"] if not c.get("type")]
+            if untyped:
+                reason = (f"graph read failed ({'; '.join(type_failures)})" if type_failures
+                          else f"no type for {', '.join(untyped)} in the scenario or the graph")
+                entry.update(action="skipped", detail=f"{reason}; scenario left untouched")
+                report["scenarios"].append(entry)
+                continue
 
         comps = [{"uri": c["uri"], "type": c.get("type"), "label": c.get("label") or c["uri"],
                   "attributes": {}, "nested_properties": {}}
@@ -265,7 +306,7 @@ def sync_scenarios_for_service(storage, client, service_file: str,
         new_ttl = build_scenario_ttl(
             scenario_name=draft.get("scenario_name") or stem,
             workspace_id=_workspace_id_from_ttl(text, scenario_uri),
-            components=[c["uri"] for c in kept],
+            components=[{"uri": c["uri"], "type": c["type"]} for c in kept],
             links=links,
             service_name=service_name,
             description=draft.get("description"),

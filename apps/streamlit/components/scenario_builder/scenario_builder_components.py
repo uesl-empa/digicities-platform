@@ -36,6 +36,9 @@ try:
 except ImportError:
     GRAPHDB_LOADER_AVAILABLE = False
 
+from backend.ontology_kinds import AttributeKind
+from backend.scenario_builder.semantics import has_time_series_data, is_unknown_precision, kind_of
+
 # Pure display helpers (no loader dependency).
 from components.scenario_builder.component_display_utils import (
     get_uri_fragment,
@@ -200,21 +203,22 @@ def display_simple_component_attributes(component):
         if isinstance(attr_data, dict) and ('value' in attr_data or 'temporal_value' in attr_data):
             value = attr_data.get('value', attr_data.get('temporal_value'))
             unit = attr_data.get('unit', 'dimensionless')
-            attr_type = attr_data.get('attribute_type', 'unknown')
+            kind = kind_of(attr_data)
+            attr_type = kind.value if kind else attr_data.get('attribute_type', 'unknown')
 
             # Format value based on type
-            if attr_data.get('attribute_type') == 'DynamicAttribute':
+            if kind is AttributeKind.DYNAMIC:
                 formatted_value = "📊 Dynamic data"
                 if attr_data.get('time_series_reference'):
                     formatted_value = f"📊 {attr_data['time_series_reference']}"
-            elif attr_data.get('attribute_type') == 'CategoricalAttribute':
+            elif kind is AttributeKind.CATEGORICAL:
                 category_value = attr_data.get('category_value', value)
                 formatted_value = f"🏷️ {category_value}"
-            elif attr_data.get('attribute_type') == 'EventAttribute':
+            elif kind is AttributeKind.EVENT:
                 temporal_value = attr_data.get('temporal_value', value)
                 temporal_precision = attr_data.get('temporal_precision', 'Unknown')
                 formatted_value = f"📅 {temporal_value}"
-                if temporal_precision != 'Unknown':
+                if not is_unknown_precision(temporal_precision):
                     formatted_value += f" ({temporal_precision})"
             elif isinstance(value, float):
                 formatted_value = f"{value:,.2f}"
@@ -253,7 +257,7 @@ def display_nested_properties_simple(nested_properties):
     for attr_name, properties in nested_properties.items():
         st.write(f"**🔗 {attr_name}:**")
         for prop_name, prop_value in properties.items():
-            if 'TimeSeries' in prop_name:
+            if has_time_series_data([prop_name]):
                 st.code(f"{prop_name}: {prop_value}")
             else:
                 st.write(f"  • {prop_name}: {prop_value}")
@@ -999,18 +1003,9 @@ def validate_nested_attribute_requirements(component, required_attrs):
                 component_attrs = component.get('attributes', {})
                 has_base = False
 
-                # Check various possible keys for the base attribute
-                possible_base_keys = [
-                    base_attr,
-                    f"{component.get('type', '')}{base_attr}",
-                    f"{base_attr}Attribute",
-                    f"{component.get('type', '')}{base_attr}Attribute"
-                ]
-
-                for key in possible_base_keys:
-                    if key in component_attrs:
-                        has_base = True
-                        break
+                # The attribute is stored under its own name
+                if base_attr in component_attrs:
+                    has_base = True
 
                 # Also check in nested_properties
                 if not has_base and base_attr in component.get('nested_properties', {}):
@@ -1040,7 +1035,7 @@ def show_component_attribute_summary_simple(comp):
             if category != 'system':
                 category_counts[category] = category_counts.get(category, 0) + 1
 
-                if category == 'temporal' or attr_data.get('attribute_type') == 'EventAttribute':
+                if category == 'temporal' or kind_of(attr_data) is AttributeKind.EVENT:
                     has_temporal = True
 
     if category_counts:
@@ -1081,7 +1076,8 @@ def debug_nested_attribute_resolution(component, requirement_path):
     for key in sorted(attributes.keys()):
         attr_data = attributes[key]
         if isinstance(attr_data, dict):
-            attr_type = attr_data.get('attribute_type', 'Unknown')
+            kind = kind_of(attr_data)
+            attr_type = kind.value if kind else attr_data.get('attribute_type', 'Unknown')
             has_value = 'value' in attr_data
             print(f"  {key}: {attr_type} (has_value: {has_value})")
         else:
@@ -1118,13 +1114,8 @@ def debug_nested_attribute_resolution(component, requirement_path):
         print(f"Base Attribute: {attribute_name}")
         print(f"Nested Property: {nested_property}")
 
-        # Generate possible keys
-        possible_keys = [
-            attribute_name,
-            f"{attribute_name}Attribute",
-            f"{component_type}{attribute_name}",
-            f"{component_type}{attribute_name}Attribute",
-        ]
+        # The attribute is stored under its own name
+        possible_keys = [attribute_name]
 
         print(f"\n--- POSSIBLE KEYS TO CHECK ---")
         for key in possible_keys:

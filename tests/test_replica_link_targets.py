@@ -24,6 +24,7 @@ import pytest
 rdflib = pytest.importorskip("rdflib")
 openpyxl = pytest.importorskip("openpyxl")
 
+from workbook_schema import declare_workbook  # noqa: E402
 from backend.replica_builder.utils.create_class_and_attribute_graph import (  # noqa: E402
     process_excel_to_ttl,
 )
@@ -89,7 +90,7 @@ def graph(tmp_path_factory) -> rdflib.Graph:
     tmp = tmp_path_factory.mktemp("links")
     xlsx = _workbook(tmp / "wb.xlsx", seven_row=True)
     ttl = tmp / "wb.ttl"
-    process_excel_to_ttl(PROJ, str(xlsx), str(ttl))
+    process_excel_to_ttl(PROJ, str(xlsx), str(ttl), ontology=declare_workbook(xlsx, tmp / "ws"))
     g = rdflib.Graph()
     g.parse(ttl, format="turtle")
     return g
@@ -134,7 +135,8 @@ def test_no_phantom_instance_survives_the_closure(tmp_path):
 
     xlsx = _workbook(tmp_path / "wb.xlsx")
     ttl = tmp_path / "wb.ttl"
-    process_excel_to_ttl(PROJ, str(xlsx), str(ttl))
+    process_excel_to_ttl(PROJ, str(xlsx), str(ttl),
+                         ontology=declare_workbook(xlsx, tmp_path / "ws"))
 
     g = rdflib.Graph()
     g.parse(ttl, format="turtle")

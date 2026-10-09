@@ -9,7 +9,11 @@ container so the only dependency on the partner's side is Docker:
 
     docker exec digicities-streamlit \\
         python -m backend.replica_builder.cli \\
-        /app/data/usecases/<workspace>/ingestion/input/<your_workbook>.xlsx
+        /app/data/usecases/<workspace>/ingestion/input/<your_workbook>.xlsx \\
+        --ontology-dir /app/data/usecases/<workspace>/ontology
+
+``--ontology-dir`` is required: each value is linked by the predicate the
+workspace's ontology extension declares for its class and attribute.
 
 The TTL lands next to the input by default at
 `<workspace>/ingestion/output/<your_workbook>.ttl`. Pass `-o/--output` to
@@ -22,6 +26,8 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
+from rdflib import Graph
 
 from backend.replica_builder.utils.create_class_and_attribute_graph import (
     process_excel_to_ttl,
@@ -86,10 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--ontology-dir",
         type=Path,
-        default=None,
-        help="Workspace ontology directory (with extensions/ + vendored core). When "
-             "given, any Physical/Geospatial attribute the workbook leaves without a "
-             "unit is stamped with its class's dici_onto:hasDefaultUnit.",
+        required=True,
+        help="Workspace ontology directory (with extensions/). Required: each value "
+             "is linked by the predicate the extension declares for its class and "
+             "attribute, and any Physical/Geospatial attribute the workbook leaves "
+             "without a unit is stamped with its class's dici_onto:hasDefaultUnit.",
     )
     args = parser.parse_args(argv)
 
@@ -107,11 +114,17 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[ingest] uri mode    : {args.uri_mode}")
     print(f"[ingest] output      : {output_path}")
 
-    default_units = None
-    if args.ontology_dir:
-        from backend.replica_builder.utils.default_units import load_workspace_default_units
-        default_units = load_workspace_default_units(ontology_dir=str(args.ontology_dir))
-        print(f"[ingest] default units: {len(default_units)} class(es) from {args.ontology_dir}")
+    extensions = args.ontology_dir / "extensions"
+    if not extensions.is_dir():
+        parser.error(f"no extensions/ folder in the ontology directory {args.ontology_dir}")
+    ontology = Graph()
+    for ttl in sorted(extensions.glob("*.ttl")):
+        ontology.parse(ttl, format="turtle")
+    print(f"[ingest] ontology    : {len(ontology)} triples from {extensions}")
+
+    from backend.replica_builder.utils.default_units import load_workspace_default_units
+    default_units = load_workspace_default_units(ontology_dir=str(args.ontology_dir))
+    print(f"[ingest] default units: {len(default_units)} class(es) from {args.ontology_dir}")
 
     process_excel_to_ttl(
         project_uri=project_uri,
@@ -119,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         output_ttl_path=str(output_path),
         uri_mode=args.uri_mode,
         default_units=default_units,
+        ontology=ontology,
     )
 
     if not output_path.exists():

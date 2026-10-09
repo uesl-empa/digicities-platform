@@ -21,6 +21,7 @@ openpyxl = pytest.importorskip("openpyxl")
 
 from rdflib import URIRef  # noqa: E402
 
+from workbook_schema import declare_workbook  # noqa: E402
 from backend.replica_builder.utils.create_class_and_attribute_graph import (  # noqa: E402
     process_excel_to_ttl,
 )
@@ -94,7 +95,7 @@ def graph(tmp_path_factory) -> rdflib.Graph:
     tmp = tmp_path_factory.mktemp("esc")
     xlsx = _workbook(tmp / "wb.xlsx")
     ttl = tmp / "wb.ttl"
-    process_excel_to_ttl(PROJ, str(xlsx), str(ttl))
+    process_excel_to_ttl(PROJ, str(xlsx), str(ttl), ontology=declare_workbook(xlsx, tmp / "ws"))
     g = rdflib.Graph()
     g.parse(ttl, format="turtle")          # the regression: this used to raise
     return g

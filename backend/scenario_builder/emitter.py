@@ -30,8 +30,8 @@ Also moved here: ``resolve_nested_attribute_requirement`` (previously in
 ``components/scenario_builder/scenario_builder_components.py``; that module
 now re-imports it from here). It is pure dict resolution and both the emitter
 and the component browser depend on it, so it must be one function, not two
-copies. Its dotted-path last resort delegates to the already-relocated
-``display_utils.get_nested_property_from_ttl_component``.
+copies. Requirement names resolve by the IRIs they name (identity, or the
+property hierarchy for a nested property), never by spelling variants.
 
 Two seam changes, both behavior-neutral for the characterized paths:
 
@@ -39,371 +39,149 @@ Two seam changes, both behavior-neutral for the characterized paths:
   not importable) are unreachable now that the resolver is module-local; the
   enhanced path — the one every real deployment and the characterization tests
   exercise — is always taken;
-* ``st.error(...)`` in the resolver's catch-all became a silent
-  ``return None, None, None`` (the return value is unchanged).
+* the resolver's catch-all is gone: a malformed component now raises
+  instead of silently resolving to nothing.
 """
 from __future__ import annotations
 
 from backend.scenario_builder import scenario_uri_for
-from backend.scenario_builder.display_utils import get_nested_property_from_ttl_component
+from backend.ontology_kinds import DICI, AttributeKind
 from backend.scenario_builder.draft import ScenarioDraft
+from backend.scenario_builder.semantics import (
+    MISSING,
+    TIME_SERIES_LINKS,
+    TIME_SERIES_REFERENCES,
+    find_property,
+    first_present,
+    has_time_series_data,
+    is_time_series_key,
+    is_time_series_reference_key,
+    kind_of,
+    local_key,
+    is_unknown_precision,
+    names_subclass_of,
+    precision_term,
+    stored_series_reference,
+)
+
+
+def _requirement_parts(component, requirement_path):
+    """A dotted requirement split into ``[attribute, property, ...]``.
+
+    A leading component type (``EnergyConsumer.Power.hasX``) is dropped when
+    the component's type is that class or a class under it.
+    """
+    parts = requirement_path.split('.')
+    if len(parts) > 2 and names_subclass_of(component.get('type'), parts[0]):
+        parts = parts[1:]
+    return parts
+
+
+def _attribute_value(attr_data):
+    """The value a requirement reads off an attribute, by its kind."""
+    kind = kind_of(attr_data)
+    if kind is AttributeKind.CATEGORICAL:
+        return attr_data.get('category_value', attr_data.get('value'))
+    if kind is AttributeKind.EVENT:
+        return attr_data.get('temporal_value', attr_data.get('value'))
+    return attr_data.get('value')
 
 
 def resolve_nested_attribute_requirement(component, requirement_path):
-    """
-    ENHANCED: Resolve nested attribute requirements with comprehensive handling of GraphDB export patterns
-    Handles patterns like:
-    - Power.hasHistoricTimeSeriesReference
-    - EnergyConsumer.Power.hasHistoricTimeSeriesReference
-    - All possible inheritance combinations from GraphDB export
+    """Resolve a service requirement against a component dict.
+
+    ``Power`` reads the attribute stored under that name. A dotted path
+    (``Power.hasHistoricTimeSeriesReference``, optionally led by the
+    component's class) reads a property of that attribute: the property named,
+    or a subproperty of it, from the attribute's nested properties, its own
+    data, or the time series reference a loader stored for it. Names match by
+    the IRIs they name, never by spelling variants.
     """
     if not requirement_path or not component:
         return None
 
-    # If no dots, it's a simple attribute
+    attributes = component.get('attributes', {})
     if '.' not in requirement_path:
-        attr_data = component.get('attributes', {}).get(requirement_path)
+        attr_data = attributes.get(requirement_path)
         if isinstance(attr_data, dict):
-            if attr_data.get('attribute_type') == 'CategoricalAttribute':
-                return attr_data.get('category_value', attr_data.get('value'))
-            elif attr_data.get('attribute_type') == 'EventAttribute':
-                return attr_data.get('temporal_value', attr_data.get('value'))
-            else:
-                return attr_data.get('value')
+            return _attribute_value(attr_data)
         return attr_data
 
-    # Parse the requirement path
-    parts = requirement_path.split('.')
-    component_type = component.get('type', '')
+    parts = _requirement_parts(component, requirement_path)
+    if len(parts) < 2:
+        return None
+    attribute_name, props = parts[0], parts[1:]
+    nested = component.get('nested_properties', {}).get(attribute_name)
+    attr_data = attributes.get(attribute_name)
 
-    # Remove component type if it matches the first part
-    if len(parts) > 2 and parts[0] == component_type:
-        parts = parts[1:]  # Remove the component type prefix
+    if len(props) == 1:
+        wanted = props[0]
+        for source in (nested, attr_data):
+            if isinstance(source, dict):
+                value = find_property(source, wanted)
+                if value is not MISSING:
+                    return value
+        if isinstance(attr_data, dict):
+            value = stored_series_reference(attr_data, wanted)
+            if value is not MISSING:
+                return value
+        return None
 
-    # Now we should have something like ['Power', 'hasHistoricTimeSeriesReference']
-    if len(parts) >= 2:
-        attribute_name = parts[0]
-        nested_property = '.'.join(parts[1:])  # Handle deeper nesting
+    # Deeper paths walk one property per step.
+    current = nested if isinstance(nested, dict) else attr_data
+    for part in props:
+        if not isinstance(current, dict):
+            return None
+        current = find_property(current, part)
+        if current is MISSING:
+            return None
+    return current
 
-        # CRITICAL: Create comprehensive list of possible keys
-        possible_keys = [
-            # Base attribute name
-            attribute_name,
-            # With Attribute suffix
-            f"{attribute_name}Attribute",
-            # With component type prefix
-            f"{component_type}{attribute_name}",
-            # With component type and Attribute suffix
-            f"{component_type}{attribute_name}Attribute",
-            # Lowercase variations
-            attribute_name.lower(),
-            f"{attribute_name.lower()}attribute",
-            f"{component_type.lower()}{attribute_name.lower()}",
-            f"{component_type.lower()}{attribute_name.lower()}attribute",
-            # Title case variations
-            attribute_name.title(),
-            f"{attribute_name.title()}Attribute",
-            f"{component_type.title()}{attribute_name.title()}",
-            f"{component_type.title()}{attribute_name.title()}Attribute"
-        ]
 
-        # Remove duplicates while preserving order
-        seen = set()
-        possible_keys = [x for x in possible_keys if not (x in seen or seen.add(x))]
-
-        # Check nested_properties first (most likely location for GraphDB export)
-        nested_props = component.get('nested_properties', {})
-        for key in possible_keys:
-            if key in nested_props:
-                nested_data = nested_props[key]
-                if isinstance(nested_data, dict):
-                    # Direct check for the nested property
-                    if nested_property in nested_data:
-                        return nested_data[nested_property]
-
-                    # Check for variations of the nested property name
-                    nested_variations = [
-                        nested_property,
-                        nested_property.lower(),
-                        nested_property.replace('has', ''),  # Remove 'has' prefix
-                        nested_property.replace('has', '').lower(),
-                        nested_property.replace('TimeSeries', 'TimesSeries'),  # Common typo
-                        nested_property.replace('Reference', 'Ref'),  # Shortened form
-                    ]
-
-                    for nested_var in nested_variations:
-                        if nested_var in nested_data:
-                            return nested_data[nested_var]
-
-        # Check attributes for nested properties stored directly
-        attributes = component.get('attributes', {})
-        for key in possible_keys:
-            if key in attributes:
-                attr_data = attributes[key]
-                if isinstance(attr_data, dict):
-                    # Direct check for the nested property
-                    if nested_property in attr_data:
-                        return attr_data[nested_property]
-
-                    # Special handling for time series references that might be stored differently
-                    if 'TimeSeriesReference' in nested_property:
-                        # Check for common alternative storage keys
-                        alt_keys = [
-                            'time_series_reference',
-                            'timeSeriesReference',
-                            'hasTimeSeriesReference',
-                            'reference',
-                            'file_reference',
-                            'data_reference'
-                        ]
-                        for alt_key in alt_keys:
-                            if alt_key in attr_data:
-                                return attr_data[alt_key]
-
-        # ENHANCED: Try direct path resolution for deeper nesting
-        # This handles cases where the full path might be stored as a flattened key
-        flattened_keys = [
-            requirement_path,  # Original path
-            requirement_path.replace('.', ''),  # No dots
-            requirement_path.replace('.', '_'),  # Underscores
-            requirement_path.replace(f"{component_type}.", ''),  # Remove component prefix
-            '.'.join(parts),  # Reconstructed without component type
-        ]
-
-        # Check both nested_properties and attributes for flattened keys
-        for flattened_key in flattened_keys:
-            # Check nested_properties
-            if flattened_key in nested_props:
-                result = nested_props[flattened_key]
-                if result:
-                    return result
-
-            # Check attributes
-            if flattened_key in attributes:
-                attr_data = attributes[flattened_key]
-                if isinstance(attr_data, dict):
-                    return attr_data.get('value')
-                return attr_data
-
-    # Final fallback: progressive resolution for complex paths
-    if len(parts) > 2:
-        current = component
-        for i, part in enumerate(parts):
-            if i == 0:
-                # Look for the base attribute in both attributes and nested_properties
-                current = None
-
-                # Try all possible key variations
-                for key_candidate in possible_keys:
-                    # Check attributes first
-                    if key_candidate in component.get('attributes', {}):
-                        current = component['attributes'][key_candidate]
-                        break
-                    # Then check nested_properties
-                    if key_candidate in component.get('nested_properties', {}):
-                        current = component['nested_properties'][key_candidate]
-                        break
-
-                if current is None:
-                    return None
-            else:
-                if isinstance(current, dict):
-                    # Try the exact part name and variations
-                    if part in current:
-                        current = current[part]
-                    else:
-                        # Try variations
-                        found = False
-                        for variation in [part, part.lower(), part.replace('has', ''), part.replace('Reference', 'Ref')]:
-                            if variation in current:
-                                current = current[variation]
-                                found = True
-                                break
-                        if not found:
-                            return None
-                else:
-                    return None
-
-        return current if current is not None else None
-
-    # Dotted Attribute.nestedProp fallback (pure helper).
-    if component.get('source') in ['ttl_use_case', 'knowledge_graph']:
-        try:
-            return get_nested_property_from_ttl_component(component, requirement_path)
-        except Exception:
-            pass
-
-    return None
+def _merged_attribute(component, attribute_name):
+    """A copy of the named attribute's data with its nested properties merged
+    in, re-typed dynamic when a time series link or reference is among them."""
+    attr_data = component.get('attributes', {}).get(attribute_name)
+    attr_data = dict(attr_data) if isinstance(attr_data, dict) else {}
+    nested = component.get('nested_properties', {}).get(attribute_name)
+    if isinstance(nested, dict):
+        attr_data.update(nested)
+    if has_time_series_data(attr_data.keys()):
+        attr_data['attribute_type'] = AttributeKind.DYNAMIC
+    return attr_data
 
 
 def resolve_enhanced_attribute_value(component, req_attr):
-    """
-    FIXED: Properly resolve attribute values and include nested properties for TTL generation
-    """
-    try:
-        # Validate inputs
-        if not component or not req_attr:
-            return None, None, None
-
-        if not isinstance(component, dict):
-            return None, None, None
-
-        # Handle nested attribute requirements like Power.hasHistoricTimeSeriesReference
-        if '.' in req_attr:
-            nested_value = resolve_nested_attribute_requirement(component, req_attr)
-            if nested_value:
-                parts = req_attr.split('.')
-                base_attr_name = parts[0]
-
-                # Get the base attribute data and merge with nested properties
-                component_type = component.get('type', '')
-                possible_base_keys = [
-                    base_attr_name,
-                    f"{base_attr_name}Attribute",
-                    f"{component_type}{base_attr_name}",
-                    f"{component_type}{base_attr_name}Attribute"
-                ]
-
-                # Start with base attribute data
-                attr_data = {}
-                component_attributes = component.get('attributes', {})
-
-                for key in possible_base_keys:
-                    if key in component_attributes and isinstance(component_attributes[key], dict):
-                        attr_data = component_attributes[key].copy()
-                        break
-
-                # CRITICAL: Merge nested properties into attribute data
-                nested_props = component.get('nested_properties', {})
-                for key in possible_base_keys:
-                    if key in nested_props and isinstance(nested_props[key], dict):
-                        # Safely merge nested properties
-                        for nested_key, nested_val in nested_props[key].items():
-                            if isinstance(nested_key, str):  # Ensure key is hashable
-                                attr_data[nested_key] = nested_val
-                        break
-
-                # Ensure this is marked as DynamicAttribute if it has time series properties
-                if any('TimeSeries' in str(k) for k in attr_data.keys() if isinstance(k, str)):
-                    attr_data['attribute_type'] = 'DynamicAttribute'
-
-                attr_data['value'] = nested_value
-                attr_data['unit'] = attr_data.get('unit', 'text')
-
-                return nested_value, attr_data.get('unit', 'text'), attr_data
-            else:
-                return None, None, None
-
-        # Handle simple attributes - get base attribute and merge nested properties
-        component_attributes = component.get('attributes', {})
-
-        if req_attr in component_attributes:
-            attr_data = component_attributes[req_attr]
-            if isinstance(attr_data, dict):
-                attr_data = attr_data.copy()
-
-                # CRITICAL: For any attribute, check if it has nested properties and merge them
-                nested_props = component.get('nested_properties', {})
-                component_type = component.get('type', '')
-
-                possible_keys = [
-                    req_attr,
-                    f"{req_attr}Attribute",
-                    f"{component_type}{req_attr}",
-                    f"{component_type}{req_attr}Attribute"
-                ]
-
-                for key in possible_keys:
-                    if key in nested_props and isinstance(nested_props[key], dict):
-                        # Safely merge nested properties
-                        for nested_key, nested_val in nested_props[key].items():
-                            if isinstance(nested_key, str):  # Ensure key is hashable
-                                attr_data[nested_key] = nested_val
-                        break
-
-                # Ensure this is marked as DynamicAttribute if it has time series properties
-                if any('TimeSeries' in str(k) for k in attr_data.keys() if isinstance(k, str)):
-                    attr_data['attribute_type'] = 'DynamicAttribute'
-
-                # Return appropriate value based on attribute type
-                if attr_data.get('attribute_type') == 'CategoricalAttribute':
-                    category_value = attr_data.get('category_value', attr_data.get('value'))
-                    return category_value, attr_data.get('unit', 'category'), attr_data
-                elif attr_data.get('attribute_type') == 'EventAttribute':
-                    temporal_value = attr_data.get('temporal_value', attr_data.get('value'))
-                    return temporal_value, attr_data.get('unit', 'temporal'), attr_data
-                else:
-                    return attr_data.get('value'), attr_data.get('unit'), attr_data
-
-        # ENHANCED: Try comprehensive case variations and patterns
-        component_type = component.get('type', '')
-
-        # Generate all possible variations of the attribute name
-        attr_variations = [
-            req_attr,
-            req_attr.lower(),
-            req_attr.replace('_', ''),
-            req_attr.replace('_', ' ').title().replace(' ', ''),
-            req_attr.replace('_', '').lower(),
-            f"{component_type}{req_attr}",
-            f"{component_type}{req_attr}Attribute",
-            f"{req_attr}Attribute",
-            f"{component_type.lower()}{req_attr.lower()}",
-            f"{component_type.lower()}{req_attr.lower()}attribute"
-        ]
-
-        # Remove duplicates while preserving order
-        seen = set()
-        attr_variations = [x for x in attr_variations if not (x in seen or seen.add(x))]
-
-        # Try each variation
-        for variation in attr_variations:
-            if variation in component_attributes:
-                attr_data = component_attributes[variation]
-                if isinstance(attr_data, dict):
-                    attr_data = attr_data.copy()
-
-                    # CRITICAL: For any attribute, check if it has nested properties and merge them
-                    nested_props = component.get('nested_properties', {})
-
-                    possible_keys = [
-                        variation,
-                        f"{variation}Attribute",
-                        f"{component_type}{variation}",
-                        f"{component_type}{variation}Attribute"
-                    ]
-
-                    for key in possible_keys:
-                        if key in nested_props and isinstance(nested_props[key], dict):
-                            # Safely merge nested properties
-                            for nested_key, nested_val in nested_props[key].items():
-                                if isinstance(nested_key, str):  # Ensure key is hashable
-                                    attr_data[nested_key] = nested_val
-                            break
-
-                    # Ensure this is marked as DynamicAttribute if it has time series properties
-                    if any('TimeSeries' in str(k) for k in attr_data.keys() if isinstance(k, str)):
-                        attr_data['attribute_type'] = 'DynamicAttribute'
-
-                    # Return appropriate value based on attribute type
-                    if attr_data.get('attribute_type') == 'CategoricalAttribute':
-                        category_value = attr_data.get('category_value', attr_data.get('value'))
-                        return category_value, attr_data.get('unit', 'category'), attr_data
-                    elif attr_data.get('attribute_type') == 'EventAttribute':
-                        temporal_value = attr_data.get('temporal_value', attr_data.get('value'))
-                        return temporal_value, attr_data.get('unit', 'temporal'), attr_data
-                    else:
-                        return attr_data.get('value'), attr_data.get('unit'), attr_data
-                else:
-                    # Simple value
-                    return attr_data, 'dimensionless', {'value': attr_data, 'unit': 'dimensionless'}
-
-    except Exception:
-        # Never crash TTL generation on a malformed attribute; the old module
-        # surfaced this via st.error, the return contract is unchanged.
+    """``(value, unit, attribute data)`` a requirement resolves to on a
+    component, or ``(None, None, None)``. The attribute data carries the
+    attribute's nested properties merged in, for TTL generation."""
+    if not component or not req_attr or not isinstance(component, dict):
         return None, None, None
 
-    return None, None, None
+    # Nested requirement like Power.hasHistoricTimeSeriesReference
+    if '.' in req_attr:
+        nested_value = resolve_nested_attribute_requirement(component, req_attr)
+        if not nested_value:
+            return None, None, None
+        attr_data = _merged_attribute(component, _requirement_parts(component, req_attr)[0])
+        attr_data['value'] = nested_value
+        attr_data['unit'] = attr_data.get('unit', 'text')
+        return nested_value, attr_data['unit'], attr_data
+
+    raw = component.get('attributes', {}).get(req_attr)
+    if raw is None:
+        return None, None, None
+    if not isinstance(raw, dict):
+        # Simple value
+        return raw, 'dimensionless', {'value': raw, 'unit': 'dimensionless'}
+
+    attr_data = _merged_attribute(component, req_attr)
+    kind = kind_of(attr_data)
+    if kind is AttributeKind.CATEGORICAL:
+        return _attribute_value(attr_data), attr_data.get('unit', 'category'), attr_data
+    if kind is AttributeKind.EVENT:
+        return _attribute_value(attr_data), attr_data.get('unit', 'temporal'), attr_data
+    return attr_data.get('value'), attr_data.get('unit'), attr_data
 
 
 def map_unit_to_uri(unit_str):
@@ -461,38 +239,28 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         generate_basic_attribute_declaration(ttl_lines, attr_uri, attr_name_clean, attr_value, attr_unit, scenario_uri, component_source)
         return
 
-    attribute_type = attr_data.get('attribute_type', 'PhysicalAttribute')
+    kind = kind_of(attr_data) or AttributeKind.PHYSICAL
 
     # FIXED: Handle DynamicAttribute with time series references properly
-    if attribute_type == 'DynamicAttribute':
+    if kind is AttributeKind.DYNAMIC:
         ttl_lines.extend([
             f"<{attr_uri}> a dici_onto:{attr_name_clean} ;",
             f"    a dici_onto:DynamicAttribute ;"
         ])
 
         # Add time series URI if available
-        if 'hasHistoricTimeSeries' in attr_data:
-            ts_uri = attr_data['hasHistoricTimeSeries']
-            ttl_lines.append(f"    dici_onto:hasHistoricTimeSeries <{ts_uri}> ;")
-        elif 'hasLiveTimeSeries' in attr_data:
-            ts_uri = attr_data['hasLiveTimeSeries']
-            ttl_lines.append(f"    dici_onto:hasLiveTimeSeries <{ts_uri}> ;")
-        elif 'hasFutureTimeSeries' in attr_data:
-            ts_uri = attr_data['hasFutureTimeSeries']
-            ttl_lines.append(f"    dici_onto:hasFutureTimeSeries <{ts_uri}> ;")
+        found = first_present(attr_data, TIME_SERIES_LINKS)
+        if found:
+            prop, ts_uri = found
+            ttl_lines.append(f"    dici_onto:{local_key(prop)} <{ts_uri}> ;")
 
         # Add time series reference if available
-        if 'hasHistoricTimeSeriesReference' in attr_data:
-            ts_ref = attr_data['hasHistoricTimeSeriesReference']
-            ttl_lines.append(f"    dici_onto:hasHistoricTimeSeriesReference \"{ts_ref}\"^^xsd:string ;")
-        elif 'hasLiveTimeSeriesReference' in attr_data:
-            ts_ref = attr_data['hasLiveTimeSeriesReference']
-            ttl_lines.append(f"    dici_onto:hasLiveTimeSeriesReference \"{ts_ref}\"^^xsd:string ;")
-        elif 'hasFutureTimeSeriesReference' in attr_data:
-            ts_ref = attr_data['hasFutureTimeSeriesReference']
-            ttl_lines.append(f"    dici_onto:hasFutureTimeSeriesReference \"{ts_ref}\"^^xsd:string ;")
+        found = first_present(attr_data, TIME_SERIES_REFERENCES)
+        if found:
+            prop, ts_ref = found
+            ttl_lines.append(f"    dici_onto:{local_key(prop)} \"{ts_ref}\"^^xsd:string ;")
 
-    elif attribute_type == 'SimpleCostAttribute':
+    elif kind is AttributeKind.SIMPLE_COST:
         ttl_lines.extend([
             f"<{attr_uri}> a dici_onto:{attr_name_clean} ;",
             f"    a dici_onto:SimpleCostAttribute ;",
@@ -508,7 +276,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         currency = attr_data.get('currency', 'CHF')
         ttl_lines.append(f'    dici_onto:currency cur:{currency} ;')
 
-    elif attribute_type == 'UnitBasedCostAttribute':
+    elif kind is AttributeKind.UNIT_BASED_COST:
         ttl_lines.extend([
             f"<{attr_uri}> a dici_onto:{attr_name_clean} ;",
             f"    a dici_onto:UnitBasedCostAttribute ;",
@@ -528,7 +296,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         currency = attr_data.get('currency', 'CHF')
         ttl_lines.append(f'    dici_onto:currency cur:{currency} ;')
 
-    elif attribute_type == 'CategoricalAttribute':
+    elif kind is AttributeKind.CATEGORICAL:
         ttl_lines.extend([
             f"<{attr_uri}> a dici_onto:{attr_name_clean} ;",
             f"    a dici_onto:CategoricalAttribute ;",
@@ -542,7 +310,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
             clean_category = category_value.replace(' ', '').replace('-', '').replace('_', '')
             ttl_lines.append(f'    a dici_onto:{clean_category} ;')
 
-    elif attribute_type == 'GeospatialAttribute':
+    elif kind is AttributeKind.GEOSPATIAL:
         ttl_lines.extend([
             f"<{attr_uri}> a dici_onto:{attr_name_clean} ;",
             f"    a dici_onto:GeospatialAttribute ;",
@@ -559,7 +327,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
             ttl_lines.append(f'    qudt:unit {unit_uri} ;')
 
     # NEW: Handle EventAttribute
-    elif attribute_type == 'EventAttribute':
+    elif kind is AttributeKind.EVENT:
         ttl_lines.extend([
             f"<{attr_uri}> a dici_onto:{attr_name_clean} ;",
             f"    a dici_onto:EventAttribute ;",
@@ -575,8 +343,9 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         ttl_lines.append(f'    dici_onto:hasTemporalValue "{temporal_value}"^^{xsd_datatype} ;')
 
         # Add temporal precision if available
-        if temporal_precision != 'Unknown':
-            ttl_lines.append(f'    dici_onto:hasTemporalPrecision dici_onto:{temporal_precision} ;')
+        precision = precision_term(temporal_precision)
+        if precision is not None and not is_unknown_precision(temporal_precision):
+            ttl_lines.append(f'    dici_onto:hasTemporalPrecision dici_onto:{local_key(precision)} ;')
 
     else:  # PhysicalAttribute or fallback
         ttl_lines.extend([
@@ -601,20 +370,21 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
     ])
 
 
+# XSD datatype of a temporal value, by its dici_onto:TemporalPrecision individual.
+_XSD_BY_PRECISION = {
+    DICI.Year: 'xsd:gYear',
+    DICI.YearMonth: 'xsd:gYearMonth',
+    DICI.Date: 'xsd:date',
+    DICI.DateTime: 'xsd:dateTime',
+}
+
+
 def get_xsd_datatype_for_temporal_precision(temporal_precision, temporal_value):
     """Determine appropriate XSD datatype based on temporal precision and value format"""
-    # Map temporal precision to XSD datatypes
-    precision_mapping = {
-        'Year': 'xsd:gYear',
-        'YearMonth': 'xsd:gYearMonth',
-        'Date': 'xsd:date',
-        'DateTime': 'xsd:dateTime',
-        'Time': 'xsd:time'
-    }
-
-    # Return mapped datatype or fallback based on value format
-    if temporal_precision in precision_mapping:
-        return precision_mapping[temporal_precision]
+    # The precision individual decides
+    precision = precision_term(temporal_precision)
+    if precision in _XSD_BY_PRECISION:
+        return _XSD_BY_PRECISION[precision]
 
     # Fallback: try to infer from value format
     if isinstance(temporal_value, str):
@@ -674,8 +444,7 @@ def generate_time_series_resources(ttl_lines, components, scenario_uri):
             if isinstance(props, dict):
                 # Check for time series URIs
                 for prop_name, prop_value in props.items():
-                    if ('TimeSeries' in prop_name and
-                            'Reference' not in prop_name and
+                    if (is_time_series_key(prop_name) and
                             prop_value and
                             str(prop_value).startswith('http')):
 
@@ -709,7 +478,7 @@ def generate_time_series_resources(ttl_lines, components, scenario_uri):
             unit = None
 
             for prop_name, prop_value in props.items():
-                if 'Reference' in prop_name and prop_value:
+                if is_time_series_reference_key(prop_name) and prop_value:
                     reference = prop_value
                 elif (prop_name.endswith('_unit') or prop_name == 'unit') and prop_value:
                     unit = prop_value
@@ -818,11 +587,7 @@ def generate_full_ttl(draft: ScenarioDraft) -> str:
 
                 if '.' in req_attr:
                     # This is a nested property requirement like ElectricityDemandProfile.hasHistoricTimeSeriesReference
-                    parts = req_attr.split('.')
-
-                    # Remove component type if it matches the first part
-                    if len(parts) > 2 and parts[0] == component_type:
-                        parts = parts[1:]
+                    parts = _requirement_parts(component, req_attr)
 
                     if len(parts) >= 2:
                         base_attr_name = parts[0]  # e.g., ElectricityDemandProfile
@@ -936,28 +701,28 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
         generate_basic_attribute_declaration(ttl_lines, attr_uri, attr_name_clean, attr_value, attr_unit, scenario_uri, component_source)
         return
 
-    attribute_type = attr_data.get('attribute_type', 'PhysicalAttribute')
+    kind = kind_of(attr_data) or AttributeKind.PHYSICAL
 
     # Start attribute declaration
     ttl_lines.append(f"<{attr_uri}> a dici_onto:{attr_name_clean} ;")
 
     # Add attribute type
-    if attribute_type == 'DynamicAttribute':
+    if kind is AttributeKind.DYNAMIC:
         ttl_lines.append(f"    a dici_onto:DynamicAttribute ;")
-    elif attribute_type == 'SimpleCostAttribute':
+    elif kind is AttributeKind.SIMPLE_COST:
         ttl_lines.append(f"    a dici_onto:SimpleCostAttribute ;")
-    elif attribute_type == 'UnitBasedCostAttribute':
+    elif kind is AttributeKind.UNIT_BASED_COST:
         ttl_lines.append(f"    a dici_onto:UnitBasedCostAttribute ;")
-    elif attribute_type == 'CategoricalAttribute':
+    elif kind is AttributeKind.CATEGORICAL:
         ttl_lines.append(f"    a dici_onto:CategoricalAttribute ;")
         # For categorical attributes, add the category type as a second type
         category_value = attr_data.get('category_value', attr_value)
         if category_value and isinstance(category_value, str):
             clean_category = category_value.replace(' ', '').replace('-', '').replace('_', '')
             ttl_lines.append(f'    a dici_onto:{clean_category} ;')
-    elif attribute_type == 'GeospatialAttribute':
+    elif kind is AttributeKind.GEOSPATIAL:
         ttl_lines.append(f"    a dici_onto:GeospatialAttribute ;")
-    elif attribute_type == 'EventAttribute':
+    elif kind is AttributeKind.EVENT:
         ttl_lines.append(f"    a dici_onto:EventAttribute ;")
     else:  # PhysicalAttribute or fallback
         ttl_lines.append(f"    a dici_onto:PhysicalAttribute ;")
@@ -971,10 +736,10 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
 
         if nested_value is not None:
             # Determine the property name and value format
-            if 'TimeSeriesReference' in nested_prop_name:
+            if is_time_series_reference_key(nested_prop_name):
                 # Time series reference - string value
                 ttl_lines.append(f'    dici_onto:{nested_prop_name} "{nested_value}"^^xsd:string ;')
-            elif 'TimeSeries' in nested_prop_name and 'Reference' not in nested_prop_name:
+            elif is_time_series_key(nested_prop_name):
                 # Time series URI - URI reference
                 ttl_lines.append(f'    dici_onto:{nested_prop_name} <{nested_value}> ;')
             elif nested_prop_name in ['cost', 'unit']:
@@ -997,13 +762,13 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
                     ttl_lines.append(f'    dici_onto:{nested_prop_name} "{nested_value}"^^xsd:string ;')
 
     # Handle attribute-specific properties (value, unit, currency, etc.)
-    if attribute_type == 'DynamicAttribute':
+    if kind is AttributeKind.DYNAMIC:
         # For DynamicAttribute, unit is required
         if attr_unit and attr_unit not in ['file', 'text']:
             unit_uri = map_unit_to_uri(attr_unit)
             ttl_lines.append(f'    qudt:unit {unit_uri} ;')
 
-    elif attribute_type in ['SimpleCostAttribute', 'UnitBasedCostAttribute']:
+    elif kind in (AttributeKind.SIMPLE_COST, AttributeKind.UNIT_BASED_COST):
         # Add value
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
@@ -1011,7 +776,7 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
             ttl_lines.append(f'    qudt:value {_string_literal(attr_value)}^^xsd:string ;')
 
         # Add unit for UnitBasedCostAttribute
-        if attribute_type == 'UnitBasedCostAttribute' and attr_unit and attr_unit != 'file':
+        if kind is AttributeKind.UNIT_BASED_COST and attr_unit and attr_unit != 'file':
             unit_uri = map_unit_to_uri(attr_unit)
             ttl_lines.append(f'    qudt:unit {unit_uri} ;')
 
@@ -1019,7 +784,7 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
         currency = attr_data.get('currency', 'CHF')
         ttl_lines.append(f'    dici_onto:currency cur:{currency} ;')
 
-    elif attribute_type == 'EventAttribute':
+    elif kind is AttributeKind.EVENT:
         # Add temporal value with appropriate XSD datatype
         temporal_value = attr_data.get('temporal_value', attr_value)
         temporal_precision = attr_data.get('temporal_precision', 'Unknown')
@@ -1027,10 +792,11 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
         xsd_datatype = get_xsd_datatype_for_temporal_precision(temporal_precision, temporal_value)
         ttl_lines.append(f'    dici_onto:hasTemporalValue "{temporal_value}"^^{xsd_datatype} ;')
 
-        if temporal_precision != 'Unknown':
-            ttl_lines.append(f'    dici_onto:hasTemporalPrecision dici_onto:{temporal_precision} ;')
+        precision = precision_term(temporal_precision)
+        if precision is not None and not is_unknown_precision(temporal_precision):
+            ttl_lines.append(f'    dici_onto:hasTemporalPrecision dici_onto:{local_key(precision)} ;')
 
-    elif attribute_type not in ['CategoricalAttribute']:  # Skip value for categorical
+    elif kind is not AttributeKind.CATEGORICAL:  # Skip value for categorical
         # Add value for other attribute types
         if isinstance(attr_value, (int, float)):
             ttl_lines.append(f'    qudt:value "{attr_value}"^^xsd:decimal ;')
@@ -1076,33 +842,13 @@ def validate_enhanced_component_attributes(components, required_attributes):
             required_attrs = required_attributes[comp_type]
 
             for req_attr in required_attrs:
-                try:
-                    attr_value = resolve_nested_attribute_requirement(component, req_attr)
-                    if _requirement_absent(attr_value):
-                        missing_attributes.append({
-                            'component': component['label'],
-                            'type': comp_type,
-                            'missing_attribute': req_attr
-                        })
-                except Exception:
-                    # Fallback to simple validation
-                    component_attrs = set(component.get('attributes', {}).keys())
-
-                    # Convert attribute names to match common patterns
-                    attr_variations = [
-                        req_attr,
-                        req_attr.lower(),
-                        req_attr.replace('_', ''),
-                        req_attr.replace('_', ' ').title().replace(' ', ''),
-                        req_attr.replace('_', '').lower()
-                    ]
-
-                    if not any(attr.lower() in [v.lower() for v in attr_variations] for attr in component_attrs):
-                        missing_attributes.append({
-                            'component': component['label'],
-                            'type': comp_type,
-                            'missing_attribute': req_attr
-                        })
+                attr_value = resolve_nested_attribute_requirement(component, req_attr)
+                if _requirement_absent(attr_value):
+                    missing_attributes.append({
+                        'component': component['label'],
+                        'type': comp_type,
+                        'missing_attribute': req_attr
+                    })
 
     return missing_attributes
 
@@ -1122,11 +868,8 @@ def get_filtered_components_for_ttl(components, required_attributes):
             # Check if component has all required attributes
             missing_count = 0
             for req_attr in required_attrs:
-                try:
-                    attr_value = resolve_nested_attribute_requirement(component, req_attr)
-                    if _requirement_absent(attr_value):
-                        missing_count += 1
-                except Exception:
+                attr_value = resolve_nested_attribute_requirement(component, req_attr)
+                if _requirement_absent(attr_value):
                     missing_count += 1
 
             # Only include component if it has all required attributes
@@ -1175,33 +918,13 @@ def validate_enhanced_component_attributes_filtered(filtered_components, require
             required_attrs = required_attributes[comp_type]
 
             for req_attr in required_attrs:
-                try:
-                    attr_value = resolve_nested_attribute_requirement(component, req_attr)
-                    if _requirement_absent(attr_value):
-                        missing_attributes.append({
-                            'component': component['label'],
-                            'type': comp_type,
-                            'missing_attribute': req_attr
-                        })
-                except Exception:
-                    # Fallback to simple validation
-                    component_attrs = set(component.get('attributes', {}).keys())
-
-                    # Convert attribute names to match common patterns
-                    attr_variations = [
-                        req_attr,
-                        req_attr.lower(),
-                        req_attr.replace('_', ''),
-                        req_attr.replace('_', ' ').title().replace(' ', ''),
-                        req_attr.replace('_', '').lower()
-                    ]
-
-                    if not any(attr.lower() in [v.lower() for v in attr_variations] for attr in component_attrs):
-                        missing_attributes.append({
-                            'component': component['label'],
-                            'type': comp_type,
-                            'missing_attribute': req_attr
-                        })
+                attr_value = resolve_nested_attribute_requirement(component, req_attr)
+                if _requirement_absent(attr_value):
+                    missing_attributes.append({
+                        'component': component['label'],
+                        'type': comp_type,
+                        'missing_attribute': req_attr
+                    })
 
     return missing_attributes
 
