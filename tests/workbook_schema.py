@@ -38,7 +38,9 @@ def _attribute_op(name: str, col_type, unit, unit_y) -> dict:
         kind, parent = (AttributeKind.PHYSICAL if unit else AttributeKind.SIMPLE_VALUE), \
             "DynamicAttribute"
     elif col_type is AttributeKind.RESOURCE:
-        kind, parent = AttributeKind.SIMPLE_VALUE, "ResourceAttribute"
+        kind, parent = AttributeKind.SIMPLE_VALUE, "DataPathAttribute"
+    elif col_type is AttributeKind.IDENTIFIER:
+        kind, parent = AttributeKind.SIMPLE_VALUE, "IdentifierAttribute"
     else:
         kind = col_type
     op = {"op": "add_attribute", "name": name, "type": _OM_LABEL.get(kind, kind.value)}

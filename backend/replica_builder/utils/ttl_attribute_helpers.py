@@ -462,7 +462,7 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
 
     elif kind is AttributeKind.RESOURCE:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
-        lines.append(f"\ta dici_onto:ResourceAttribute ;")
+        lines.append(f"\ta {kind_term(kind)} ;")
         lines.append(
             f'\tdici_onto:hasDataPath "{escape_ttl_string(attr_data.get("data_path", ""))}"^^xsd:string .'
         )
@@ -499,6 +499,7 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
 
     elif kind is AttributeKind.IDENTIFIER:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
+        lines.append(f"\ta {kind_term(kind)} ;")
         lines.append(
             f'\tdici_onto:identifierValue "{escape_ttl_string(attr_data.get("identifier_value", ""))}" .'
         )

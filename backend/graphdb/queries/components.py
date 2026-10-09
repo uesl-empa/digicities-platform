@@ -216,7 +216,7 @@ def get_all_instance_attribute_links(client) -> pd.DataFrame:
 ATTRIBUTE_KIND_CLASSES = (
     "PhysicalAttribute", "DynamicAttribute", "CategoricalAttribute",
     "EventAttribute", "CurveAttribute", "SimpleCostAttribute",
-    "UnitBasedCostAttribute", "ResourceAttribute", "SimpleValueAttribute",
+    "UnitBasedCostAttribute", "DataPathAttribute", "SimpleValueAttribute", "IdentifierAttribute",
     "CustomPhysicalRatioAttribute", "GeospatialAttribute",
 )
 

@@ -310,7 +310,7 @@ class AttributeMixin:
 
         The repeatable, backend-driven way to reclassify an attribute (e.g. a
         ``WeatherEPW`` that was wrongly declared a ``PhysicalAttribute`` becomes a
-        ``ResourceAttribute`` file reference) rather than hand-editing TTL. Swaps
+        ``DataPathAttribute`` file reference) rather than hand-editing TTL. Swaps
         the ``rdfs:subClassOf`` from whichever base type it currently has to
         ``base_type``, and drops a now-meaningless ``hasDefaultUnit`` when moving
         to a unit-less type. Mirrors :meth:`set_default_unit`'s load/save/export

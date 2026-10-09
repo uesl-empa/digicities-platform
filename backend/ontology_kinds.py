@@ -46,7 +46,7 @@ class AttributeKind(str, Enum):
     CUSTOM_PHYSICAL_RATIO = "CustomPhysicalRatio"
     GEOSPATIAL = "Geospatial"
     ANNOTATION = "Annotation"
-    # No kind class: an identifier is the object of a
+    # Typed IdentifierAttribute, or the object of a
     # ``rdfs:subPropertyOf* dici_onto:hasIdentifier`` link.
     IDENTIFIER = "Identifier"
 
@@ -76,10 +76,11 @@ KIND_CLASS = {
     AttributeKind.SIMPLE_COST: DICI.SimpleCostAttribute,
     AttributeKind.CUSTOM_PHYSICAL_RATIO: DICI.CustomPhysicalRatioAttribute,
     AttributeKind.GEOSPATIAL: DICI.GeospatialAttribute,
+    AttributeKind.IDENTIFIER: DICI.IdentifierAttribute,
     AttributeKind.ANNOTATION: DICI.AnnotationAttribute,
     AttributeKind.SIMPLE_VALUE: DICI.SimpleValueAttribute,
     AttributeKind.PHYSICAL: DICI.PhysicalAttribute,
-    AttributeKind.RESOURCE: DICI.ResourceAttribute,
+    AttributeKind.RESOURCE: DICI.DataPathAttribute,
 }
 _KIND_BY_CLASS = {uri: kind for kind, uri in KIND_CLASS.items()}
 

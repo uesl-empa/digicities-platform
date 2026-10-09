@@ -89,7 +89,8 @@ def get_attributes_with_constraints(client) -> pd.DataFrame:
                     dici_onto:CurveAttribute,
                     dici_onto:SimpleCostAttribute,
                     dici_onto:UnitBasedCostAttribute,
-                    dici_onto:ResourceAttribute,
+                    dici_onto:DataPathAttribute,
+                    dici_onto:IdentifierAttribute,
                     dici_onto:SimpleValueAttribute,
                     dici_onto:CustomPhysicalRatioAttribute,
                     dici_onto:GeospatialAttribute

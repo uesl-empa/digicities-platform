@@ -50,11 +50,9 @@ _ROOTS = frozenset({DICI.Attribute, ROOT_CATEGORY})
 
 
 def _value_kinds(g: Graph) -> Set[URIRef]:
-    """The value-kind classes that are not also inside the component-attribute
-    tree. (The core files ``ResourceAttribute`` under ``ComponentAttribute`` as
-    the category of ``Resource`` AND uses it as the Resource value kind; inside
-    the tree it is read as a category.)"""
-    return {k for k in _KIND_CLASSES if not is_subclass_of(g, k, ROOT_CATEGORY)}
+    """The value-kind classes. None of them is inside the component-attribute
+    tree, so none is ever a component's category."""
+    return set(_KIND_CLASSES)
 
 
 def _not_category(g: Graph) -> Set[URIRef]:

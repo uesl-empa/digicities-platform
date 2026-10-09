@@ -693,6 +693,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         # Create the identifier declaration
                         identifier_lines = [
                             f"{identifier_uri} a dici_onto:{attr_name} ;",
+                            f"\ta {kind_term(kind)} ;",
                             f'\tdici_onto:identifierValue "{_lit(str(value).strip())}" .'
                         ]
                         identifier_declarations.extend(identifier_lines)
@@ -708,7 +709,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
 
                         attr_lines = [
                             f"{attr_uri} a dici_onto:{attr_name} ;",
-                            f"\ta dici_onto:ResourceAttribute ;",
+                            f"\ta {kind_term(kind)} ;",
                             f'\tdici_onto:hasDataPath "{_lit(str(value).strip())}"^^xsd:string .'
                         ]
                         attribute_value_declarations.extend(attr_lines)

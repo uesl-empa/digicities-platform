@@ -643,7 +643,7 @@ class RobustTTL2YAMLProcessor:
                 return curve
 
         # Handle resource (file/path) references and simple no-unit values.
-        # ResourceAttribute stores its value in dici_onto:hasDataPath (e.g. a
+        # A DataPathAttribute stores its value in dici_onto:hasDataPath (e.g. a
         # weather .epw file reference); SimpleValueAttribute in
         # dici_onto:hasAttributeValue. Neither carries a qudt:value.
         for val in self.g.objects(attr_uri, self.DICI.hasDataPath):
