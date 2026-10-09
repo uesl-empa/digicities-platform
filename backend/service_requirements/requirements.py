@@ -40,7 +40,6 @@ def requirements_ttl(
     links: Iterable[Tuple[str, str]],
     base: str,
     outputs: Iterable[Tuple[str, Sequence[str], Optional[str]]] = (),
-    stream_inputs: Iterable[Tuple[str, Sequence[str], Optional[str], Optional[str]]] = (),
 ) -> str:
     """Serialize a service's requirements as Turtle.
 
@@ -62,12 +61,10 @@ def requirements_ttl(
     ontology, so it is declared inline per the workspace-extension model —
     promotion to core follows the usual 2+ workpackage rule.
 
-    ``stream_inputs`` yields (entity, attribute names, stream address, the
-    component it feeds) — what the service READS from a live stream (a weather
-    forecast feed). Each is a ``ComponentAttributeRequirement`` with the stream's
-    ``atStreamAddress``, and ``feedsEntity`` names the component type the stream
-    belongs to (the guide's ``WindPark``-``Weather`` link). Before this only
-    outputs had a stream address; an input stream existed in no graph at all.
+    What the service READS from a live stream needs nothing extra here: the
+    stream's component is an input like any other (a requirement on its
+    attribute), and the stream's address is that attribute's
+    ``hasLiveTimeSeriesReference`` in the replica, one source of truth.
     """
     g = Graph()
     g.bind("dici_onto", DICI)
@@ -98,32 +95,6 @@ def requirements_ttl(
         g.add((req, DICI.hasInputEntity, DICI[dom]))
         g.add((req, DICI.hasInputEntity, DICI[rng]))
         g.add((req, RDFS.label, Literal(f"{dom} linked to {rng}", lang="en")))
-
-    stream_inputs = list(stream_inputs or ())
-    if stream_inputs:
-        g.bind("owl", OWL)
-        g.add((DICI.atStreamAddress, RDF.type, OWL.DatatypeProperty))
-        g.add((DICI.feedsEntity, RDF.type, OWL.ObjectProperty))
-        g.add((DICI.feedsEntity, RDFS.comment, Literal(
-            "The component type a service input stream belongs to (workspace-extension "
-            "vocabulary, pending core promotion)", lang="en")))
-    for entity, attributes, address, feeds in stream_inputs:
-        ent = pascal_case(entity)
-        for attr in attributes or [""]:
-            n += 1
-            req = URIRef(f"{base}req_{n}")
-            g.add((req, RDF.type, DICI.ComponentAttributeRequirement))
-            g.add((req, DICI.isRequiredBy, service))
-            g.add((req, DICI.hasInputEntity, DICI[ent]))
-            if attr:
-                g.add((req, DICI.hasInputAttribute, DICI[pascal_case(attr)]))
-            if address:
-                g.add((req, DICI.atStreamAddress, Literal(address)))
-            if feeds:
-                g.add((req, DICI.feedsEntity, DICI[pascal_case(feeds)]))
-            g.add((req, RDFS.label, Literal(
-                (f"{ent}.{pascal_case(attr)}" if attr else ent) + " required (live stream)"
-                + (f" for {pascal_case(feeds)}" if feeds else ""), lang="en")))
 
     outputs = list(outputs or ())
     if outputs:

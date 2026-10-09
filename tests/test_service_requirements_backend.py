@@ -193,25 +193,17 @@ def test_custom_path_names_rename_block_keys():
     assert {e.path for e in parsed} == {"location", "buildings"}
 
 
-def test_requirements_ttl_states_an_input_stream_and_what_it_feeds():
-    """An input read from a live stream (a weather feed) is a requirement with
-    its stream address and the component type it belongs to. Before, only
-    outputs carried a stream: the input existed in no graph."""
-    ttl = requirements_ttl(
-        "Svc", "", [("WindTurbine", ["HubHeight"])], [], BASE,
-        stream_inputs=[("Weather", ["windspeed forecast"], "weather.forecasts.x", "WindPark")])
+def test_requirements_ttl_has_no_stream_vocabulary_for_inputs():
+    """A live input is a component's live time series in the replica (one source
+    of truth): the requirement is an ordinary one on that component's attribute,
+    with no stream address or "feeds" side vocabulary."""
+    ttl = requirements_ttl("Svc", "", [("Weather", ["WindspeedForecast"])],
+                           [("WindPark", "Weather")], BASE)
     g = rdflib.Graph()
     g.parse(data=ttl, format="turtle")
     D = rdflib.Namespace(DICI)
-    (req,) = list(g.subjects(D.atStreamAddress, rdflib.Literal("weather.forecasts.x")))
-    assert (req, rdflib.RDF.type, D.ComponentAttributeRequirement) in g
+    (req,) = list(g.subjects(D.hasInputAttribute, D.WindspeedForecast))
     assert (req, D.hasInputEntity, D.Weather) in g
-    assert (req, D.hasInputAttribute, D.WindspeedForecast) in g
-    assert (req, D.feedsEntity, D.WindPark) in g
-    assert (req, D.isRequiredBy, rdflib.URIRef(f"{BASE}Svc")) in g
-
-
-def test_requirements_ttl_without_stream_inputs_is_unchanged():
-    a = requirements_ttl("Svc", "", [("B", ["x"])], [], BASE)
-    b = requirements_ttl("Svc", "", [("B", ["x"])], [], BASE, stream_inputs=[])
-    assert a == b and "feedsEntity" not in a
+    assert "feedsEntity" not in ttl and "atStreamAddress" not in ttl
+    with pytest.raises(TypeError):            # no second way to state a stream
+        requirements_ttl("Svc", "", [], [], BASE, stream_inputs=[])

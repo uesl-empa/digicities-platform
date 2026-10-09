@@ -262,15 +262,21 @@ _RECOMMENDATIONS = [
         "service_io",
         "Service inputs, outputs and live streams",
         "What each service needs from this instance's class, what it produces for "
-        "it, and the live streams that feed it (with their addresses).",
+        "it, and the live stream an input reads (the instance's live time series "
+        "reference).",
         "?direction ?service ?entity ?attribute ?stream",
         """  <{uri}> a ?cls .
   ?cls rdfs:subClassOf* dici_onto:Component .
   {{
-    BIND("input (live stream)" AS ?direction)
-    ?n dici_onto:feedsEntity ?cls ; dici_onto:isRequiredBy ?service ;
-       dici_onto:hasInputEntity ?entity ; dici_onto:atStreamAddress ?stream .
-    OPTIONAL {{ ?n dici_onto:hasInputAttribute ?attribute }}
+    ?n dici_onto:hasInputEntity ?cls ; dici_onto:isRequiredBy ?service ;
+       dici_onto:hasInputAttribute ?attribute .
+    BIND(?cls AS ?entity)
+    OPTIONAL {{
+      <{uri}> ?attrLink ?attrNode .
+      ?attrLink rdfs:subPropertyOf* dici_onto:hasAttribute .
+      ?attrNode a ?attribute ; dici_onto:hasLiveTimeSeriesReference ?stream .
+    }}
+    BIND(IF(BOUND(?stream), "input (live stream)", "input") AS ?direction)
   }}
   UNION
   {{
@@ -279,14 +285,6 @@ _RECOMMENDATIONS = [
     BIND(?cls AS ?entity)
     OPTIONAL {{ ?n dici_onto:providesOutputAttribute ?attribute }}
     OPTIONAL {{ ?n dici_onto:atStreamAddress ?stream }}
-  }}
-  UNION
-  {{
-    BIND("input" AS ?direction)
-    ?n dici_onto:hasInputEntity ?cls ; dici_onto:isRequiredBy ?service ;
-       dici_onto:hasInputAttribute ?attribute .
-    BIND(?cls AS ?entity)
-    FILTER NOT EXISTS {{ ?n dici_onto:atStreamAddress ?anyStream }}
   }}""",
         "?direction ?service ?attribute",
     ),
@@ -456,15 +454,19 @@ _WORKSPACE_QUERIES = [
     (
         "service_io",
         "Service inputs, outputs and live streams",
-        "For every service: the component types and attributes it needs, what it "
-        "produces, and the live streams it reads or writes.",
-        "DISTINCT ?service ?direction ?entity ?attribute ?stream ?feeds",
+        "For every service: the component types and attributes it needs (with the "
+        "live stream an input's instances reference), what it produces, and the "
+        "stream it writes its results to.",
+        "DISTINCT ?service ?direction ?entity ?attribute ?stream",
         """  {
-    BIND("input" AS ?direction)
     ?n dici_onto:isRequiredBy ?service ; dici_onto:hasInputEntity ?entity .
     OPTIONAL { ?n dici_onto:hasInputAttribute ?attribute }
-    OPTIONAL { ?n dici_onto:atStreamAddress ?stream }
-    OPTIONAL { ?n dici_onto:feedsEntity ?feeds }
+    OPTIONAL {
+      ?inst a ?entity ; ?attrLink ?attrNode .
+      ?attrLink rdfs:subPropertyOf* dici_onto:hasAttribute .
+      ?attrNode a ?attribute ; dici_onto:hasLiveTimeSeriesReference ?stream .
+    }
+    BIND(IF(BOUND(?stream), "input (live stream)", "input") AS ?direction)
   }
   UNION
   {
@@ -474,7 +476,7 @@ _WORKSPACE_QUERIES = [
     OPTIONAL { ?n dici_onto:atStreamAddress ?stream }
   }""",
         "?service ?direction ?entity ?attribute",
-        (ONTOLOGY_GRAPH, SERVICES_GRAPH),
+        (ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SERVICES_GRAPH),
         None,
     ),
 ]

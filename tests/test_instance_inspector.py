@@ -66,7 +66,12 @@ dici_onto:Pump a owl:Class ;
 dici_onto:Location a owl:Class ;
     rdfs:subClassOf dici_onto:Location, dici_onto:Component .
 
+dici_onto:Weather a owl:Class ;
+    rdfs:subClassOf dici_onto:Weather, dici_onto:Component .
 dici_onto:PhysicalAttribute a owl:Class .
+dici_onto:DynamicAttribute a owl:Class .
+dici_onto:WindSpeed a owl:Class ;
+    rdfs:subClassOf dici_onto:WindSpeed, dici_onto:DynamicAttribute .
 dici_onto:HubHeight a owl:Class ;
     rdfs:subClassOf dici_onto:HubHeight, dici_onto:PhysicalAttribute .
 
@@ -74,6 +79,8 @@ dici_onto:HubHeight a owl:Class ;
 dici_onto:locatedIn a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:linksComponent .
 dici_onto:hasHubHeightAttribute a owl:ObjectProperty ;
+    rdfs:subPropertyOf dici_onto:hasAttribute .
+dici_onto:hasWindSpeedAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
 dici_onto:hasTypeTagAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
@@ -116,6 +123,14 @@ REPLICA = f"""
 
 <{PROJ}/Pump/P1> a dici_onto:Pump, dici_onto:Component ; rdfs:label "Pump 1" .
 
+# A live stream is a component: one instance per stream address, its attribute
+# a live time series whose reference IS the stream.
+<{PROJ}/Weather/W1> a dici_onto:Weather, dici_onto:Component ;
+    rdfs:label "weather.feed" ;
+    dici_onto:hasWindSpeedAttribute <{PROJ}/Weather/W1/WindSpeed> .
+<{PROJ}/Weather/W1/WindSpeed> a dici_onto:WindSpeed, dici_onto:DynamicAttribute ;
+    dici_onto:hasLiveTimeSeriesReference "weather.feed" .
+
 <{PROJ}/Location/Site1> a dici_onto:Location, dici_onto:Component ;
     rdfs:label "Site 1" ;
     dici_onto:hasTypeTagAttribute <{PROJ}/Location/Site1/TypeTag> .
@@ -148,8 +163,8 @@ SCENARIOS = f"""
 """
 
 
-# A service that needs WindTurbine.HubHeight, reads a live weather stream for
-# the turbines, and runs with a profile tuned for T1 plus a service-wide one.
+# A service that needs WindTurbine.HubHeight and the live Weather.WindSpeed, and
+# runs with a profile tuned for T1 plus a service-wide one.
 SERVICES = f"""
 @prefix d: <https://digicities.info/ontology#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
@@ -160,8 +175,7 @@ SERVICES = f"""
     d:hasInputEntity d:WindTurbine ; d:hasInputAttribute d:HubHeight .
 <{PROJ}/services/req_2> a d:ComponentAttributeRequirement ;
     d:isRequiredBy <{PROJ}/services/Svc> ;
-    d:hasInputEntity d:Weather ; d:hasInputAttribute d:WindSpeed ;
-    d:atStreamAddress "weather.feed" ; d:feedsEntity d:WindTurbine .
+    d:hasInputEntity d:Weather ; d:hasInputAttribute d:WindSpeed .
 <{PROJ}/services/Svc/config/site> d:configures <{PROJ}/services/Svc> ;
     d:appliesTo <{PROJ}/WindTurbine/T1> ;
     d:hasConfigurationParameter <{PROJ}/services/Svc/config/site/WakeDecayConstantK> .
@@ -352,14 +366,15 @@ def test_workspace_queries_named_scoped_and_askable():
 def test_all_components_reports_most_specific_classes(client):
     df = client.run(_wq("all_components"))
     by_class = {c.rsplit("#", 1)[-1]: set(g["instance"]) for c, g in df.groupby("class")}
-    assert set(by_class) == {"WindTurbine", "TidalTurbine", "Pump", "Location"}
+    assert set(by_class) == {"WindTurbine", "TidalTurbine", "Pump", "Location", "Weather"}
     assert by_class["WindTurbine"] == {T1, f"{PROJ}/WindTurbine/T2", f"{PROJ}/WindTurbine/Cat1"}
 
 
 def test_class_counts_add_up(client):
     df = client.run(_wq("class_counts"))
     counts = {c.rsplit("#", 1)[-1]: int(n) for c, n in zip(df["class"], df["instances"])}
-    assert counts == {"WindTurbine": 3, "TidalTurbine": 1, "Pump": 1, "Location": 1}
+    assert counts == {"WindTurbine": 3, "TidalTurbine": 1, "Pump": 1, "Location": 1,
+                      "Weather": 1}
 
 
 def test_component_links_span_both_data_graphs(client):
@@ -423,9 +438,29 @@ def test_configuration_shows_the_instance_profile_and_the_service_wide_one(clien
                    ("the whole service", "RedisHost", "redis")}
 
 
-def test_service_io_shows_the_live_stream_that_feeds_the_class(client):
-    df = client.run(_q("service_io"))
+def _io_rows(client, uri):
+    df = client.run(_q("service_io", uri))
+    return {(r["direction"], str(r["attribute"]).rsplit("#", 1)[-1], str(r["stream"]))
+            for _, r in df.iterrows()}
+
+
+def test_service_io_shows_what_the_service_needs_from_the_class(client):
+    rows = _io_rows(client, T1)
+    assert ("input", "HubHeight", "None") in rows or ("input", "HubHeight", "nan") in rows
+    assert not any(d == "input (live stream)" for d, _a, _s in rows)
+
+
+def test_service_io_shows_the_live_stream_of_a_stream_component(client):
+    """The live stream is the Weather instance's live time series reference,
+    never a stream-to-class side vocabulary in the services graph."""
+    rows = _io_rows(client, f"{PROJ}/Weather/W1")
+    assert ("input (live stream)", "WindSpeed", "weather.feed") in rows
+
+
+def test_workspace_service_io_reads_the_stream_from_the_replica(client):
+    q = next(r["sparql"] for r in workspace_queries() if r["key"] == "service_io")
+    assert "feedsEntity" not in q
+    df = client.run(q)
     rows = {(r["direction"], str(r["attribute"]).rsplit("#", 1)[-1], str(r["stream"]))
             for _, r in df.iterrows()}
     assert ("input (live stream)", "WindSpeed", "weather.feed") in rows
-    assert ("input", "HubHeight", "None") in rows or ("input", "HubHeight", "nan") in rows

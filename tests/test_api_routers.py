@@ -697,20 +697,17 @@ def test_submission_connection_writeback(client, ws):
     assert t["endpoint"] == "redis://h:6379/req.stream"
 
 
-def test_submission_connection_save_keeps_the_input_streams(client, ws):
-    """The editor manages transport fields only: saving a connection must not
-    erase the input streams the contract states (the feeds the service reads)."""
-    streams = [{"stream": "weather.feed", "entity": "Weather",
-                "attributes": ["WindSpeed"], "feeds": "WindPark"}]
-    _seed_template(ws, connection={"transport": "redis", "result_stream": "out",
-                                   "input_streams": streams})
+def test_submission_connection_save_writes_the_transport_only(client, ws):
+    """A connection is how the service is called (transport, request/result
+    streams). The live streams the model reads are components' live time series
+    in the replica, never kept in the connection."""
+    _seed_template(ws, connection={"transport": "redis", "result_stream": "out"})
     r = client.put(f"{B}/submission/connection", json={
         "template_file": "Svc.yaml",
         "connection": {"transport": "redis", "host": "h", "result_stream": "out2"}})
     assert r.status_code == 200
     doc = yaml.safe_load((ws / "services" / "Svc.yaml").read_text(encoding="utf-8"))
-    assert doc["connection"]["result_stream"] == "out2"
-    assert doc["connection"]["input_streams"] == streams
+    assert doc["connection"] == {"transport": "redis", "host": "h", "result_stream": "out2"}
 
 
 def test_submission_test_probe_degrades_cleanly(client, ws):
