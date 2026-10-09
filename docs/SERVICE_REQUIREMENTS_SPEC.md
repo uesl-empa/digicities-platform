@@ -182,7 +182,7 @@ The value depends on the attribute's kind, read from the hierarchy:
 | Physical, SimpleCost, UnitBasedCost, Dynamic (a static value) | `qudt:value`, as a number when its datatype is numeric |
 | SimpleValue | `dici_onto:hasAttributeValue` |
 | DataPath | `dici_onto:hasDataPath` |
-| Categorical | `dici_onto:hasCategoricalValue`, else the category the attribute node is typed with |
+| Categorical | the local name of the `dici_onto:hasCategoricalValue` IRI; for data written before that property was stated, the category the attribute node is typed with |
 | Curve | `{"points": [[x, y], ...], "x_unit": ..., "y_unit": ...}` from `dici_onto:hasDataPoints` |
 | Event | the temporal value, rewritten as `01-01-<year>` when it holds a year (see issue 7) |
 

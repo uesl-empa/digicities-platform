@@ -159,7 +159,7 @@
   "backend/ontology_manager/functions/base.py": 1,
   "backend/replica_builder/ttl.py": 5,
   "backend/replica_builder/utils/create_class_and_attribute_graph.py": 57,
-  "backend/replica_builder/utils/ttl_attribute_helpers.py": 47,
+  "backend/replica_builder/utils/ttl_attribute_helpers.py": 46,
   "backend/scenario_builder/__init__.py": 14,
   "backend/scenario_builder/display_utils.py": 1,
   "backend/scenario_builder/emitter.py": 101

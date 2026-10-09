@@ -92,7 +92,9 @@ def test_scenario_link_and_time_series_predicates():
     assert is_time_series_predicate(g, DICI.hasHistoricTimeSeries)
     assert not is_time_series_predicate(g, DICI.hasHistoricTimeSeriesReference)
     assert is_time_series_reference_predicate(g, DICI.hasLiveTimeSeriesReference)
-    assert is_attribute_value_predicate(g, DICI.hasCategoricalValue)
+    assert is_attribute_value_predicate(g, DICI.hasTemporalValue)
+    # an object property: the category IRI, not a literal value
+    assert not is_attribute_value_predicate(g, DICI.hasCategoricalValue)
 
 
 def test_member_serialises_as_its_tag():

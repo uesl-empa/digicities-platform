@@ -56,7 +56,7 @@
 
 <https://digicities.info/proj/ws_golden/WindTurbine/WT1/turbineClass> a dici_onto:turbineClass ;
     a dici_onto:CategoricalAttribute ;
-    a dici_onto:IECClassII ;
+    dici_onto:hasCategoricalValue dici_onto:IECClassII ;
     dici_onto:sourceType "ttl_use_case" ;
     dici_onto:usedInScenario <https://digicities.info/proj/ws_golden/Golden_Scenario> .
 

@@ -370,10 +370,12 @@ def test_generate_classes_and_attributes_ttl():
     assert values and str(values[0]) == "120.5"
     assert (attr, QUDT.unit,
             URIRef("http://qudt.org/vocab/unit/M2")) in g
-    # Categorical attribute dual-typed with its value class.
+    # Categorical attribute: its value is the category IRI, stated with
+    # hasCategoricalValue, never an extra rdf:type.
     cat = URIRef(f"{PROJ}/Building/B1/BuildingType")
     assert (cat, rdflib.RDF.type, DICI.CategoricalAttribute) in g
-    assert (cat, rdflib.RDF.type, DICI.MFH) in g
+    assert (cat, DICI.hasCategoricalValue, DICI.MFH) in g
+    assert (cat, rdflib.RDF.type, DICI.MFH) not in g
 
 
 def test_generate_system_description_ttl_and_validate():
@@ -392,10 +394,9 @@ def test_generate_system_description_ttl_and_validate():
 
 def test_ttl_roundtrip_through_backend_graph_loader():
     """UI-generated TTL parses back through the same backend loader the graph
-    load path uses. Kinds come from the asserted kind classes; the category
-    needs the workspace schema, which says BuildingType is the attribute's own
-    class (the node is typed BuildingType AND MFH, and nothing else in the
-    data tells the two apart)."""
+    load path uses. Kinds come from the asserted kind classes; the category is
+    stated with hasCategoricalValue, so it reads back with or without the
+    workspace schema."""
     from rdflib import RDFS
     from backend.ontology_kinds import DICI
     instances, links = _small_model()
@@ -408,9 +409,9 @@ def test_ttl_roundtrip_through_backend_graph_loader():
     fa = by_id["B1"].attributes["FloorArea"]
     assert fa["type"] == "Physical" and float(fa["value"]) == 120.5 and fa["unit"] == "M2"
     assert by_id["B1"].attributes["BuildingType"]["category_value"] == "MFH"
-    # Without the schema no category is guessed from the node's IRI.
+    # Without the schema the stated value still reads back (nothing is guessed).
     bare = {inst.id: inst for inst in parse_generated_ttl(classes_ttl)}
-    assert "category_value" not in bare["B1"].attributes["BuildingType"]
+    assert bare["B1"].attributes["BuildingType"]["category_value"] == "MFH"
 
     from backend.replica_builder.graph_loader import parse_links_from_graph
     sys_g = Graph()

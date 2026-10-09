@@ -17,11 +17,12 @@ from backend.graphdb.graphs import (
 def categorical_values(client) -> Dict[str, str]:
     """``{attribute IRI: category value IRI}`` for every categorical attribute.
 
-    A categorical attribute node is typed with its attribute class (under
-    dici_onto:CategoricalAttribute) and with the chosen value, and the value
-    is a named individual of that attribute class. Matching that pattern
-    finds the value without reading any class name. Query errors propagate
-    to the caller.
+    The value is the attribute's ``dici_onto:hasCategoricalValue`` (an IRI: a
+    named individual of the attribute's class). Data written before that
+    property was stated typed the node with the chosen value instead; for such
+    a node the value is the type that is a named individual of its attribute
+    class. That fallback goes away once the workspace is rebuilt. Query errors
+    propagate to the caller.
     """
     query = f"""
     PREFIX dici_onto: <https://digicities.info/ontology#>
@@ -30,8 +31,11 @@ def categorical_values(client) -> Dict[str, str]:
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?attribute a ?attrClass .
       ?attrClass rdfs:subClassOf* dici_onto:CategoricalAttribute .
-      ?value a ?attrClass .
-      ?attribute a ?value .
+      {{ ?attribute dici_onto:hasCategoricalValue ?value . }}
+      UNION
+      {{ FILTER NOT EXISTS {{ ?attribute dici_onto:hasCategoricalValue ?stated . }}
+         ?value a ?attrClass .
+         ?attribute a ?value . }}
     }}
     """
     df = client.sparql_api_query(query, out_format="df")

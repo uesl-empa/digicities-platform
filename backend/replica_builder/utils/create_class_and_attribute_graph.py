@@ -925,15 +925,16 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             attr_uri_list.append(attr_uri)
                         add_specific_attr_uri(sheet_name, attr_name, attr_uri, specific_attr_uri_list)
 
-                        # The category is an ontology term, not a literal: write
-                        # it as a safe dici_onto: term (see dici_term) so a value
+                        # The category is an IRI (the named individual the
+                        # Ontology Manager declared), stated with
+                        # hasCategoricalValue, never as an extra rdf:type. Written
+                        # as a safe dici_onto: term (see dici_term) so a value
                         # with spaces or punctuation can't break the whole file.
                         category = dici_term(value)
                         attr_lines = [
                             f"{attr_uri} a dici_onto:{attr_name} ;",
                             f"\ta dici_onto:CategoricalAttribute ;",
-                            f"\ta {category} ;"
-                            f"\tdici_onto:hasCategoricalValue {category} ."
+                            f"\tdici_onto:hasCategoricalValue {category} .",
                         ]
                         attribute_value_declarations.extend(attr_lines)
                         attribute_value_declarations.append("")

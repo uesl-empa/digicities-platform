@@ -218,8 +218,10 @@ click Submit. You should get the model's result back.
 - The component type must be `rdfs:subClassOf* dici_onto:Component`, or it will not show
   in the Explorer or Scenario Builder.
 - Attribute values the converter reads must be in `qudt:value`.
-- A categorical value is encoded as an `rdf:type` of the attribute node (the type that is
-  not the kind class and not the attribute's own class).
+- A categorical value is the IRI the attribute node points at with `dici_onto:hasCategoricalValue`
+  (a named individual of the attribute's class). Data written before that property was stated
+  typed the node with the category instead; the converter still reads that until the workspace
+  is rebuilt.
 - Scenario links are `dici_onto:ComponentLink` nodes with `dici_onto:hasInputEntity` and
   `dici_onto:linksInputyEntityTo`.
 - Keep model-specific mapping in the adapter or the template. Digicities stays generic.

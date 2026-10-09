@@ -18,7 +18,7 @@ In this order:
 1. [`docs/CONCEPTS.md`](docs/CONCEPTS.md): workspace, replica, scenario, service, requirement, collection, and how data moves between them.
 2. [`docs/SERVICE_REQUIREMENTS_SPEC.md`](docs/SERVICE_REQUIREMENTS_SPEC.md): the requirements language a model uses to state what it needs.
 3. [`docs/SEMANTIC_LAYER.md`](docs/SEMANTIC_LAYER.md): what makes Digicities a semantic layer, and what still has to be done.
-4. [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md): what does not work yet, dated and kept up to date.
+4. [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md): what does not work yet, tied to the release each limitation applies to.
 5. [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how the code is organised.
 6. [`docs/POSITIONING.md`](docs/POSITIONING.md): why Digicities, and not FIWARE, IDS, Brick, SHACL alone, OEO or CESDM.
 7. [Linking to established domains](https://github.com/uesl-empa/digicities-ontology/blob/main/docs/LINKING_DOMAINS.md): how to connect the ontology to Brick, OEO, SAREF, BOT, IFC, CityGML and CIM.

@@ -133,7 +133,7 @@ def test_categorical_values_become_valid_ontology_terms(graph):
         == URIRef(DICI + "Electricallyheated")
     odd = _one(graph, URIRef(f"{M1}/Odd"), DICI + "hasCategoricalValue")
     assert odd == URIRef(DICI + "A/B%3Codd%3E%22x%22")
-    assert (URIRef(f"{M1}/Odd"), rdflib.RDF.type, odd) in graph
+    assert (URIRef(f"{M1}/Odd"), rdflib.RDF.type, odd) not in graph
 
 
 def test_row_id_with_space_and_link_to_it_agree(graph):

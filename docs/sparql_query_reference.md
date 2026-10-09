@@ -209,8 +209,7 @@ WHERE {
 ```turtle
 <{attr_uri}> a dici_onto:{AttributeName} ;
     a dici_onto:CategoricalAttribute ;
-    a dici_onto:{CategoryValue} ;
-    dici_onto:hasCategoricalValue dici_onto:{CategoryValue} .
+    dici_onto:hasCategoricalValue dici_onto:{CategoryValue} .   # an IRI, never a literal or an extra rdf:type
 ```
 
 ### Query: All Categorical attributes with their values
@@ -673,7 +672,7 @@ ORDER BY ?container ?aggregate
 | Physical (dynamic) | `dici_onto:DynamicAttribute` | `qudt:value` (decimal) | `qudt:unit` + `dici_onto:hasUnitLabel` | See `hasHistoricTimeSeries`, `hasFutureTimeSeries`, `hasLiveTimeSeries` |
 | TimeSeries (historic/future) | `dici_onto:TimeSeries` | `dici_onto:storedAt`, `dici_onto:hasFileName` | `qudt:unit` + `dici_onto:hasUnitLabel` | Sub-resource of Dynamic attribute |
 | TimeSeries (live) | `dici_onto:TimeSeries` | `dici_onto:realTimeSource` | `qudt:unit` + `dici_onto:hasUnitLabel` | Sub-resource of Dynamic attribute |
-| Categorical | `dici_onto:CategoricalAttribute` | `dici_onto:hasCategoricalValue` (IRI) | — | Also typed as `dici_onto:{CategoryValue}` |
+| Categorical | `dici_onto:CategoricalAttribute` | `dici_onto:hasCategoricalValue` (IRI, an object property) | — | Older data also typed the node `dici_onto:{CategoryValue}` |
 | Event | `dici_onto:EventAttribute` | `dici_onto:hasTemporalValue` | — | `dici_onto:hasTemporalPrecision` controls XSD type |
 | SimpleCost | `dici_onto:SimpleCostAttribute` | `qudt:value` (decimal) | `dici_onto:currency` | Currency only, no unit |
 | UnitBasedCost | `dici_onto:UnitBasedCostAttribute` | `qudt:value` (decimal) | `qudt:unit` + `dici_onto:hasUnitLabel` + `dici_onto:currency` | — |

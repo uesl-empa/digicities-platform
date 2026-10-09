@@ -46,7 +46,7 @@ def _maybe_record(path: Path, content: str) -> None:
 
 
 def _fmt_triples(graph: rdflib.Graph, limit: int = 12) -> str:
-    lines = sorted(t.n3() for t in graph)  # type: ignore[attr-defined]
+    lines = sorted(" ".join(term.n3() for term in triple) for triple in graph)
     shown = "\n    ".join(lines[:limit])
     extra = f"\n    … {len(lines) - limit} more" if len(lines) > limit else ""
     return "    " + shown + extra if lines else "    (none)"

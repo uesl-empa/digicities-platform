@@ -401,9 +401,15 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
             lines.extend(ts_declarations)
 
     elif kind is AttributeKind.CATEGORICAL:
+        # The value is the category IRI, stated with hasCategoricalValue (an
+        # object property), never an extra rdf:type of the attribute node.
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
-        lines.append(f"\ta dici_onto:CategoricalAttribute ;")
-        lines.append(f"\ta dici_onto:{attr_data.get('category_value', '')} .")
+        category = attr_data.get('category_value', '')
+        if category:
+            lines.append("\ta dici_onto:CategoricalAttribute ;")
+            lines.append(f"\tdici_onto:hasCategoricalValue {dici_term(category)} .")
+        else:
+            lines.append("\ta dici_onto:CategoricalAttribute .")
 
     elif kind is AttributeKind.EVENT:
         lines.append(f"<{attr_uri}> a dici_onto:{attr_name} ;")
