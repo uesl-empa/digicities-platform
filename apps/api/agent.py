@@ -278,6 +278,17 @@ def state(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
     return _get(session_id, ctx).snapshot()
 
 
+@router.get("/commands")
+def commands(session_id: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """The commands that work in the conversation's current step, for the chat's
+    command list: ``{"stage", "commands": [{key, area, form, usage, description,
+    example, states, slots: [{name, kind, label, choices}]}]}``. Slot choices come
+    from the workspace (classes, attributes, scenarios) and the ontology (the
+    link predicates under ``linksComponent``). Generated from the agent's command
+    registry, the same list its router and help use."""
+    return _get(session_id, ctx).commands()
+
+
 def _continuing(sess) -> bool:
     """Is this chat in the middle of an onboarding? Its own upload exists (even
     if a restart wiped the temp dir), or it carries a mapping (a chat restored

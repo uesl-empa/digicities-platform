@@ -1114,6 +1114,15 @@ class _FakeAgentSession:
         self.proposed = str(folder)
         return {"messages": [], "stage": "gates", "error": None}
 
+    def commands(self):
+        return {"stage": "built", "commands": [
+            {"key": "set_link", "area": "Replica", "form": "set link {A}→{B} to {predicate}",
+             "usage": "set link <Class>→<Class> to <predicate>",
+             "description": "Change the predicate of the link between two classes",
+             "example": "set link WindTurbine→WindPark to hasLocation", "states": ["built"],
+             "slots": [{"name": "predicate", "kind": "predicate", "label": "predicate",
+                        "choices": ["hasLocation", "partOf"]}]}]}
+
 
 @pytest.fixture()
 def agent_env(monkeypatch, ws):
@@ -1150,6 +1159,18 @@ def test_agent_session_lifecycle(client, agent_env):
     assert client.get(f"{B}/agent/chats").json()[0]["id"] == "chat-1"
 
 
+def test_agent_commands_for_the_current_step(client, agent_env):
+    """The React chat's command list: the agent registry's commands for the step
+    the conversation is in, with slot choices."""
+    sid = _start_session(client)
+    body = client.get(f"{B}/agent/commands", params={"session_id": sid}).json()
+    assert body["stage"] == "built"
+    cmd = body["commands"][0]
+    assert cmd["area"] == "Replica" and cmd["form"] == "set link {A}→{B} to {predicate}"
+    assert cmd["slots"][0]["choices"] == ["hasLocation", "partOf"]
+    assert client.get(f"{B}/agent/commands", params={"session_id": "nope"}).status_code == 404
+
+
 def test_agent_unknown_session_404(client, agent_env):
     r = client.post(f"{B}/agent/message", json={"session_id": "nope", "text": "x"})
     assert r.status_code == 404
@@ -1170,6 +1191,7 @@ def test_agent_session_scoped_to_its_own_workspace(client, agent_env):
         ("get", f"{B}/agent/message/stream", dict(params={"session_id": foreign_id, "text": "x"})),
         ("post", f"{B}/agent/message/stream", dict(json={"session_id": foreign_id, "text": "x"})),
         ("get", f"{B}/agent/state", dict(params={"session_id": foreign_id})),
+        ("get", f"{B}/agent/commands", dict(params={"session_id": foreign_id})),
         ("post", f"{B}/agent/model", dict(json={"session_id": foreign_id, "model": "opus"})),
         ("post", f"{B}/agent/mode", dict(json={"session_id": foreign_id, "mode": "auto"})),
     ]:
