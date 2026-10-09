@@ -157,3 +157,13 @@ def test_no_phantom_instance_survives_the_closure(tmp_path):
     assert f"{PROJ}/WindPark/ParkA" in parks
     assert f"{PROJ}/WindPark/NOPE" not in parks
     assert not any("WindPark_ParkA" in p for p in parks)
+
+
+def test_an_instance_is_named_by_its_record_id(graph):
+    labels = set(graph.objects(rdflib.URIRef(f"{PROJ}/WindTurbine/T1"), rdflib.RDFS.label))
+    assert labels == {rdflib.Literal("T1")}
+
+
+def test_a_label_the_sheet_gives_is_kept_alone(graph):
+    labels = set(graph.objects(rdflib.URIRef(f"{PROJ}/WindPark/ParkA"), rdflib.RDFS.label))
+    assert {str(x) for x in labels} == {"Park A"}

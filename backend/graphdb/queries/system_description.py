@@ -39,7 +39,7 @@ def _sys(pattern: str) -> str:
 
 def _ca(pattern: str) -> str:
     # The instance graph with its inferred companion: a link or a type the
-    # platform inferred (``locatedIn`` from ``hasLocation``) still counts here.
+    # platform inferred (``locationOf`` from ``hasLocation``) still counts here.
     return graph_union(CLASSES_AND_ATTRIBUTES_GRAPH, pattern)
 
 
@@ -58,20 +58,30 @@ def _component_types() -> str:
         FILTER(?targetType != dici_onto:Component)"""
 
 
+# The core place predicates: the subject is located in / at the object. Their
+# meaning is distinct in core v0.6.0 (each has its own inverse), so a query for
+# "where is this component" names all of them, never just one.
+LOCATION_PREDICATES = ("locatedIn", "hasLocation", "locatedAt")
+
+
 def query_direct_located_in(client) -> pd.DataFrame:
-    """Direct locatedIn links between components. Columns: source, sourceType, target, targetType."""
+    """Direct place links between components: the source is located in or at the
+    target (any of ``LOCATION_PREDICATES``). Columns: source, sourceType,
+    linkProperty, target, targetType."""
+    values = " ".join(f"dici_onto:{p}" for p in LOCATION_PREDICATES)
     query = f"""
     {_PREFIXES}
-    SELECT DISTINCT ?source ?sourceType ?target ?targetType
+    SELECT DISTINCT ?source ?sourceType ?linkProperty ?target ?targetType
     WHERE {{
-        {{ {_sys("?source dici_onto:locatedIn ?target .")} }}
+        VALUES ?linkProperty {{ {values} }}
+        {{ {_sys("?source ?linkProperty ?target .")} }}
         UNION
-        {{ {_ca("?source dici_onto:locatedIn ?target .")} }}
+        {{ {_ca("?source ?linkProperty ?target .")} }}
         {_component_types()}
     }}
     ORDER BY ?source ?target
     """
-    return run_df(client, query, ["source", "sourceType", "target", "targetType"])
+    return run_df(client, query, ["source", "sourceType", "linkProperty", "target", "targetType"])
 
 
 def query_links_with_subproperty(client) -> pd.DataFrame:

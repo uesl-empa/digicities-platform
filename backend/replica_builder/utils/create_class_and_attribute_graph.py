@@ -2,6 +2,7 @@
 # Copyright © 2026, Empa, James Allan, Reto Fricker
 
 import pandas as pd
+from rdflib import RDFS, Graph, Literal, URIRef
 
 from backend.ontology_kinds import AttributeKind
 from backend.replica_builder.attribute_rules import (
@@ -282,6 +283,10 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
 
     # Store instance declarations and attribute value declarations separately
     instance_declarations = []
+    # Each instance is named by its record id (rdfs:label), unless the sheet
+    # gives it a label of its own: a typed name is matched against labels,
+    # never against the IRI.
+    instance_labels = Graph()
     attribute_value_declarations = []
     class_object_declarations = []  # New: store class object declarations separately
     identifier_declarations = []  # New: store identifier declarations separately
@@ -429,6 +434,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             # Generate instance URI using the specified mode
             instance_uri = generate_instance_uri(project_uri, sheet_name, row_id, uri_mode)
             instance_lines = [f"{instance_uri} a dici_onto:{sheet_name}"]
+            labelled = False
 
             instance_attr_uris = set()
             attr_uri_list = []
@@ -633,6 +639,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                             "label", "comment", "seeAlso", "isDefinedBy"
                         }
                         if attr_name in VALID_RDFS_ANNOTATIONS:
+                            labelled = labelled or attr_name == "label"
                             annotation_lines.append(
                                 f'\trdfs:{attr_name} "{_lit(str(value).strip())}"'
                             )
@@ -1063,6 +1070,9 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             if attr_uri_list:
                 instance_lines.append("\tdici_onto:hasAttribute " + ",\n\t".join(attr_uri_list))
             instance_declarations.append(" ;\n".join(instance_lines) + " .")
+            if not labelled:
+                instance_labels.add((URIRef(instance_uri.strip("<>")), RDFS.label,
+                                     Literal(str(row_id).strip())))
 
             if specific_attr_uri_list:
                 specific_str = f"\n{instance_uri} " + ";\n\t".join(specific_attr_uri_list) + "."
@@ -1073,6 +1083,8 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
     # Combine everything in the correct order: prefixes, references, instance declarations, attribute values
     ttl_lines.extend(reference_declarations)
     ttl_lines.extend(instance_declarations)
+    if len(instance_labels):
+        ttl_lines.append(instance_labels.serialize(format="nt"))
     ttl_lines.extend(attribute_value_declarations)
     ttl_lines.extend(identifier_declarations)
 

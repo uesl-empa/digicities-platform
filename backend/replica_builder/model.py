@@ -157,7 +157,19 @@ def component_type_names(ontology_components: Dict[str, Any]) -> List[str]:
 # Links
 # ---------------------------------------------------------------------------
 
-DEFAULT_LINK_PROPERTIES = ['locatedIn', 'connectedTo']
+def _core_link_property_names() -> List[str]:
+    """Local names of the vendored core's link properties (``rdfs:subPropertyOf*
+    dici_onto:linksComponent``, the root included): the offer when no workspace
+    graph can be asked."""
+    from rdflib import RDFS
+
+    from backend.ontology_kinds import DICI, core_graph, dici_local_name
+
+    found = core_graph().transitive_subjects(RDFS.subPropertyOf, DICI.linksComponent)
+    return sorted(n for n in map(dici_local_name, found) if n)
+
+
+DEFAULT_LINK_PROPERTIES = _core_link_property_names()
 
 
 def extract_link_property_names(result) -> List[str]:
