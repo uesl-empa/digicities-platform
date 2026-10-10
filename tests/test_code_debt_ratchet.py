@@ -7,7 +7,10 @@ Four kinds of debt are found per file, from the AST:
 - ``str_heuristic``  ontology meaning read from a name: ``"hasAttribute" in p``,
                      ``uri.endswith("Attribute")``, ``attr_type == "Curve"``,
                      ``str(uri).startswith(str(DICI))``, a SPARQL
-                     ``CONTAINS(STR(?x), ...)``. BANNED: there must be none. Ask
+                     ``CONTAINS(STR(?x), ...)``, or two names compared after
+                     normalising their spelling (``a.lower() == b.lower()``,
+                     ``re.sub("_", "", a) in b``, a name assigned from such a
+                     call). BANNED: there must be none. Ask
                      the ontology instead (``rdfs:subPropertyOf*`` /
                      ``rdfs:subClassOf*``, ``backend.ontology_kinds``).
 - ``except_broad``   ``except:``, ``except Exception``, ``except BaseException``
@@ -141,7 +144,100 @@ def _mentions_namespace(node: ast.expr) -> bool:
     return False
 
 
-def _is_str_heuristic(node: ast.AST) -> bool:
+# Calls that rewrite a name's spelling: case folding and regex substitution.
+NORMALISING_METHODS = ("lower", "upper", "casefold", "title", "capitalize", "swapcase")
+
+
+def _is_normalising_call(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Attribute) and func.attr in NORMALISING_METHODS:
+        return True
+    return (isinstance(func, ast.Attribute) and func.attr == "sub"
+            and isinstance(func.value, ast.Name) and func.value.id == "re")
+
+
+_SCOPES = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _normalised_names(tree: ast.AST) -> dict:
+    """{id(node): names} — per scope (module, function), the names assigned a
+    value whose spelling was normalised (``clean = re.sub(r"_", "",
+    name.lower())``), for every node in that scope."""
+    by_node: dict = {}
+
+    def own_nodes(scope):
+        stack = list(ast.iter_child_nodes(scope))
+        while stack:
+            node = stack.pop()
+            yield node
+            if not isinstance(node, _SCOPES):
+                stack.extend(ast.iter_child_nodes(node))
+
+    def visit(scope):
+        nodes = list(own_nodes(scope))
+        names = set()
+        for node in nodes:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None \
+                    and _is_normalising_call(node.value):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                names |= {t.id for t in targets if isinstance(t, ast.Name)}
+        frozen = frozenset(names)
+        for node in nodes:
+            by_node[id(node)] = frozen
+            if isinstance(node, _SCOPES):
+                visit(node)
+
+    visit(tree)
+    return by_node
+
+
+def _is_normalised(node: ast.expr, normalised: frozenset) -> bool:
+    """The expression's own value is a normalised spelling (not merely
+    something computed from one)."""
+    if _is_normalising_call(node):
+        return True
+    if isinstance(node, ast.Name):
+        return node.id in normalised
+    if isinstance(node, ast.Subscript):
+        return _is_normalised(node.value, normalised)
+    return False
+
+
+# A module constant (``_TEXT_EXTS``, ``TRUTHY``) holds fixed words or file
+# extensions, the same as a literal.
+CONSTANT_NAME = re.compile(r"^_?[A-Z][A-Z0-9_]*$")
+
+
+def _is_literal(node: ast.expr) -> bool:
+    if isinstance(node, ast.Constant):
+        return True
+    if isinstance(node, ast.Name) and CONSTANT_NAME.match(node.id):
+        return True
+    return isinstance(node, (ast.Tuple, ast.List, ast.Set)) and all(
+        isinstance(e, ast.Constant) for e in node.elts)
+
+
+def _is_spelling_match(node: ast.AST, normalised: frozenset) -> bool:
+    """Two names compared after one of them had its spelling normalised.
+    Neither side may be a literal: a fixed word or a file extension is not a
+    name match."""
+    if isinstance(node, ast.Compare):
+        sides = [node.left, *node.comparators]
+        return (not any(_is_literal(s) for s in sides)
+                and any(_is_normalised(s, normalised) for s in sides))
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+            and node.func.attr in ("endswith", "startswith"):
+        return (bool(node.args) and not any(_is_literal(a) for a in node.args)
+                and (_is_normalised(node.func.value, normalised)
+                     or any(_is_normalised(a, normalised) for a in node.args)))
+    return False
+
+
+def _is_str_heuristic(node: ast.AST, normalised: frozenset = frozenset()) -> bool:
+    if _is_spelling_match(node, normalised):
+        return True
     if isinstance(node, ast.Compare):
         if _onto_strings(node.left) or any(_onto_strings(c) for c in node.comparators):
             return True
@@ -163,6 +259,7 @@ def scan_file(path: Path) -> dict[str, list[int]]:
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source)
     lines = source.splitlines()
+    normalised = _normalised_names(tree)
     found: dict[str, list[int]] = defaultdict(list)
     for node in ast.walk(tree):
         kinds = []
@@ -173,7 +270,7 @@ def scan_file(path: Path) -> dict[str, list[int]]:
                 kinds.append("except_silent")
         if isinstance(node, ast.JoinedStr) and _is_turtle(node):
             kinds.append("fstring_turtle")
-        if _is_str_heuristic(node):
+        if _is_str_heuristic(node, normalised.get(id(node), frozenset())):
             kinds.append("str_heuristic")
         if kinds and not DEBT_OK.search(lines[node.lineno - 1]):
             for kind in kinds:
@@ -235,12 +332,18 @@ def test_detectors_find_each_kind(tmp_path):
         "ok = name.startswith('tmp_')\n"                       # not a namespace
         "ok = (s, RDF.type, DICI.Scenario) in g\n"             # a graph lookup
         "ok = namespace_session_key in state\n"                # not a namespace
-        "ok = s.startswith(f'{root}/')\n",                     # 22
+        "ok = s.startswith(f'{root}/')\n"                      # 22
+        "ok = a.lower() == b.lower()\n"                        # 23
+        "clean = re.sub(r'_', '', name.lower())\n"
+        "ok = clean in other\n"                                # 25
+        "ok = ext.lower() in ('.csv', '.ttl')\n"               # a file extension
+        "ok = answer.strip().lower() == 'yes'\n"               # a fixed word
+        "ok = a.lower().endswith(b)\n",                        # 28
         encoding="utf-8")
     found = scan_file(sample)
     assert found["except_broad"] == [3]
     assert found["except_silent"] == [3]
-    assert sorted(found["str_heuristic"]) == [9, 10, 16, 17, 18, 22]
+    assert sorted(found["str_heuristic"]) == [9, 10, 16, 17, 18, 22, 23, 25, 28]
     assert sorted(found["fstring_turtle"]) == [14, 15]
 
 

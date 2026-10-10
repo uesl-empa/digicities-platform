@@ -49,7 +49,11 @@ except ImportError:
 
 # Shared service discovery/reading (workspace services/ + global library).
 from components.service_catalog import services_by_name, read_service_text
-from backend.scenario_builder.semantics import names_component_link_class, names_scenario_class
+from backend.ontology_kinds import AttributeKind
+from backend.scenario_builder.semantics import (
+    attribute_class_kind, names_component_link_class, names_scenario_class, requirements_for,
+)
+from components.scenario_builder.workspace_schema import session_workspace_schema
 
 
 def initialize_session_state():
@@ -425,6 +429,7 @@ def analyze_yaml_requirement_complexity(yaml_content):
         'complex_nested_paths': 0,
         'event_attributes': 0  # NEW: Count potential EventAttribute requirements
     }
+    schema = session_workspace_schema()
 
     def analyze_structure(data, depth=0):
         if isinstance(data, dict):
@@ -441,8 +446,9 @@ def analyze_yaml_requirement_complexity(yaml_content):
                                 if len(template_value.split('.')) > 2:
                                     analysis['complex_nested_paths'] += 1
 
-                                # NEW: Count potential EventAttribute patterns
-                                if any(indicator in template_value.upper() for indicator in ['YEAR', 'DATE', 'TIME', 'AGE', 'CONSTRUCTION']):
+                                # Count EventAttribute references: the
+                                # attribute class sits under EventAttribute.
+                                if attribute_class_kind(template_value.split('.')[1], schema)                                         is AttributeKind.EVENT:
                                     analysis['event_attributes'] += 1
 
                 elif key == 'link' and isinstance(value, str) and value.startswith('CL.'):
@@ -469,6 +475,7 @@ def display_enhanced_service_overview(requirements):
     component_links = requirements['component_links']
     required_attributes = requirements['required_attributes']
     all_required_component_types = requirements.get('all_required_component_types', [])
+    schema = session_workspace_schema()
     complexity_analysis = requirements.get('complexity_analysis', {})
 
     # Create enhanced success message
@@ -494,7 +501,7 @@ def display_enhanced_service_overview(requirements):
                     # NEW: Add indicator for components with EventAttribute requirements
                     event_indicator = ""
                     comp_attrs = required_attributes.get(comp_type, [])
-                    if any(any(indicator in attr.upper() for indicator in ['YEAR', 'DATE', 'TIME', 'AGE', 'CONSTRUCTION'])
+                    if any(attribute_class_kind(attr.split('.')[0], schema) is AttributeKind.EVENT
                            for attr in comp_attrs):
                         event_indicator = " 📅"
 
@@ -758,11 +765,12 @@ def get_attribute_validation_summary():
     total_components_checked = 0
     fully_compliant = 0
 
+    schema = session_workspace_schema()
     for component in st.session_state.scenario_components:
         comp_type = component['type']
-        if comp_type in required_attributes:
+        required_attrs = requirements_for(comp_type, required_attributes, schema)
+        if required_attrs:
             total_components_checked += 1
-            required_attrs = required_attributes[comp_type]
 
             # Use enhanced validation that handles nested properties and EventAttribute
             missing, _, _ = validate_component_attributes_detailed_enhanced(component, required_attrs)

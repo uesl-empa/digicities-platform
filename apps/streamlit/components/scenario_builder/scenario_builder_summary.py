@@ -29,9 +29,12 @@ from datetime import datetime
 
 from backend.ontology_kinds import AttributeKind
 from backend.scenario_builder.draft import ScenarioDraft
-from backend.scenario_builder.semantics import has_time_series_data, kind_of, names_scenario_class
+from backend.scenario_builder.semantics import (
+    attribute_class_kind, has_time_series_data, kind_of, names_scenario_class, names_subclass_of,
+)
 from components.scenario_builder.scenario_builder_links import get_component_type_from_uri
 from backend.scenario_builder import emitter as _emitter
+from components.scenario_builder.workspace_schema import session_workspace_schema
 from backend.scenario_builder.publish import (
     push_scenario_to_graph,
     save_scenario_to_workspace,
@@ -195,14 +198,15 @@ def generate_full_ttl():
         st.session_state.ttl_specificity = 'High'
 
     draft = ScenarioDraft.from_session_state(st.session_state)
-    return _emitter.generate_full_ttl(draft)
+    return _emitter.generate_full_ttl(draft, session_workspace_schema())
 
 
 def validate_enhanced_component_attributes():
     """Enhanced validation that handles nested property requirements including EventAttribute"""
     return _emitter.validate_enhanced_component_attributes(
         st.session_state.scenario_components,
-        st.session_state.get('required_attributes', {}))
+        st.session_state.get('required_attributes', {}),
+        session_workspace_schema())
 
 
 def export_debug_component_data():
@@ -828,7 +832,8 @@ def get_filtered_components_for_ttl():
     """Get components filtered to include only complete components with all required attributes"""
     return _emitter.get_filtered_components_for_ttl(
         st.session_state.scenario_components,
-        st.session_state.get('required_attributes', {}))
+        st.session_state.get('required_attributes', {}),
+        session_workspace_schema())
 
 
 # Function to filter links based on included components
@@ -842,7 +847,8 @@ def get_filtered_links_for_ttl(filtered_components):
 def validate_enhanced_component_attributes_filtered(filtered_components):
     """Enhanced validation for filtered (complete) components only"""
     return _emitter.validate_enhanced_component_attributes_filtered(
-        filtered_components, st.session_state.get('required_attributes', {}))
+        filtered_components, st.session_state.get('required_attributes', {}),
+        session_workspace_schema())
 
 
 # Function to upload scenario to workspace
@@ -930,13 +936,15 @@ def show_enhanced_service_requirements_summary():
 
     st.write("### Enhanced Service Requirements Summary")
     required_attrs = st.session_state.required_attributes
+    schema = session_workspace_schema()
 
     current_workspace = st.session_state.get('current_workspace')
     if current_workspace:
         st.caption(f"Requirements validation for workspace: {current_workspace['name']}")
 
     for comp_type, attributes in required_attrs.items():
-        components_of_type = [c for c in st.session_state.scenario_components if c['type'] == comp_type]
+        components_of_type = [c for c in st.session_state.scenario_components
+                              if names_subclass_of(c.get('type'), comp_type, schema)]
         if components_of_type:
             with st.expander(f"🔧 {comp_type} Components ({len(components_of_type)})", expanded=False):
                 # Separate simple and nested attributes
@@ -1012,18 +1020,15 @@ def show_enhanced_service_requirements_summary():
                                     status = "✅"
                             else:
                                 status = "✅" if has_attr else "❌"
-                        except:
-                            # Fallback to simple check
-                            has_attr = any(
-                                attr_name.lower() == req_attr.lower() or
-                                attr_name.replace('_', '').lower() == req_attr.replace('_', '').lower()
-                                for attr_name in comp_attrs.keys()
-                            )
-                            status = "✅" if has_attr else "❌"
+                        except (KeyError, TypeError, ValueError, AttributeError) as e:
+                            # The requirement could not be resolved on this
+                            # component: say so, never guess from the name.
+                            status = f"⚠️ (could not check: {type(e).__name__})"
 
                         nested_indicator = " (nested)" if '.' in req_attr else ""
-                        # Add temporal indicator for potential EventAttribute
-                        if 'Age' in req_attr or 'Year' in req_attr or 'Date' in req_attr:
+                        # Temporal indicator: the attribute class is an EventAttribute
+                        base_attr = req_attr.split('.')[0]
+                        if kind_of(comp_attrs.get(base_attr)) is AttributeKind.EVENT                                 or attribute_class_kind(base_attr, schema) is AttributeKind.EVENT:
                             temporal_indicator = " 📅"
                         else:
                             temporal_indicator = ""

@@ -1070,7 +1070,9 @@ def test_scenario_instances_shapes_palette(client, ws, monkeypatch):
     body = client.get(f"{B}/scenario/instances").json()
     assert body == [{"component": "Building",
                      "class": "https://digicities.info/ontology#Building",
-                     "instances": [{"uri": "https://p/Building/B1", "label": "B1"}]}]
+                     "instances": [{"uri": "https://p/Building/B1", "label": "B1"}],
+                     # the class and every class above it, for subclass matching
+                     "superclasses": ["Building"]}]
 
 
 # ── agent (onboarder stubbed at the module seam) ──────────────────────────────
@@ -1648,3 +1650,30 @@ def test_submission_convert_says_when_the_extension_is_unreadable(client, ws, mo
                       json={"template_file": "T.yaml", "scenario_file": "S.ttl"}).json()
     assert any("ontology extension could not be read" in w
                for w in got["validation"]["warnings"])
+
+
+def test_scenario_validate_applies_a_requirement_to_subclass_instances(client, ws):
+    """The workspace extension places PV under EnergyConverter: a PV instance
+    must carry what a requirement on EnergyConverter asks, and /instances
+    lists EnergyConverter among the PV class's superclasses."""
+    ext = ws / "ontology" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "pv.ttl").write_text(
+        "@prefix dici_onto: <https://digicities.info/ontology#> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "dici_onto:PV rdfs:subClassOf dici_onto:EnergyConverter .\n", encoding="utf-8")
+    r = client.post(f"{B}/scenario/validate", json={
+        "required_attributes": {"EnergyConverter": ["RatedPower"]},
+        "components": [
+            {"uri": "https://x/PV1", "type": "PV", "label": "PV1"},
+            {"uri": "https://x/B1", "type": "Building", "label": "B1"},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    got = r.json()
+    by_uri = {c["uri"]: c for c in got["components"]}
+    assert by_uri["https://x/PV1"]["status"] == "missing_all"
+    assert by_uri["https://x/PV1"]["required"] == ["RatedPower"]
+    assert by_uri["https://x/PV1"]["included"] is False
+    assert by_uri["https://x/B1"]["status"] == "compliant"
+    assert got["warnings"] == []

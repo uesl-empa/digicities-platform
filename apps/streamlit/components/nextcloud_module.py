@@ -659,7 +659,7 @@ def _display_csv_chart(client: NextcloudClient, filename: str, display_name: str
         # Auto-detect timestamp columns
         timestamp_cols = []
         for col in df.columns:
-            if any(keyword in col.lower() for keyword in ['time', 'date', 'timestamp']):
+            if any(keyword in col.lower() for keyword in ['time', 'date', 'timestamp']):  # debt-ok: CSV column header in a raw file preview
                 timestamp_cols.append(col)
             # Also check if column contains datetime-like data
             elif df[col].dtype == 'object':

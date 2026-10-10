@@ -238,12 +238,16 @@ class DataVisualizer:
             return self._extract_static_data(component), "static"
 
     def _has_geospatial_data(self, component: Dict) -> bool:
-        """Check if component has geospatial attributes"""
-        geo_indicators = ['latitude', 'longitude', 'geometry', 'coordinates', 'elevation', 'location']
+        """Check if component has geospatial attributes: an attribute whose
+        class sits under GeospatialAttribute (core hierarchy), or that the
+        loader filed as geospatial. The attribute's name decides nothing."""
+        from backend.ontology_kinds import AttributeKind
+        from backend.scenario_builder.semantics import attribute_class_kind, kind_of
+
         attributes = component.get('attributes', {})
 
         for attr_name, attr_data in attributes.items():
-            if any(indicator in attr_name.lower() for indicator in geo_indicators):
+            if AttributeKind.GEOSPATIAL in (attribute_class_kind(attr_name), kind_of(attr_data)):
                 return True
             if isinstance(attr_data, dict) and attr_data.get('category') == 'geospatial':
                 return True

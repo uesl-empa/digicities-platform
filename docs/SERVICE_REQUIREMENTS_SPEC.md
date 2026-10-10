@@ -288,8 +288,13 @@ the scenario**, with its links. `URI` and `label` are always met.
 - `derived_attributes: [T.A, ...]` does the same, for values the platform computes at
   convert time (section 6.3).
 
-The gate matches a component's type by its exact name, not by the hierarchy (see
-issue 5).
+A requirement on a class applies to instances of that class and of every class under
+it (`rdfs:subClassOf*` in the workspace extension plus the core): a requirement on
+`EnergyConverter` is met by a PV system that carries the required attributes, and a PV
+system without them is left out. A component under two requirement classes must meet
+both. When the workspace extension cannot be read, only the core hierarchy is used and
+the response says so (`warnings`). The Scenario Builder offers the instances of a
+required class and of its subclasses.
 
 ```yaml
 # example: valid
@@ -464,7 +469,7 @@ a contract has a non-empty value for every attribute the contract requires of it
 type (section 6.1), including nested time series references.
 
 **Does not guarantee:** that the values are correct, in range or in the right unit;
-that the required links exist; requirements on a superclass (issue 5); anything about
+that the required links exist; anything about
 scenarios written by other tools (the onboarding agent writes its own baseline
 scenarios and checks them with its own build gate).
 
@@ -576,25 +581,29 @@ resolved; each needs a decision.
 4. **Nested paths differ between modules.** The converter reads one time series
    reference property and ignores further segments; the Scenario Builder accepts any
    property and any depth.
-5. **Type matching differs.** The converter matches classes through
-   `rdfs:subClassOf*` (a requirement on `Turbine` finds wind turbines); the
-   completeness gate matches the exact class name.
+5. **Type matching differs.** *Resolved in the next platform release:* the
+   completeness gate, the Scenario Builder's instance lists and the Assumptions
+   module now match classes through `rdfs:subClassOf*`, like the converter
+   (section 6.1).
 6. **Link direction and predicate are not part of resolution.** Conversion walks the
    scenario's ComponentLink nodes in both directions; the replica's link predicate
    plays no part. Nesting is decided only when the contract is written (section 5.4).
 7. **Event values are shortened.** A temporal value holding a year is sent as
    `01-01-<year>`, dropping its month and day.
-8. **The template parser reads names.** Reading a contract back
-   (`parse_yaml_to_components`) takes a time series flavour from a field-name suffix
-   (`_live`) or from the property name containing `Historic`, `Live` or `Future`, and
-   decides a field's class with a substring test on the reference.
+8. **The template parser reads names.** *Resolved in the next platform release:*
+   reading a contract back (`parse_yaml_to_components`) takes the flavour from the
+   reference property's place under the time series reference properties
+   (`rdfs:subPropertyOf*`), never from the field name, and a field belongs to a block
+   only when its reference's class segment is the block's class.
 9. **Text that looks like a reference is removed.** The clean step drops any string
    containing `.URI` or `.label`, including free text.
 10. **REST submission does not block on validation errors.** Streamlit refuses a
     payload that failed validation; `POST /submit` refuses only an empty one.
 11. **Aggregates are found by name.** The platform finds derived values by the
     statistic suffix of the attribute name in every reference, not from the
-    `derived_attributes` list.
+    `derived_attributes` list. Reading them from the ontology needs a class-level
+    declaration that neither the core nor the extensions have yet: which attribute
+    class an aggregate class summarises, and with which statistic.
 12. **Three reference shapes.** The converter, the validator (`_REFERENCE_RE`, any
     capitalised `Class.member`) and the clean step (strict `Class.Attr`) each decide
     differently what counts as a reference.

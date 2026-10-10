@@ -24,7 +24,7 @@ from backend.ontology_kinds import (
     kind_for_class,
 )
 from backend.scenario_builder.graph_lookups import categorical_values
-from backend.scenario_builder.semantics import core
+from backend.scenario_builder.semantics import core, names_subclass_of
 
 _QUDT = "http://qudt.org/schema/qudt/"
 _SCHEMA = "https://schema.org/"
@@ -121,8 +121,19 @@ class GraphDBComponentLoader:
         return sorted(self._build_index().keys())
 
     def get_components_by_type(self, component_type: str) -> List[Dict]:
-        """All components of a specific type, from the bulk-loaded index."""
-        return self._build_index().get(component_type, [])
+        """All components of a type or of a class under it
+        (``rdfs:subClassOf*`` in the workspace extension plus core), from the
+        bulk-loaded index: a requirement on EnergyConverter offers the PV
+        systems. Each component keeps its own most specific type."""
+        from components.scenario_builder.workspace_schema import session_workspace_schema
+
+        index = self._build_index()
+        schema = session_workspace_schema()
+        out: List[Dict] = []
+        for leaf_type in sorted(index):
+            if leaf_type == component_type or names_subclass_of(leaf_type, component_type, schema):
+                out.extend(index[leaf_type])
+        return out
 
     def _build_index(self) -> Dict[str, List[Dict]]:
         """Load the whole workspace in a fixed number of bulk SPARQL queries and

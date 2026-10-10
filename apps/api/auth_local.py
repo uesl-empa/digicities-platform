@@ -231,7 +231,7 @@ def create_user(body: _CreateUser, admin: dict = Depends(current_admin)) -> dict
 
 @router.delete("/users/{email}")
 def delete_user(email: str, admin: dict = Depends(current_admin)) -> dict:
-    if email.strip().lower() == admin["email"]:
+    if email.strip().lower() == admin["email"]:  # debt-ok: email addresses compare case-insensitively
         raise HTTPException(400, "You cannot delete your own account.")
     if not users_repo.delete_user(email):
         raise HTTPException(404, "No account with that email.")

@@ -450,7 +450,7 @@ def workspace_selector():
         # Apply search filter
         if search_term:
             search_fields = [workspace['name'], workspace['description'], workspace['type'], workspace['location']]
-            if not any(search_term.lower() in field.lower() for field in search_fields):
+            if not any(search_term.lower() in field.lower() for field in search_fields):  # debt-ok: user search text
                 continue
 
         workspaces.append(workspace)

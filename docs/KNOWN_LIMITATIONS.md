@@ -41,6 +41,17 @@ Impact: a client that ignores the convert report can submit an incomplete payloa
 Since: platform 0.5.0 or earlier.
 Status: open.
 
+**Derived values are recognised by their name.**
+What: a contract field such as `Tree.WeightMean` is treated as a statistic because the
+attribute name ends in a statistic word (`Mean`, `StandardDeviation`, ...)
+(`ensure_template_aggregates` in `backend/collections/materializer.py`). The schema then
+confirms the base attribute and the component class.
+Impact: a real attribute whose name happens to end in `Mean` or `Count` is materialised as
+a statistic.
+Since: platform 0.5.0 or earlier.
+Status: open. Needs a class-level declaration in the ontology: which attribute class an
+aggregate class summarises, and with which statistic.
+
 **Service-side adapters can hide missing data.**
 What: an adapter in front of a model (the flexibility optimiser's, for example) can match names
 loosely and fill in defaults.
@@ -156,7 +167,7 @@ Status: re-provision the workspace, and re-onboard or replay its extension instr
 
 **Error handling and hand-built Turtle are still being cleaned up.**
 What: a test (`tests/test_code_debt_ratchet.py`) counts these per file and only lets them go
-down. In the next platform release: platform 543 broad `except`, 114 silent `except`, 233
+down. In the next platform release: platform 542 broad `except`, 114 silent `except`, 233
 f-string Turtle lines; onboarding agent 169, 68 and 14.
 Impact: some failures are still swallowed instead of reported.
 Since: platform 0.5.0 or earlier.
@@ -178,7 +189,13 @@ an old image.
   category (a named individual of the attribute's class), and every writer states it.
 - Instances carry their record id as `rdfs:label`, and typed instance names are matched by label.
 - String matching on class and predicate names removed from platform and agent; a test now bans
-  it (`test_no_string_matching_in_code`).
+  it (`test_no_string_matching_in_code`), including names compared after changing their
+  spelling (`a.lower() == b.lower()`).
+- A requirement on a class is met by instances of its subclasses everywhere: the Scenario
+  Builder's completeness gate and instance lists, scenario sync and the Assumptions module
+  (a requirement on `EnergyConverter` takes a PV system that carries the required attributes).
+- Reading a contract back takes the time series flavour from the reference property, not
+  from the field name.
 - Derived triples live in their own graphs (`http://inferred/...`), so the graph a user built
   holds exactly what they asserted.
 - `locatedIn` and `hasLocation` no longer collapse into each other under reasoning (`locatedIn`
