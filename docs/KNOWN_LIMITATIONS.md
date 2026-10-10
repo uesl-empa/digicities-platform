@@ -24,8 +24,11 @@ exist in the ontology when the contract is read. There is no schema for the lang
 Impact: a constant of that shape (`Acme.Industries`) is read as a reference, and so as a
 required input. Mistakes in the contract show up late, at conversion.
 Since: platform 0.5.0 or earlier.
-Status: the language is specified in [`SERVICE_REQUIREMENTS_SPEC.md`](SERVICE_REQUIREMENTS_SPEC.md);
-SHACL shapes for it are planned.
+Status: decided (James, 2026-10-10): by the grammar, a reference-shaped constant is a required
+input; write constants in a shape that is not a reference (`Acme Industries`). A check of a
+contract's references against the workspace ontology, when the contract is read, is planned,
+as are SHACL shapes. The language is specified in
+[`SERVICE_REQUIREMENTS_SPEC.md`](SERVICE_REQUIREMENTS_SPEC.md).
 
 **Validation checks completeness, not values.**
 What: `validate_payload` reports references that did not resolve and links that produced no
@@ -84,7 +87,9 @@ Impact: "what if we add two turbines" has to be built by hand. A scenario inheri
 attribute overrides of the scenario it is based on, but not its structure: every scenario
 states its own components and links.
 Since: platform 0.5.0 or earlier.
-Status: planned, needs design decisions.
+Status: values-only inheritance is decided (James, 2026-10-10); inheriting structure belongs to
+the sub-scenario design, which is planned and needs design decisions, as do assumptions as
+nodes.
 
 ## Data and onboarding
 
@@ -140,6 +145,15 @@ rebuilt.
 Since: the next platform release (unreleased) and core ontology 0.7.0.
 Status: re-provision every workspace; re-onboard workspaces onboarded before 2026-08-13; rebuild
 (or re-onboard) workspaces whose services ask for derived values, so the agent declares them.
+
+**Deprecated core aliases are kept longer than one release.**
+What: the aliases core 0.6.0 deprecated (renamed attribute categories and duplicate predicates,
+such as `WindResourceAttribute` → `WindAttribute`) are still in core 0.7.0, although the rule is
+to keep an alias for one release.
+Impact: none for data; the deprecated names remain visible in the ontology.
+Since: core ontology 0.7.0.
+Status: decided (James, 2026-10-10): kept until the live workspaces are re-onboarded; removal is
+planned for the release after 0.7.0.
 
 ## Code quality
 
