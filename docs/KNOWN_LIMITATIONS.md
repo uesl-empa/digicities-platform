@@ -172,24 +172,24 @@ an old image.
   the old `hasDataSource` is its deprecated alias. Tests read the real vendored core.
 - The core no longer gives `qudt:unit` and `qudt:value` a domain or a Digicities parent
   property.
-
-### In the next platform release (unreleased) and core ontology 0.6.0
-
 - A service contract's inputs are required unless listed optional, in the Scenario Builder and
   in payload validation alike (they used to have opposite defaults); the optional lists hold
   references, never field names; control lists are no longer sent to the service; free text
   that mentions `.URI` / `.label` is no longer dropped; one reference shape for every reader.
+- A requirement on a class is met by instances of its subclasses everywhere: the Scenario
+  Builder's completeness gate and instance lists, scenario sync and the Assumptions module
+  (a requirement on `EnergyConverter` takes a PV system that carries the required attributes).
+- Reading a contract back takes the time series flavour from the reference property, not
+  from the field name.
+
+### In the next platform release (unreleased) and core ontology 0.6.0
+
 - A categorical value is an IRI: `hasCategoricalValue` is an object property pointing at the
   category (a named individual of the attribute's class), and every writer states it.
 - Instances carry their record id as `rdfs:label`, and typed instance names are matched by label.
 - String matching on class and predicate names removed from platform and agent; a test now bans
   it (`test_no_string_matching_in_code`), including names compared after changing their
   spelling (`a.lower() == b.lower()`).
-- A requirement on a class is met by instances of its subclasses everywhere: the Scenario
-  Builder's completeness gate and instance lists, scenario sync and the Assumptions module
-  (a requirement on `EnergyConverter` takes a PV system that carries the required attributes).
-- Reading a contract back takes the time series flavour from the reference property, not
-  from the field name.
 - Derived triples live in their own graphs (`http://inferred/...`), so the graph a user built
   holds exactly what they asserted.
 - `locatedIn` and `hasLocation` no longer collapse into each other under reasoning (`locatedIn`
