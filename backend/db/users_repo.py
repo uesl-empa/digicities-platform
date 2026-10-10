@@ -34,7 +34,7 @@ def get_by_email(email: str) -> Optional[dict]:
         return None
     try:
         from sqlalchemy import select
-        u = s.scalars(select(User).where(User.email == email.strip().lower())).first()
+        u = s.scalars(select(User).where(User.email == email.strip().lower())).first()  # debt-ok: email addresses compare case-insensitively
         return _to_dict(u) if u else None
     finally:
         s.close()
@@ -68,7 +68,7 @@ def set_admin(email: str, is_admin: bool = True) -> bool:
         return False
     try:
         from sqlalchemy import select
-        u = s.scalars(select(User).where(User.email == email.strip().lower())).first()
+        u = s.scalars(select(User).where(User.email == email.strip().lower())).first()  # debt-ok: email addresses compare case-insensitively
         if u is None:
             return False
         u.is_admin = is_admin
@@ -90,7 +90,7 @@ def delete_user(email: str) -> bool:
     try:
         from sqlalchemy import delete, select
         from .models import WorkspaceAcl
-        u = s.scalars(select(User).where(User.email == email.strip().lower())).first()
+        u = s.scalars(select(User).where(User.email == email.strip().lower())).first()  # debt-ok: email addresses compare case-insensitively
         if u is None:
             return False
         s.execute(delete(WorkspaceAcl).where(WorkspaceAcl.user_id == u.id))

@@ -42,7 +42,7 @@
   "apps/streamlit/components/scenario_builder/scenario_builder.py": 2,
   "apps/streamlit/components/scenario_builder/scenario_builder_components.py": 5,
   "apps/streamlit/components/scenario_builder/scenario_builder_links.py": 4,
-  "apps/streamlit/components/scenario_builder/scenario_builder_summary.py": 13,
+  "apps/streamlit/components/scenario_builder/scenario_builder_summary.py": 12,
   "apps/streamlit/components/scenario_builder/ttl_use_case_loader.py": 2,
   "apps/streamlit/components/scenario_loader.py": 6,
   "apps/streamlit/components/service_requirements_builder.py": 3,

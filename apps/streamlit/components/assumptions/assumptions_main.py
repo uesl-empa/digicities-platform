@@ -527,9 +527,11 @@ def show_assumption_application_interface():
 
     # Show compatibility overview
     from backend.assumptions.assumption_types import validate_assumption_compatibility
+    from components.scenario_builder.workspace_schema import session_workspace_schema
 
+    schema = session_workspace_schema()
     compatible_count = sum(1 for a in filtered_assumptions
-                           if validate_assumption_compatibility(a, baseline_components)[0])
+                           if validate_assumption_compatibility(a, baseline_components, schema)[0])
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -546,7 +548,7 @@ def show_assumption_application_interface():
     compatibility_status = []
 
     for assumption in filtered_assumptions:
-        is_compatible, _ = validate_assumption_compatibility(assumption, baseline_components)
+        is_compatible, _ = validate_assumption_compatibility(assumption, baseline_components, schema)
 
         category_emoji = {
             'physical': '⚙️',
@@ -589,7 +591,10 @@ def show_assumption_application_interface():
         with col2:
             if is_compatible:
                 st.success("✅ Compatible")
-                affected = len([c for c in baseline_components if c['type'] == selected_assumption['target_component']])
+                from backend.scenario_builder.semantics import names_subclass_of
+                affected = len([c for c in baseline_components
+                                if names_subclass_of(c.get('type'),
+                                                     selected_assumption['target_component'], schema)])
                 st.metric("Affected Components", affected)
             else:
                 st.error("❌ Not Compatible")
@@ -638,6 +643,7 @@ def apply_single_assumption_inline(assumption, new_scenario_name):
     """Apply single assumption - inline version"""
     try:
         from backend.assumptions.assumption_engine import apply_single_assumption
+        from components.scenario_builder.workspace_schema import session_workspace_schema
 
         baseline_scenario = st.session_state.assumptions_baseline_scenario
         namespace = st.session_state.get('assumptions_baseline_namespace')
@@ -648,6 +654,7 @@ def apply_single_assumption_inline(assumption, new_scenario_name):
                 assumption,
                 new_scenario_name,
                 namespace=namespace,
+                schema=session_workspace_schema(),
             )
 
             st.session_state.assumptions_generated_scenarios.append(scenario_data)
@@ -665,6 +672,7 @@ def apply_series_assumption_inline(assumption, base_name):
     """Apply series assumption - inline version"""
     try:
         from backend.assumptions.assumption_engine import apply_series_assumption
+        from components.scenario_builder.workspace_schema import session_workspace_schema
 
         baseline_scenario = st.session_state.assumptions_baseline_scenario
         namespace = st.session_state.get('assumptions_baseline_namespace')
@@ -675,6 +683,7 @@ def apply_series_assumption_inline(assumption, base_name):
                 assumption,
                 base_name,
                 namespace=namespace,
+                schema=session_workspace_schema(),
             )
 
             st.session_state.assumptions_generated_scenarios.extend(scenario_series)
@@ -740,7 +749,7 @@ def tab_manual_modification():
 
     if search_term:
         filtered_components = [c for c in filtered_components
-                               if search_term.lower() in c['label'].lower()]
+                               if search_term.lower() in c['label'].lower()]  # debt-ok: user search text
 
     if not filtered_components:
         st.info("ℹ️ No components match your filters")

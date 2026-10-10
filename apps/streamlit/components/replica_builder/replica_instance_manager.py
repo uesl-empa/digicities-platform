@@ -133,9 +133,9 @@ def tab_manage_instances():
         if filter_text:
             instances = [
                 inst for inst in instances
-                if filter_text.lower() in inst.id.lower() or
-                   filter_text.lower() in inst.label.lower() or
-                   filter_text.lower() in inst.component_type.lower()
+                if filter_text.lower() in inst.id.lower() or  # debt-ok: user search text
+                   filter_text.lower() in inst.label.lower() or  # debt-ok: user search text
+                   filter_text.lower() in inst.component_type.lower()  # debt-ok: user search text
             ]
 
         if not instances:

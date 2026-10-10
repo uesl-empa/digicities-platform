@@ -11,6 +11,7 @@ When the Assumptions module is ported to the React app, replace these with
 templates derived from the workspace's own component types (or move them
 into the bundled demo workspace as data). Tracked in the hardcoding audit.
 """
+from backend.scenario_builder.semantics import names_subclass_of
 
 
 def create_predefined_assumptions():
@@ -93,15 +94,16 @@ def create_predefined_assumptions():
     ]
 
 
-def validate_assumption_compatibility(assumption, baseline_components):
-    """Check if assumption is compatible with baseline components"""
+def validate_assumption_compatibility(assumption, baseline_components, schema=None):
+    """Check if assumption is compatible with baseline components (its target
+    class or a class under it, in the workspace ``schema`` plus core)"""
     target_component_type = assumption['target_component']
     target_attribute = assumption['target_attribute']
 
     # Find matching components
     matching_components = [
         comp for comp in baseline_components
-        if comp['type'] == target_component_type
+        if names_subclass_of(comp.get('type'), target_component_type, schema)
     ]
 
     if not matching_components:
@@ -113,9 +115,8 @@ def validate_assumption_compatibility(assumption, baseline_components):
     for comp in matching_components:
         attributes = comp.get('attributes', {})
 
-        # Flexible attribute matching
         for attr_name in attributes.keys():
-            if is_attribute_match(attr_name, target_attribute):
+            if is_attribute_match(attr_name, target_attribute, schema):
                 components_with_attribute.append(comp)
                 break
 
@@ -125,33 +126,13 @@ def validate_assumption_compatibility(assumption, baseline_components):
     return True, f"Compatible with {len(components_with_attribute)} components"
 
 
-def is_attribute_match(attr_name, target_attribute):
-    """Flexible attribute name matching"""
-    import re
-
-    # Exact match
-    if attr_name == target_attribute:
-        return True
-
-    # Case insensitive
-    if attr_name.lower() == target_attribute.lower():
-        return True
-
-    # Remove underscores and spaces
-    attr_clean = re.sub(r'[_\s]+', '', attr_name.lower())
-    target_clean = re.sub(r'[_\s]+', '', target_attribute.lower())
-
-    if attr_clean == target_clean:
-        return True
-
-    # Partial match
-    if target_clean in attr_clean or attr_clean in target_clean:
-        return True
-
-    return False
+def is_attribute_match(attr_name, target_attribute, schema=None):
+    """The attribute class ``attr_name`` is ``target_attribute`` or a class
+    under it (``rdfs:subClassOf*``). Spelling variants never match."""
+    return attr_name == target_attribute or names_subclass_of(attr_name, target_attribute, schema)
 
 
-def get_assumption_impact_preview(assumption, baseline_components):
+def get_assumption_impact_preview(assumption, baseline_components, schema=None):
     """Get preview of assumption impact"""
     target_component_type = assumption['target_component']
     target_attribute = assumption['target_attribute']
@@ -159,10 +140,10 @@ def get_assumption_impact_preview(assumption, baseline_components):
     affected_components = []
 
     for comp in baseline_components:
-        if comp['type'] == target_component_type:
+        if names_subclass_of(comp.get('type'), target_component_type, schema):
             # Find matching attribute
             for attr_name, attr_info in comp.get('attributes', {}).items():
-                if is_attribute_match(attr_name, target_attribute):
+                if is_attribute_match(attr_name, target_attribute, schema):
                     impact = calculate_impact(assumption, attr_info, comp['label'])
                     if impact:
                         affected_components.append(impact)

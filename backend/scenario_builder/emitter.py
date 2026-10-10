@@ -62,6 +62,7 @@ from backend.scenario_builder.semantics import (
     is_unknown_precision,
     names_subclass_of,
     precision_term,
+    requirements_for,
     stored_series_reference,
 )
 
@@ -500,7 +501,7 @@ def generate_time_series_resources(ttl_lines, components, scenario_uri):
             ])
 
 
-def generate_full_ttl(draft: ScenarioDraft) -> str:
+def generate_full_ttl(draft: ScenarioDraft, schema=None) -> str:
     """Generate complete TTL with enhanced workspace context and FIXED nested attribute handling.
 
     Headless port of the Streamlit ``generate_full_ttl()``: every
@@ -510,7 +511,7 @@ def generate_full_ttl(draft: ScenarioDraft) -> str:
     scenario_name = draft.scenario_name
 
     # Always filter to complete components only
-    components = get_filtered_components_for_ttl(draft.components, draft.required_attributes)
+    components = get_filtered_components_for_ttl(draft.components, draft.required_attributes, schema)
     links = get_filtered_links_for_ttl(draft.links, components)
 
     required_attributes = draft.required_attributes or {}
@@ -575,7 +576,7 @@ def generate_full_ttl(draft: ScenarioDraft) -> str:
                 ttl_lines.append(f'    dici_onto:sourceCatalog "{component["source_catalog"]}" ;')
 
             # FIXED: Process required attributes with proper nested handling
-            required_attrs = required_attributes.get(component_type, [])
+            required_attrs = requirements_for(component_type, required_attributes, schema)
 
             # Separate base attributes from nested properties
             base_attributes = {}
@@ -829,16 +830,18 @@ def _requirement_absent(attr_value) -> bool:
     return False
 
 
-def validate_enhanced_component_attributes(components, required_attributes):
-    """Enhanced validation that handles nested property requirements including EventAttribute"""
+def validate_enhanced_component_attributes(components, required_attributes, schema=None):
+    """Enhanced validation that handles nested property requirements including EventAttribute.
+
+    A requirement on a class applies to instances of that class and of every
+    class under it (``rdfs:subClassOf*`` in the workspace ``schema`` plus core)."""
     missing_attributes = []
     required_attributes = required_attributes or {}
 
     for component in components:
         comp_type = component['type']
-        if comp_type in required_attributes:
-            required_attrs = required_attributes[comp_type]
-
+        required_attrs = requirements_for(comp_type, required_attributes, schema)
+        if required_attrs:
             for req_attr in required_attrs:
                 attr_value = resolve_nested_attribute_requirement(component, req_attr)
                 if _requirement_absent(attr_value):
@@ -852,16 +855,20 @@ def validate_enhanced_component_attributes(components, required_attributes):
 
 
 # Function to filter components based on completeness (always enabled now)
-def get_filtered_components_for_ttl(components, required_attributes):
-    """Get components filtered to include only complete components with all required attributes"""
+def get_filtered_components_for_ttl(components, required_attributes, schema=None):
+    """Get components filtered to include only complete components with all required attributes.
+
+    A requirement on a class applies to instances of that class and of every
+    class under it (``rdfs:subClassOf*`` in the workspace ``schema`` plus core):
+    a PV system must carry what a requirement on EnergyConverter asks."""
     # UPDATED: Always filter out incomplete components - no option to include partial
     filtered_components = []
     required_attributes = required_attributes or {}
 
     for component in components:
         comp_type = component['type']
-        if comp_type in required_attributes:
-            required_attrs = required_attributes[comp_type]
+        required_attrs = requirements_for(comp_type, required_attributes, schema)
+        if required_attrs:
 
             # Check if component has all required attributes
             missing_count = 0
@@ -905,15 +912,17 @@ def get_filtered_links_for_ttl(links, filtered_components):
 
 
 # Function to validate only filtered components
-def validate_enhanced_component_attributes_filtered(filtered_components, required_attributes):
-    """Enhanced validation for filtered (complete) components only"""
+def validate_enhanced_component_attributes_filtered(filtered_components, required_attributes,
+                                                    schema=None):
+    """Enhanced validation for filtered (complete) components only (requirements
+    by class and subclass, see :func:`get_filtered_components_for_ttl`)."""
     missing_attributes = []
     required_attributes = required_attributes or {}
 
     for component in filtered_components:
         comp_type = component['type']
-        if comp_type in required_attributes:
-            required_attrs = required_attributes[comp_type]
+        required_attrs = requirements_for(comp_type, required_attributes, schema)
+        if required_attrs:
 
             for req_attr in required_attrs:
                 attr_value = resolve_nested_attribute_requirement(component, req_attr)

@@ -37,7 +37,10 @@ except ImportError:
     GRAPHDB_LOADER_AVAILABLE = False
 
 from backend.ontology_kinds import AttributeKind
-from backend.scenario_builder.semantics import has_time_series_data, is_unknown_precision, kind_of
+from backend.scenario_builder.semantics import (
+    has_time_series_data, is_unknown_precision, kind_of, requirements_for,
+)
+from components.scenario_builder.workspace_schema import session_workspace_schema
 
 # Pure display helpers (no loader dependency).
 from components.scenario_builder.component_display_utils import (
@@ -926,13 +929,15 @@ def display_scenario_summary():
     source_counts = {}
     attribute_compliance = {'compliant': 0, 'partial': 0, 'missing': 0}
 
+    schema = session_workspace_schema()
     for comp in st.session_state.scenario_components:
         source = comp.get('source', 'unknown')
         source_counts[source] = source_counts.get(source, 0) + 1
 
         comp_type = comp['type']
-        if comp_type in st.session_state.get('required_attributes', {}):
-            required_attrs = st.session_state.required_attributes[comp_type]
+        required_attrs = requirements_for(
+            comp_type, st.session_state.get('required_attributes', {}), schema)
+        if required_attrs:
             missing_count = sum(1 for req_attr in required_attrs
                                 if not resolve_nested_attribute_requirement(comp, req_attr))
 

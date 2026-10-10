@@ -8,11 +8,18 @@ Applies assumptions to baseline scenarios to create modified scenarios
 import uuid
 import json
 
+from backend.scenario_builder.semantics import names_subclass_of
+
 DEFAULT_BASELINE_NAMESPACE = 'https://digicities.info/proj/REFORMERS'
 
 
-def apply_single_assumption(baseline_data, assumption, new_scenario_name, namespace=None):
-    """Apply single assumption to create new scenario"""
+def apply_single_assumption(baseline_data, assumption, new_scenario_name, namespace=None,
+                            schema=None):
+    """Apply single assumption to create new scenario.
+
+    The assumption targets a component class: every component of that class
+    or of a class under it (``rdfs:subClassOf*`` in the workspace ``schema``
+    plus core) is modified."""
     baseline_components = baseline_data['components']
     all_components = []
     assumption_id = str(uuid.uuid4())[:8]
@@ -23,11 +30,11 @@ def apply_single_assumption(baseline_data, assumption, new_scenario_name, namesp
     modified_count = 0
     modification_log = []
     target_components = [comp for comp in baseline_components
-                         if comp['type'] == assumption['target_component']]
+                         if _is_target(comp, assumption, schema)]
 
     # Process all components
     for component in baseline_components:
-        if component['type'] == assumption['target_component']:
+        if _is_target(component, assumption, schema):
             # Create modified component
             original_uri_parts = component['uri'].split('/')
             component_identifier = '/'.join(original_uri_parts[-2:])
@@ -45,7 +52,7 @@ def apply_single_assumption(baseline_data, assumption, new_scenario_name, namesp
 
             # Apply modification
             result = apply_modification_to_component(
-                component, modified_component, assumption
+                component, modified_component, assumption, schema
             )
 
             if result['success']:
@@ -76,8 +83,10 @@ def apply_single_assumption(baseline_data, assumption, new_scenario_name, namesp
     }
 
 
-def apply_series_assumption(baseline_data, assumption, base_scenario_name, namespace=None):
-    """Apply series assumption to create multiple scenarios"""
+def apply_series_assumption(baseline_data, assumption, base_scenario_name, namespace=None,
+                            schema=None):
+    """Apply series assumption to create multiple scenarios (targets by class
+    and subclass, see :func:`apply_single_assumption`)."""
     timesteps = json.loads(assumption['assumption_timesteps'])
     modifier_values = json.loads(assumption['modifier_value_series'])
 
@@ -95,7 +104,7 @@ def apply_series_assumption(baseline_data, assumption, base_scenario_name, names
         modification_log = []
 
         for component in baseline_components:
-            if component['type'] == assumption['target_component']:
+            if _is_target(component, assumption, schema):
                 # Create modified component for this timestep
                 original_uri_parts = component['uri'].split('/')
                 component_identifier = '/'.join(original_uri_parts[-2:])
@@ -114,7 +123,7 @@ def apply_series_assumption(baseline_data, assumption, base_scenario_name, names
 
                 # Apply cumulative modification
                 result = apply_series_modification(
-                    component, modified_component, assumption, i, modifier_values
+                    component, modified_component, assumption, i, modifier_values, schema
                 )
 
                 if result['success']:
@@ -149,13 +158,14 @@ def apply_series_assumption(baseline_data, assumption, base_scenario_name, names
     return scenarios
 
 
-def apply_modification_to_component(original_component, modified_component, assumption):
+def apply_modification_to_component(original_component, modified_component, assumption,
+                                    schema=None):
     """Apply modification to a single component"""
     target_attribute = assumption['target_attribute']
 
     # Find target attribute
     target_attr_name, attr_info = find_target_attribute(
-        original_component, target_attribute
+        original_component, target_attribute, schema
     )
 
     if not target_attr_name:
@@ -216,12 +226,13 @@ def apply_modification_to_component(original_component, modified_component, assu
         return {'success': False}
 
 
-def apply_series_modification(original_component, modified_component, assumption, series_index, modifier_values):
+def apply_series_modification(original_component, modified_component, assumption, series_index,
+                              modifier_values, schema=None):
     """Apply cumulative series modification"""
     target_attribute = assumption['target_attribute']
 
     target_attr_name, attr_info = find_target_attribute(
-        original_component, target_attribute
+        original_component, target_attribute, schema
     )
 
     if not target_attr_name:
@@ -279,28 +290,22 @@ def apply_series_modification(original_component, modified_component, assumption
         return {'success': False}
 
 
-def find_target_attribute(component, target_attribute):
-    """Find target attribute with flexible matching"""
-    import re
+def _is_target(component, assumption, schema=None):
+    """The component's class is the assumption's target class or under it."""
+    return names_subclass_of(component.get('type'), assumption['target_component'], schema)
 
+
+def find_target_attribute(component, target_attribute, schema=None):
+    """The component's attribute whose class is ``target_attribute`` or a
+    class under it (``rdfs:subClassOf*``). The attributes dict is keyed by the
+    attribute class's local name; the class itself wins over a subclass.
+    Spelling variants of the name never match."""
     attributes = component.get('attributes', {})
-
+    if target_attribute in attributes:
+        return target_attribute, attributes[target_attribute]
     for attr_name, attr_info in attributes.items():
-        # Exact match
-        if attr_name == target_attribute:
+        if names_subclass_of(attr_name, target_attribute, schema):
             return attr_name, attr_info
-
-        # Case insensitive
-        if attr_name.lower() == target_attribute.lower():
-            return attr_name, attr_info
-
-        # Remove underscores
-        attr_clean = re.sub(r'[_\s]+', '', attr_name.lower())
-        target_clean = re.sub(r'[_\s]+', '', target_attribute.lower())
-
-        if attr_clean == target_clean:
-            return attr_name, attr_info
-
     return None, None
 
 

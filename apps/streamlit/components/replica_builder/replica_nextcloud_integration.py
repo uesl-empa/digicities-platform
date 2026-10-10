@@ -59,7 +59,7 @@ def list_timeseries_files(file_types: Optional[List[str]] = None) -> Tuple[bool,
         names = [p.split("/")[-1] for p in storage.glob(f"{TIMESERIES_DIR}/*")]
         if file_types:
             exts = tuple(f".{t.lower().lstrip('.')}" for t in file_types)
-            names = [n for n in names if n.lower().endswith(exts)]
+            names = [n for n in names if n.lower().endswith(exts)]  # debt-ok: file extension
         return True, sorted(names), ""
     except Exception as e:
         return False, [], f"Error listing files: {str(e)}"
