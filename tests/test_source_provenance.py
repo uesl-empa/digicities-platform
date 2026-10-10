@@ -4,17 +4,20 @@
 """Regression guards for instance provenance in the Digital Replica Explorer.
 
 A replica can record where each instance came from: the record as a whole
-(``dici_onto:hasSource``) and, where it differs, an individual value (the
-``<attr>_datasource`` column, which has emitted ``prov:wasDerivedFrom`` since long
-before ``hasSource`` existed). The Explorer reads BOTH by matching the
-``prov:wasDerivedFrom`` superproperty, so it works for a hand-authored workbook
-citing its Reference sheet as well as for an onboarded folder.
+(core ``dici_onto:hasReference``) and, where it differs, an individual value (the
+``<attr>_datasource`` column, which emits ``prov:wasDerivedFrom``). The Explorer
+reads BOTH by matching the ``prov:wasDerivedFrom`` superproperty, so it works for a
+hand-authored workbook citing its Reference sheet as well as for an onboarded
+folder. The schema is the REAL vendored core plus a tiny extension: no property is
+redeclared here, so the test sees what the platform sees.
 
 What must hold, and is easy to break:
 
 * both granularities come back, tagged by scope;
 * ``derivedFromCatalogue`` is ALSO a wasDerivedFrom subproperty but points at
   another component — it must not show up as a data source;
+* ``hasSource`` is the flow property, never provenance;
+* the ``hasDataSource`` of workspaces onboarded before core 0.7.0 still counts;
 * a replica with no provenance is untouched, so existing workspaces look the same;
 * an unbound OPTIONAL (NaN, which is truthy) never reaches the UI as "nan".
 
@@ -33,6 +36,7 @@ from backend.graphdb.graphs import (  # noqa: E402
     ONTOLOGY_GRAPH,
 )
 from backend.graphdb.queries import get_component_sources  # noqa: E402
+from backend.ontology_kinds import core_graph  # noqa: E402
 
 PROJ = "https://digicities.info/proj/t"
 
@@ -47,13 +51,10 @@ dici_onto:PowerCurve a owl:Class ; rdfs:label "Power Curve" .
 dici_onto:hasPowerCurveAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
 
-dici_onto:hasSource a owl:ObjectProperty ;
+# What a pre-0.7.0 onboarding declared in the workspace extension.
+dici_onto:hasDataSource a owl:ObjectProperty ;
     rdfs:subPropertyOf prov:wasDerivedFrom ;
     rdfs:range dici_onto:Reference .
-
-# Also a wasDerivedFrom subproperty, but it points at a COMPONENT, not a citation.
-dici_onto:derivedFromCatalogue a owl:ObjectProperty ;
-    rdfs:subPropertyOf prov:wasDerivedFrom .
 """
 
 REPLICA = f"""
@@ -74,15 +75,22 @@ REPLICA = f"""
 
 <{PROJ}/WindTurbine/T1> a dici_onto:WindTurbine ;
     rdfs:label "Turbine 1" ;
-    dici_onto:hasSource <{PROJ}/Reference/park_yaml> ;
+    dici_onto:hasReference <{PROJ}/Reference/park_yaml> ;
     dici_onto:derivedFromCatalogue <{PROJ}/WindTurbine/CatalogueEntry> ;
     dici_onto:hasPowerCurveAttribute <{PROJ}/WindTurbine/T1/PowerCurve> .
 
 <{PROJ}/WindTurbine/T1/PowerCurve> a dici_onto:PowerCurve ;
     prov:wasDerivedFrom <{PROJ}/Reference/types_yaml> .
 
-# No provenance at all.
+# No provenance at all. The flow it feeds names it with hasSource: topology.
 <{PROJ}/WindTurbine/T2> a dici_onto:WindTurbine ; rdfs:label "Turbine 2" .
+<{PROJ}/Flow/F1> a dici_onto:ElectricityFlow ; dici_onto:hasSource <{PROJ}/WindTurbine/T2> .
+<{PROJ}/WindTurbine/T2> dici_onto:isSourceOf <{PROJ}/Flow/F1> .
+
+# Onboarded before core 0.7.0: cites its file with hasDataSource.
+<{PROJ}/Reference/old_csv> a dici_onto:Reference ; rdfs:label "old.csv" .
+<{PROJ}/WindTurbine/T3> a dici_onto:WindTurbine ; rdfs:label "Turbine 3" ;
+    dici_onto:hasDataSource <{PROJ}/Reference/old_csv> .
 """
 
 
@@ -93,7 +101,9 @@ class _Client:
         self.ds = rdflib.Dataset()
         self.ds.graph(rdflib.URIRef(CLASSES_AND_ATTRIBUTES_GRAPH)).parse(
             data=replica, format="turtle")
-        self.ds.graph(rdflib.URIRef(ONTOLOGY_GRAPH)).parse(data=ontology, format="turtle")
+        onto = self.ds.graph(rdflib.URIRef(ONTOLOGY_GRAPH))
+        onto += core_graph()
+        onto.parse(data=ontology, format="turtle")
 
     def sparql_api_query(self, query: str, out_format: str = "df") -> pd.DataFrame:
         res = self.ds.query(query)
@@ -109,8 +119,8 @@ def sources() -> pd.DataFrame:
 
 def test_record_level_source_is_found(sources):
     inst = sources[sources.scope == "instance"]
-    assert len(inst) == 1
-    row = inst.iloc[0]
+    assert sorted(i.rsplit("/", 1)[1] for i in inst["instance"]) == ["T1", "T3"]
+    row = inst[inst["instance"] == f"{PROJ}/WindTurbine/T1"].iloc[0]
     assert row["instance"].endswith("/T1")
     assert row["sourceLabel"] == "park_alkmaar.yaml"
     assert row["sourceType"] == "OnboardedFile"       # local name, not the full IRI
@@ -132,7 +142,13 @@ def test_catalogue_derivation_is_not_reported_as_a_source(sources):
 
 
 def test_instance_without_provenance_is_absent(sources):
-    assert not any(str(i).endswith("/T2") for i in sources["instance"])
+    # T2 is the source of a flow (hasSource): topology, not where its data came from.
+    assert f"{PROJ}/WindTurbine/T2" not in set(sources["instance"])
+
+
+def test_a_pre_070_data_source_is_still_found(sources):
+    row = sources[sources["instance"] == f"{PROJ}/WindTurbine/T3"].iloc[0]
+    assert row["sourceLabel"] == "old.csv"
 
 
 # ── the Explorer's shaping of that query ─────────────────────────────────────

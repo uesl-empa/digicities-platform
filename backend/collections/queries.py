@@ -64,12 +64,20 @@ def base_types_of(client, attribute_class_iri: str) -> List[str]:
     return [str(b) for b in df["base"].tolist()]
 
 
+def _cites(subject: str, source: str) -> str:
+    """SPARQL: ``subject`` cites ``source`` through ``dici_onto:hasReference`` or
+    any subproperty of it (the deprecated ``hasDataSource`` of workspaces
+    onboarded before core v0.7.0 included)."""
+    return (f"  {subject} ?citesP {source} .\n"
+            f"  ?citesP rdfs:subPropertyOf* dici_onto:hasReference .\n")
+
+
 def member_values(client, attribute_class_iri: str,
                   dataset_iri: Optional[str] = None) -> pd.DataFrame:
     """Every attribute instance of the given type attached to a component,
     with its raw value(s). Columns: attr, numValue, simpleValue, catValue,
     catLabel."""
-    ds = f"  ?comp dici_onto:hasDataSource <{dataset_iri}> .\n" if dataset_iri else ""
+    ds = _cites("?comp", f"<{dataset_iri}>") if dataset_iri else ""
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?attr ?numValue ?simpleValue ?catValue ?catLabel
@@ -91,7 +99,7 @@ def grouped_member_values(client, target_class_iri: str, grouping_class_iri: str
     """Target-attribute values paired with the grouping-attribute value on the
     SAME component. Columns: attr, numValue, simpleValue, catValue, catLabel,
     gNumValue, gSimpleValue, gCatValue, gCatLabel."""
-    ds = f"  ?comp dici_onto:hasDataSource <{dataset_iri}> .\n" if dataset_iri else ""
+    ds = _cites("?comp", f"<{dataset_iri}>") if dataset_iri else ""
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?attr ?numValue ?simpleValue ?catValue ?catLabel
@@ -142,7 +150,7 @@ def component_grouped_member_values(client, target_class_iri: str,
     ``prov:wasDerivedFrom``, not ``linksComponent``, so they never group).
     Columns: attr, numValue, simpleValue, catValue, catLabel, container,
     containerLabel."""
-    ds = f"  ?owner dici_onto:hasDataSource <{dataset_iri}> .\n" if dataset_iri else ""
+    ds = _cites("?owner", f"<{dataset_iri}>") if dataset_iri else ""
     query = f"""
     {_PREFIXES}
     SELECT DISTINCT ?attr ?numValue ?simpleValue ?catValue ?catLabel
@@ -309,14 +317,13 @@ def workspace_attribute_types(client) -> pd.DataFrame:
 
 
 def workspace_datasets(client) -> pd.DataFrame:
-    """The data sources (References) components cite via hasDataSource, for the
+    """The data sources (References) components cite via hasReference, for the
     optional dataset filter. Columns: dataset, label, componentCount."""
     query = f"""
     {_PREFIXES}
     SELECT ?dataset ?label (COUNT(DISTINCT ?comp) AS ?componentCount)
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
-      ?comp dici_onto:hasDataSource ?dataset .
-      OPTIONAL {{ ?dataset rdfs:label ?label . }}
+{_cites("?comp", "?dataset")}      OPTIONAL {{ ?dataset rdfs:label ?label . }}
     }}
     GROUP BY ?dataset ?label
     ORDER BY ?dataset
