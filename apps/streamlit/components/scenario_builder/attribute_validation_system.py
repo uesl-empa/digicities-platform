@@ -39,7 +39,7 @@ def tab_enhanced_attribute_validation():
         return
 
     requirements = st.session_state.selected_requirements
-    required_attributes = requirements.get('required_attributes', {})
+    required_attributes = requirements.get('requirements_by_class', {})
 
     if not required_attributes:
         st.info("No attribute requirements specified in the service definition")
@@ -501,7 +501,7 @@ def export_validation_report():
         st.warning("No components or requirements to export")
         return
 
-    required_attributes = st.session_state.selected_requirements.get('required_attributes', {})
+    required_attributes = st.session_state.selected_requirements.get('requirements_by_class', {})
     validation_results = compute_all_validation_results(required_attributes)
 
     # Create report content

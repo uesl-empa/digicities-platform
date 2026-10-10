@@ -194,7 +194,7 @@ scenario_data:
                 'service_name': service_name,
                 'yaml_content': yaml_content,
                 'component_links': component_links,
-                'required_attributes': required_attributes,
+                'requirements_by_class': required_attributes,
                 'nested_requirements': nested_requirements,
                 'complexity_analysis': complexity_analysis,
                 'file_path': yaml_file_path,  # NextCloud path
@@ -284,7 +284,7 @@ def display_enhanced_service_overview(requirements):
     """Display enhanced service overview - simplified version with EventAttribute indicators"""
     service_name = requirements['service_name']
     component_links = requirements['component_links']
-    required_attributes = requirements['required_attributes']
+    required_attributes = requirements['requirements_by_class']
     all_required_component_types = requirements.get('all_required_component_types', [])
     schema = session_workspace_schema()
     complexity_analysis = requirements.get('complexity_analysis', {})

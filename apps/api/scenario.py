@@ -134,6 +134,9 @@ def service_requirements(service: str, ctx: WorkspaceContext = Depends(get_ctx))
 
     file, template = _resolve_service_template(ctx, service)
     out = parse_service_requirements(template)
+    # Deprecated name of requirements_by_class, kept one release for clients
+    # that read it (the React Scenario Builder until it is updated).
+    out["required_attributes"] = out["requirements_by_class"]
     out["file"] = file
     if not out.get("service_name"):
         out["service_name"] = file.rsplit(".", 1)[0]

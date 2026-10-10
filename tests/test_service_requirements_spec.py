@@ -172,7 +172,7 @@ def test_a_root_block_with_no_linked_instance_yields_no_list():
 
 
 def test_optional_and_derived_leave_the_completeness_gate():
-    required = parse_service_requirements(_example("OrchardYield"))["required_attributes"]
+    required = parse_service_requirements(_example("OrchardYield"))["requirements_by_class"]
     assert set(required["Tree"]) == {"URI", "label"}
 
 

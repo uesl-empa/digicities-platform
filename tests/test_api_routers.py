@@ -310,7 +310,9 @@ def test_scenario_requirements_parses_service_template(client, ws):
     assert got["file"] == "demo_sim.yaml"
     assert got["component_links"] == ["CL.Location.Building", "CL.Scenario.Location"]
     assert set(got["required_component_types"]) >= {"Location", "Building"}
-    assert set(got["required_attributes"]["Building"]) == {"URI", "GroundFloorArea"}
+    assert set(got["requirements_by_class"]["Building"]) == {"URI", "GroundFloorArea"}
+    # the deprecated name stays one release for clients that still read it
+    assert got["required_attributes"] == got["requirements_by_class"]
 
 
 def test_scenario_requirements_404_for_unknown_service(client, ws):

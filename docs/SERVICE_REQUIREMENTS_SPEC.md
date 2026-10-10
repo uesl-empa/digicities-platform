@@ -605,8 +605,10 @@ FIXED; each open one needs a decision.
    (section 6).
 2. **Two meanings of `required_attributes`.** FIXED: the control lists hold
    references (`T.A`), never field names; `required_attributes` is deprecated and
-   ignored. The requirement extraction's output (`parse_service_requirements`)
-   still names its class-to-attributes map `required_attributes`.
+   ignored. The requirement extraction's class-to-attributes map
+   (`parse_service_requirements`, `GET /scenario/requirements`) is called
+   `requirements_by_class`; the API also returns it under the old name
+   `required_attributes` for one release.
 3. **Control lists reached the payload.** FIXED: they are never sent (section 9).
 4. **Nested paths differ between modules.** The converter reads one time series
    reference property and ignores further segments; the Scenario Builder accepts any

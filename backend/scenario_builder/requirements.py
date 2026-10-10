@@ -168,12 +168,17 @@ def extract_all_required_component_types(yaml_content: dict) -> list[str]:
 
 
 def parse_service_requirements(yaml_content: dict) -> dict[str, Any]:
-    """The full constraint object the builder UI needs for one service."""
-    required_attributes, nested_requirements = extract_required_attributes_enhanced(yaml_content)
+    """The full constraint object the builder UI needs for one service.
+
+    ``requirements_by_class`` maps each component class to the attributes the
+    contract requires of it (``{"Building": ["URI", "GroundFloorArea"]}``).
+    It is not the contract's deprecated ``required_attributes`` list of
+    references, hence its own name."""
+    by_class, nested_requirements = extract_required_attributes_enhanced(yaml_content)
     return {
         "service_name": yaml_content.get("service_name"),
         "component_links": extract_component_links(yaml_content),
         "required_component_types": extract_all_required_component_types(yaml_content),
-        "required_attributes": required_attributes,
+        "requirements_by_class": by_class,
         "nested_requirements": nested_requirements,
     }
