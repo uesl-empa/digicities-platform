@@ -1,7 +1,7 @@
 # Known limitations
 
 Applies to: **platform 0.5.0 plus the unreleased `fix/foundations` work** (it ships in the next
-platform release) and **core ontology 0.6.0**.
+platform release) and **core ontology 0.7.0**.
 
 This is the one list of what Digicities does not do yet, or does not do well. Other pages
 link here instead of keeping their own list.
@@ -50,25 +50,6 @@ Status: open; the aim is a contract precise enough that adapters only move data.
 
 ## Ontology
 
-**`hasSource` has two meanings.**
-What: in the core, `hasSource` is a flow property (the component a `Flow` comes from). Some
-platform code and tests also treat a record's `hasSource` as "where this record came from"
-(provenance). The onboarding agent writes record sources with `hasDataSource`, which the
-workspace extension declares, not the core.
-Impact: provenance queries depend on extension declarations; a reasoner that reads the core
-alone sees flows where there is provenance.
-Since: core ontology 0.5.0 or earlier.
-Status: planned. A core `hasReference` (under `prov:wasDerivedFrom`, range `Reference`) will
-carry provenance, and `hasSource` stays the flow property.
-
-**The core gives `qudt:unit` a domain.**
-What: the core declares `qudt:unit` with `rdfs:domain dici_onto:Attribute` and as a
-sub-property of `dici_onto:hasUnit`.
-Impact: any QUDT data loaded next to Digicities data inherits Digicities meaning, and an
-external reasoner that applies domains would type QUDT nodes as Digicities attributes.
-Since: core ontology 0.5.0 or earlier.
-Status: planned: drop both statements and keep `hasUnit` as Digicities' own property.
-
 **Domain and range are not used for reasoning.**
 What: by design, using a link never changes what a thing is, so `rdfs:domain` and `rdfs:range`
 are kept as documentation and left out of the reasoner (see [`INFERENCE.md`](INFERENCE.md)).
@@ -86,30 +67,13 @@ Changing IRIs needs a migration plan.
 
 ## Scenarios and assumptions
 
-**Overrides from one scenario can leak into another.**
-What: when the platform materialises a scenario from the shared scenarios graph
-(`construct_scenario_ttl`), it collects every `supersedesAttribute` override in that graph,
-not only the ones of the scenario it is building (`backend/graphdb/queries/scenarios.py`).
-Impact: two scenarios that override the same attribute can show each other's values in the
-materialised view.
-Since: platform 0.5.0 or earlier.
-Status: planned fix: only the overrides used by the scenario being built, with a test of two
-scenarios overriding one attribute.
-
-**Scenario lineage is one level deep.**
-What: a scenario records the scenario it is based on (`basedOn`), but nothing follows that link,
-and `basedOn` is not declared as provenance.
-Impact: a 2040 scenario based on a 2030 scenario based on the baseline does not pick up the
-2030 changes.
-Since: platform 0.5.0 or earlier.
-Status: planned: follow `basedOn` recursively (with a guard against cycles) and declare it
-under `prov:wasDerivedFrom`.
-
 **Sub-scenarios can only change attribute values.**
 What: a scenario cannot add, remove or replace components, and the assumption tools do not
 cover curves, events or data-path attributes. An assumption is not a node of its own in the
 graph.
-Impact: "what if we add two turbines" has to be built by hand.
+Impact: "what if we add two turbines" has to be built by hand. A scenario inherits the
+attribute overrides of the scenario it is based on, but not its structure: every scenario
+states its own components and links.
 Since: platform 0.5.0 or earlier.
 Status: planned, needs design decisions.
 
@@ -152,6 +116,16 @@ Impact: queries that read only asserted data see extra triples in those stores.
 Since: the next platform release (unreleased) and core ontology 0.6.0.
 Status: re-provision the workspace, and re-onboard or replay its extension instructions.
 
+**Workspaces need re-provisioning for core 0.7.0.**
+What: the triplestore holds the core it was provisioned with. Provenance written as
+`hasDataSource` (onboardings from 2026-08-13 on) is found through the core's deprecated alias
+only once core 0.7.0 is loaded. Data onboarded before 2026-08-13 used `hasSource` for
+provenance, which no alias can fix because `hasSource` is the flow property.
+Impact: until re-provisioned, the Collections data-source filter finds no sources. Pre-August
+workspaces show no record sources.
+Since: the next platform release (unreleased) and core ontology 0.7.0.
+Status: re-provision every workspace; re-onboard workspaces onboarded before 2026-08-13.
+
 ## Code quality
 
 **Error handling and hand-built Turtle are still being cleaned up.**
@@ -171,6 +145,21 @@ Status: planned: make it an error. `owlrl` is in `requirements.txt`, so this onl
 an old image.
 
 ## Resolved
+
+### In the next platform release (unreleased) and core ontology 0.7.0
+
+- A scenario's materialised view holds only its own overrides: overrides are scoped by the
+  scenario's `usedInScenario` tag, with a test of two scenarios overriding one attribute. Two
+  overrides of one attribute in one scenario are refused.
+- Scenario lineage is followed: a scenario inherits the overrides of the scenarios it is
+  `basedOn`, recursively, and its own override wins (tested on a 2030 → 2040 → 2050 chain). A
+  cycle or two parents is an error; a parent that cannot be found is reported. `basedOn` is a
+  sub-property of `prov:wasDerivedFrom`; `derivedFrom` is its deprecated alias.
+- `hasSource` has one meaning, the flow property. Provenance is the core's `hasReference`
+  (under `prov:wasDerivedFrom`, range `Reference`), which the onboarding agent now writes;
+  the old `hasDataSource` is its deprecated alias. Tests read the real vendored core.
+- The core no longer gives `qudt:unit` and `qudt:value` a domain or a Digicities parent
+  property.
 
 ### In the next platform release (unreleased) and core ontology 0.6.0
 

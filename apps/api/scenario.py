@@ -155,9 +155,14 @@ def materialized(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[st
         client = graph_client(ctx)
     except Exception:
         client = None
+    from backend.graphdb.queries.scenarios import ScenarioMaterializationError
+
     skipped: list[dict[str, str]] = []
-    ttl = materialize_against_workspace(getattr(ctx, "storage", None), source, client,
-                                        skipped=skipped)
+    try:
+        ttl = materialize_against_workspace(getattr(ctx, "storage", None), source, client,
+                                            skipped=skipped)
+    except ScenarioMaterializationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"name": name, "ttl": ttl, "chars": len(ttl),
             "materialized": ttl != source,
             # Replica files that did not parse (their data is missing above).

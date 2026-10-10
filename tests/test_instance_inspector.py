@@ -36,6 +36,7 @@ from backend.graphdb.graphs import (  # noqa: E402
     SERVICES_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
 )
+from backend.ontology_kinds import core_graph  # noqa: E402
 from backend.graphdb.queries import (  # noqa: E402
     available_recommendations,
     available_workspace_queries,
@@ -84,10 +85,7 @@ dici_onto:hasWindSpeedAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
 dici_onto:hasTypeTagAttribute a owl:ObjectProperty ;
     rdfs:subPropertyOf dici_onto:hasAttribute .
-dici_onto:hasSource a owl:ObjectProperty ;
-    rdfs:subPropertyOf prov:wasDerivedFrom .
-dici_onto:derivedFromCatalogue a owl:ObjectProperty ;
-    rdfs:subPropertyOf prov:wasDerivedFrom .
+# hasReference and derivedFromCatalogue come from the REAL vendored core.
 """
 
 REPLICA = f"""
@@ -101,7 +99,7 @@ REPLICA = f"""
     dici_onto:locatedIn <{PROJ}/Location/Site1> ;
     dici_onto:hasHubHeightAttribute <{T1}/HubHeight> ;
     dici_onto:derivedFromCatalogue <{PROJ}/WindTurbine/Cat1> ;
-    dici_onto:hasSource <{PROJ}/Reference/park_yaml> .
+    dici_onto:hasReference <{PROJ}/Reference/park_yaml> .
 
 # The [] is an ANONYMOUS class typing, as the pre-hygiene inference closure
 # used to mint from owl:Restriction superclasses — older graphs still carry
@@ -191,7 +189,9 @@ class _Client:
         self.ds = rdflib.Dataset()
         self.ds.graph(rdflib.URIRef(CLASSES_AND_ATTRIBUTES_GRAPH)).parse(
             data=REPLICA, format="turtle")
-        self.ds.graph(rdflib.URIRef(ONTOLOGY_GRAPH)).parse(data=ONTOLOGY, format="turtle")
+        onto = self.ds.graph(rdflib.URIRef(ONTOLOGY_GRAPH))
+        onto += core_graph()
+        onto.parse(data=ONTOLOGY, format="turtle")
         self.ds.graph(rdflib.URIRef(SYSTEM_DESCRIPTION_GRAPH)).parse(
             data=SYSTEM_DESCRIPTION, format="turtle")
         # The graph must EXIST even when it holds no scenarios: rdflib

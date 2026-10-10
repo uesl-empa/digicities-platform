@@ -398,12 +398,12 @@ def get_component_sources(client, component_type_label: str) -> pd.DataFrame:
     Provenance is recorded at two granularities and both are returned, tagged by
     ``scope``:
 
-    * ``instance`` — the whole record came from here (``dici_onto:hasSource``)
+    * ``instance`` — the whole record came from here (``dici_onto:hasReference``)
     * ``attribute`` — one value came from somewhere else than the record did, e.g.
       a specification copied down from a catalogue entry in another file
-      (the ``<attr>_datasource`` column, emitted since long before ``hasSource``)
+      (the ``<attr>_datasource`` column, written as ``prov:wasDerivedFrom``)
 
-    The query matches on ``prov:wasDerivedFrom`` rather than on ``hasSource``, so it
+    The query matches on ``prov:wasDerivedFrom`` rather than on ``hasReference``, so it
     is deliberately agnostic about which mechanism wrote the triple: a hand-authored
     workbook that only ever used the Reference sheet lights up the same as an
     onboarded folder, and a future source kind needs no change here. What KIND of

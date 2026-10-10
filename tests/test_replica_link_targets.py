@@ -53,7 +53,7 @@ def _workbook(path: Path, *, seven_row: bool = False):
         ("good", "ClassObject", "partOf", None),              # -> WindPark/ParkA
         ("typo", "ClassObject", "partOf", None),              # sheet exists, row doesn't
         ("bare", "ClassObject", "partOf", None),              # no "/" at all
-        ("cited", "ClassObject", "hasSource", None),          # -> Reference/ref1
+        ("cited", "ClassObject", "hasReference", None),       # -> Reference/ref1
         ("elsewhere", "ClassObject", "partOf", None),         # a sheet we don't have
         ("external", "ClassObject", "sameAs", "https://vocab.example.org/"),
     ]

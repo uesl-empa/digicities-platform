@@ -119,9 +119,13 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
     skipped_files: list[dict[str, str]] = []
     storage = getattr(ctx, "storage", None)
     schema = workspace_schema(storage, skipped=skipped_files)
-    ttl_text = materialize_against_workspace(storage, scen.read_text(encoding="utf-8"), client,
-                                             skipped=skipped_files, ontology_graph=schema,
-                                             template=template)
+    from backend.graphdb.queries.scenarios import ScenarioMaterializationError
+    try:
+        ttl_text = materialize_against_workspace(storage, scen.read_text(encoding="utf-8"),
+                                                 client, skipped=skipped_files,
+                                                 ontology_graph=schema, template=template)
+    except ScenarioMaterializationError as exc:
+        raise HTTPException(status_code=422, detail=f"Scenario cannot be used: {exc}") from exc
     try:
         raw = convert_scenario(template, ttl_text, clean=False, ontology_graph=schema)
     except Exception as exc:
@@ -134,6 +138,9 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
             validation.warnings.append(
                 f"The workspace ontology extension could not be read, so only the core "
                 f"hierarchy decided what each node is ({s['error']})")
+            continue
+        if s["file"] == "scenarios":
+            validation.warnings.append(s["error"])
             continue
         if s["file"] == "collections":
             validation.warnings.append(
