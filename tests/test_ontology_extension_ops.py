@@ -384,3 +384,36 @@ def test_rest_event_attribute_rename_tree_and_checks(api):
     r = client.post(f"{base}/component/add", json={
         "extension": EXT, "label": "Turbine", "parent": "Component"})
     assert r.status_code == 400 and "core class" in r.json()["detail"]
+
+
+def test_instructions_declare_an_aggregate_class(funcs):
+    """``add_aggregate_attribute`` states what the derived value is: the class
+    under AggregateAttribute, the attribute it summarises and the statistic, so
+    the platform never reads it from the name. Unknown attributes and
+    statistics the collections cannot project are refused."""
+    rep = apply_extension_instructions(_instr([
+        {"op": "add_component", "name": "Tree", "parent": "Component"},
+        {"op": "add_attribute", "name": "Weight", "type": "Physical", "qudt_unit": "GM"},
+        {"op": "add_aggregate_attribute", "name": "WeightMean", "attribute": "Weight",
+         "statistic": "mean"},
+        {"op": "add_aggregate_attribute", "name": "HeightMean", "attribute": "Height",
+         "statistic": "mean"},
+        {"op": "add_aggregate_attribute", "name": "WeightMode", "attribute": "Weight",
+         "statistic": "mode"},
+        {"op": "add_aggregate_attribute", "name": "TreeMean", "attribute": "Tree",
+         "statistic": "mean"},
+    ]), storage=funcs.storage)
+    status = {r["target"]: r["status"] for r in rep["results"]}
+    assert status["WeightMean"] == "applied"
+    assert status["HeightMean"] == "error"       # no such attribute
+    assert status["WeightMode"] == "error"       # not a projected statistic
+    assert status["TreeMean"] == "error"         # a component, not an attribute
+    ext = _ext(funcs)
+    assert (DICI.WeightMean, RDFS.subClassOf, DICI.AggregateAttribute) in ext
+    assert (DICI.WeightMean, DICI.aggregatesAttribute, DICI.Weight) in ext
+    assert (DICI.WeightMean, DICI.usesStatistic, DICI.mean) in ext
+    # A rerun changes nothing.
+    again = apply_extension_instructions(_instr([
+        {"op": "add_aggregate_attribute", "name": "WeightMean", "attribute": "Weight",
+         "statistic": "mean"}]), storage=funcs.storage)
+    assert again["results"][0]["status"] == "skipped"

@@ -399,6 +399,33 @@ def test_component_grouping_projects_mean_as_attribute():
     assert (D.FloorAreaMean, rdflib.RDFS.subClassOf, D.AggregateAttribute) in g
 
 
+# The workspace ontology's declarations of the orchard's aggregate classes.
+_WEIGHT_DECLARATIONS = pd.DataFrame({
+    "cls": [f"{D}WeightMean", f"{D}WeightStandardDeviation", f"{D}WeightCount"],
+    "base": [f"{D}Weight"] * 3,
+    "stat": [f"{D}mean", f"{D}standardDeviation", f"{D}count"]})
+
+
+class _AggregateRouter(FakeClient):
+    """Serves the aggregate declarations, the component check, the attribute's
+    base types and the grouped member values."""
+
+    def __init__(self, grouped, schema_target, declarations):
+        super().__init__({})
+        self.grouped, self.schema_target, self.declarations = grouped, schema_target, declarations
+        self.queries = []
+
+    def sparql_api_query(self, query, out_format="df", **kw):
+        self.queries.append(query)
+        if "dici_onto:aggregatesAttribute ?base" in query:
+            return self.declarations
+        if "rdfs:subClassOf* dici_onto:Component" in query:
+            return pd.DataFrame({"n": [1]})
+        if "rdfs:subClassOf* ?base" in query:
+            return self.schema_target
+        return self.grouped
+
+
 def test_template_aggregates_of_one_attribute_are_projected_together():
     """A service asking for the mean AND the standard deviation (and the count)
     of one attribute per container gets all three. Ensuring them one by one
@@ -419,20 +446,14 @@ def test_template_aggregates_of_one_attribute_are_projected_together():
         "containerLabel": ["T01"] * 3,
     })
 
-    class Router(FakeClient):
-        def sparql_api_query(self, query, out_format="df", **kw):
-            if "rdfs:subClassOf* dici_onto:Component" in query:
-                return pd.DataFrame({"n": [1]})
-            if "rdfs:subClassOf* ?base" in query:
-                return schema_target
-            return grouped
-
-    client = Router({})
+    client = _AggregateRouter(grouped, schema_target, _WEIGHT_DECLARATIONS)
     template = {"scenario_data": {"tree": {
         "uri": "Tree.URI",
         "WeightMean": "Tree.WeightMean",
         "WeightStandardDeviation": "Tree.WeightStandardDeviation",
-        "WeightCount": "Tree.WeightCount"}}}
+        "WeightCount": "Tree.WeightCount"}},
+        "derived_attributes": ["Tree.WeightMean", "Tree.WeightStandardDeviation",
+                               "Tree.WeightCount"]}
     ensured = materializer.ensure_template_aggregates(client, "ws", template)
 
     assert len(ensured) == 1                       # one collection, one pass
@@ -447,6 +468,103 @@ def test_template_aggregates_of_one_attribute_are_projected_together():
     assert g.value(rdflib.URIRef(f"{tree}/WeightStandardDeviation"), QUDT.unit) == gm
     # a count is a number of apples, not grams
     assert g.value(rdflib.URIRef(f"{tree}/WeightCount"), QUDT.unit) is None
+
+
+def _apple_weights():
+    return pd.DataFrame({
+        "attr": ["https://p/Apple/1/Weight", "https://p/Apple/2/Weight"],
+        "numValue": ["100.0", "140.0"],
+        "simpleValue": [None] * 2, "catValue": [None] * 2, "catLabel": [None] * 2,
+        "unit": ["http://qudt.org/vocab/unit/GM"] * 2, "unitLabel": ["GM"] * 2,
+        "container": ["https://p/Tree/T01"] * 2, "containerLabel": ["T01"] * 2,
+    })
+
+
+_WEIGHT_BASES = pd.DataFrame({"base": [f"{D}Weight", f"{D}PhysicalAttribute", f"{D}Attribute"]})
+
+
+def test_what_to_compute_comes_from_the_declaration_not_the_name():
+    """A declared aggregate class with a name that says nothing (AppleMass) is
+    the mean of Weight because the ontology says so; the projected node is
+    typed with that class."""
+    decl = pd.DataFrame({"cls": [f"{D}AppleMass"], "base": [f"{D}Weight"],
+                         "stat": [f"{D}mean"]})
+    client = _AggregateRouter(_apple_weights(), _WEIGHT_BASES, decl)
+    template = {"scenario_data": {"tree": {"mass": "Tree.AppleMass"}},
+                "derived_attributes": ["Tree.AppleMass"]}
+    problems = []
+    assert len(materializer.ensure_template_aggregates(client, "ws", template,
+                                                       problems=problems)) == 1
+    assert problems == []
+    g = _inserted_graph(client)
+    node = rdflib.URIRef("https://p/Tree/T01/AppleMass")
+    assert (node, RDF.type, D.AppleMass) in g
+    assert float(g.value(node, Namespace("http://qudt.org/schema/qudt/").value)) == 120.0
+    # The schema declares the class: the collections graph does not redeclare it.
+    assert (D.AppleMass, rdflib.RDFS.subClassOf, D.AggregateAttribute) not in g
+
+
+def test_a_name_ending_in_a_statistic_is_not_a_statistic():
+    """``Road.LaneCount`` is the road's own value. It used to be read as a count
+    because the name ends in Count; now nothing is derived unless the contract
+    lists it as derived and the ontology declares it."""
+    client = _AggregateRouter(_apple_weights(), _WEIGHT_BASES,
+                              pd.DataFrame(columns=["cls", "base", "stat"]))
+    template = {"scenario_data": {"road": {"lanes": "Road.LaneCount"}}}
+    assert materializer.ensure_template_aggregates(client, "ws", template) == []
+    assert client.queries == [] and client.updates == []
+
+
+def test_an_undeclared_derived_value_is_reported():
+    client = _AggregateRouter(_apple_weights(), _WEIGHT_BASES,
+                              pd.DataFrame(columns=["cls", "base", "stat"]))
+    template = {"scenario_data": {"tree": {"m": "Tree.WeightMean"}},
+                "derived_attributes": ["Tree.WeightMean"]}
+    problems = []
+    assert materializer.ensure_template_aggregates(client, "ws", template,
+                                                   problems=problems) == []
+    assert [p["reference"] for p in problems] == ["Tree.WeightMean"]
+    assert "not declared as an aggregate" in problems[0]["error"]
+    assert client.updates == []
+
+
+def test_a_statistic_the_platform_does_not_project_is_reported():
+    decl = pd.DataFrame({"cls": [f"{D}WeightMode"], "base": [f"{D}Weight"],
+                         "stat": [f"{D}mode"]})
+    client = _AggregateRouter(_apple_weights(), _WEIGHT_BASES, decl)
+    template = {"scenario_data": {"tree": {"m": "Tree.WeightMode"}},
+                "derived_attributes": ["Tree.WeightMode"]}
+    problems = []
+    assert materializer.ensure_template_aggregates(client, "ws", template,
+                                                   problems=problems) == []
+    assert "does not project" in problems[0]["error"]
+
+
+def test_a_projection_from_the_collections_view_declares_its_class():
+    """A projection nobody declared (asked for in the Collections view) mints
+    ``<Attr><Stat>`` and states the same declaration in the collections graph."""
+    client = _AggregateRouter(_apple_weights(), _WEIGHT_BASES, None)
+    materializer.materialize_component_grouped_set(
+        client, "ws", f"{D}Weight", f"{D}Tree", project_statistics=("mean",))
+    g = _inserted_graph(client)
+    assert (D.WeightMean, rdflib.RDFS.subClassOf, D.AggregateAttribute) in g
+    assert (D.WeightMean, D.aggregatesAttribute, D.Weight) in g
+    assert (D.WeightMean, D.usesStatistic, D.mean) in g
+
+
+def test_projectable_statistics_are_core_statistic_properties_the_registry_computes():
+    from pathlib import Path
+
+    from backend.collections.registry import NUMERIC, PROJECTABLE_STATISTICS
+    core = rdflib.Graph().parse(
+        str(Path(__file__).resolve().parents[1] / "data" / "ontology" / "dici_onto_core.ttl"),
+        format="turtle")
+    stats, _ = compute_stats(NUMERIC, ["1", "2", "4"])
+    for key in PROJECTABLE_STATISTICS:
+        assert (D[key], RDF.type, rdflib.OWL.DatatypeProperty) in core, key
+        assert key in stats, key
+    for prop in (D.aggregatesAttribute, D.usesStatistic):
+        assert (prop, RDF.type, rdflib.OWL.AnnotationProperty) in core
 
 
 def _population_client(existing=()):

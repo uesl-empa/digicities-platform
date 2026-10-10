@@ -89,5 +89,5 @@ def test_parse_service_requirements_shape():
     out = parse_service_requirements(DEMO)
     assert out["service_name"] == "demo_energy_simulator"
     assert out["component_links"] == ["CL.Location.Building", "CL.Scenario.Location"]
-    assert "Building" in out["required_attributes"]
+    assert "Building" in out["requirements_by_class"]
     assert out["nested_requirements"] == {}

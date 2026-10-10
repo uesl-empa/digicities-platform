@@ -310,7 +310,9 @@ def test_scenario_requirements_parses_service_template(client, ws):
     assert got["file"] == "demo_sim.yaml"
     assert got["component_links"] == ["CL.Location.Building", "CL.Scenario.Location"]
     assert set(got["required_component_types"]) >= {"Location", "Building"}
-    assert set(got["required_attributes"]["Building"]) == {"URI", "GroundFloorArea"}
+    assert set(got["requirements_by_class"]["Building"]) == {"URI", "GroundFloorArea"}
+    # the deprecated name stays one release for clients that still read it
+    assert got["required_attributes"] == got["requirements_by_class"]
 
 
 def test_scenario_requirements_404_for_unknown_service(client, ws):
@@ -772,19 +774,29 @@ def test_submission_convert_ensures_template_aggregates(client, ws, monkeypatch)
     graph = object()
     seen = []
     monkeypatch.setattr(sub, "graph_client", lambda ctx: graph)
-    monkeypatch.setattr(coll, "ensure_template_aggregates",
-                        lambda c, ws_id, tmpl: seen.append((c, ws_id, tmpl)) or [])
+    def ensure(c, ws_id, tmpl, problems=None):
+        seen.append((c, ws_id, tmpl))
+        problems.append({"reference": "Tree.WeightMean", "error": "not declared"})
+        return []
+
+    monkeypatch.setattr(coll, "ensure_template_aggregates", ensure)
     (ws / "services").mkdir(exist_ok=True)
     (ws / "services" / "Agg.yaml").write_text(yaml.safe_dump({
         "service_name": "Agg",
         "scenario_data": {"tree": {"uri": "Tree.URI", "WeightMean": "Tree.WeightMean"}},
+        "derived_attributes": ["Tree.WeightMean"],
     }), encoding="utf-8")
     (ws / "scenarios").mkdir(exist_ok=True)
-    (ws / "scenarios" / "S.ttl").write_text("", encoding="utf-8")
-    client.post(f"{B}/submission/convert",
-                json={"template_file": "Agg.yaml", "scenario_file": "S.ttl"})
+    (ws / "scenarios" / "S.ttl").write_text(
+        "<https://p/S> a <https://digicities.info/ontology#Scenario> .\n", encoding="utf-8")
+    r = client.post(f"{B}/submission/convert",
+                    json={"template_file": "Agg.yaml", "scenario_file": "S.ttl"})
     assert seen and seen[0][0] is graph
     assert seen[0][2]["scenario_data"]["tree"]["WeightMean"] == "Tree.WeightMean"
+    # A derived value that could not be computed is reported with the payload.
+    assert r.status_code == 200, r.text
+    assert any("Tree.WeightMean was not computed: not declared" in w
+               for w in r.json()["validation"]["warnings"]), r.json()
 
 
 def test_payload_validation_walks_implicit_root_lists():

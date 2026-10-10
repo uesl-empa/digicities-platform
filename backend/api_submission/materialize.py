@@ -13,7 +13,6 @@ step behind the backend seam, so the REST convert sees the same full picture.
 """
 from __future__ import annotations
 
-import re
 from typing import Optional
 
 from backend.graphdb.queries.scenarios import ScenarioMaterializationError
@@ -45,28 +44,13 @@ def workspace_schema(storage, *, skipped: Optional[list] = None):
 def _template_attribute_classes(template) -> set:
     """The attribute classes a service template names: the ``Attr`` of every
     ``Component.Attr`` reference (``Tree.WeightMean`` names ``WeightMean``),
-    as dici_onto: IRIs. Link specs (``CL.A.B``) and nested references
-    (``A.B.hasLiveTimeSeriesReference``) name no derived value."""
+    as dici_onto: IRIs, read by the one contract reader. Link specs
+    (``CL.A.B``) and nested references (``A.B.hasLiveTimeSeriesReference``)
+    name no derived value."""
     from backend.ontology_kinds import DICI
-    classes: set = set()
-
-    def walk(node) -> None:
-        if isinstance(node, dict):
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-        elif isinstance(node, str):
-            parts = node.split(".")
-            if len(parts) == 2 and parts[0] != "CL" and _LOCAL_NAME.fullmatch(parts[1]):
-                classes.add(DICI[parts[1]])
-
-    walk(template)
-    return classes
-
-
-_LOCAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*")
+    from backend.service_requirements.contract import iter_references, payload_template
+    return {DICI[ref.attribute] for ref in iter_references(payload_template(template))
+            if ref.attribute is not None and len(ref.members) == 1}
 
 
 def derived_value_query(classes) -> str:

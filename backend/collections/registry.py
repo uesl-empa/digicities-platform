@@ -29,6 +29,12 @@ CATEGORICAL = "categorical"
 TEMPORAL = "temporal"
 BOOLEAN = "boolean"
 
+# The statistics an aggregate attribute can project onto a container: each is
+# the dici_onto DescriptiveStatistics property ``compute_stats`` writes for a
+# numeric Set, and what an aggregate class names with ``usesStatistic``.
+PROJECTABLE_STATISTICS = ("count", "mean", "minValue", "maxValue", "median", "sum",
+                          "standardDeviation")
+
 # Attribute kind → family. The kinds whose class the attribute class sits under
 # in the schema graph select the row, first match in this order; SIMPLE_VALUE
 # defers to value sniffing.

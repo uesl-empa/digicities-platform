@@ -355,17 +355,31 @@ A required field whose reference does not resolve, or comes back unchanged, is a
 
 A derived value is a statistic over the components linked to each instance:
 `Tree.WeightMean` is the mean of `Apple.Weight` over the apples linked to each tree.
-It is written `<Container>.<Attribute><Statistic>`, where the statistic is one of
-`Mean`, `Median`, `Sum`, `MinValue`, `MaxValue`, `Count`, `StandardDeviation`. A
-contract that uses one SHOULD list it under `derived_attributes`.
+A contract that uses one MUST list it under `derived_attributes`, and the workspace
+ontology MUST declare its attribute class as an aggregate (core 0.7.0):
+
+```turtle
+dici_onto:WeightMean rdfs:subClassOf dici_onto:AggregateAttribute ;
+    dici_onto:aggregatesAttribute dici_onto:Weight ;
+    dici_onto:usesStatistic dici_onto:mean .
+```
+
+`usesStatistic` names the statistic property the Collections compute: `mean`,
+`median`, `sum`, `minValue`, `maxValue`, `count` or `standardDeviation`. What to
+compute comes from this declaration, never from the class name: the name
+`WeightMean` is only the convention the onboarding agent uses when it writes the
+declaration (instruction `add_aggregate_attribute`). A reference that is listed but
+not declared is not computed, and the reason is reported with the conversion.
 
 At convert time the platform computes the statistic in the Collections graph and
 adds exactly the values the contract names to the scenario. The scenario never
 receives any other collection data.
 
-**Source:** `backend/collections/materializer.py` (`ensure_template_aggregates`,
-`_STAT_SUFFIXES`); `backend/api_submission/materialize.py` (`derived_values`,
-`materialize_against_workspace`).
+**Source:** `backend/collections/materializer.py` (`ensure_template_aggregates`);
+`backend/collections/queries.py` (`aggregate_declarations`);
+`backend/api_submission/materialize.py` (`derived_values`,
+`materialize_against_workspace`); `backend/ontology_manager/instructions.py`
+(`add_aggregate_attribute`).
 
 ## 7. The connection block
 
@@ -594,8 +608,10 @@ FIXED; each open one needs a decision.
    (section 6).
 2. **Two meanings of `required_attributes`.** FIXED: the control lists hold
    references (`T.A`), never field names; `required_attributes` is deprecated and
-   ignored. The requirement extraction's output (`parse_service_requirements`)
-   still names its class-to-attributes map `required_attributes`.
+   ignored. The requirement extraction's class-to-attributes map
+   (`parse_service_requirements`, `GET /scenario/requirements`) is called
+   `requirements_by_class`; the API also returns it under the old name
+   `required_attributes` for one release.
 3. **Control lists reached the payload.** FIXED: they are never sent (section 9).
 4. **Nested paths differ between modules.** The converter reads one time series
    reference property and ignores further segments; the Scenario Builder accepts any
@@ -618,15 +634,25 @@ FIXED; each open one needs a decision.
    removes a string only when it equals the contract's reference at that position.
 10. **REST submission does not block on validation errors.** Streamlit refuses a
     payload that failed validation; `POST /submit` refuses only an empty one.
-11. **Aggregates are found by name.** The platform finds derived values by the
-    statistic suffix of the attribute name in every reference, not from the
-    `derived_attributes` list. Reading them from the ontology needs a class-level
-    declaration that neither the core nor the extensions have yet: which attribute
-    class an aggregate class summarises, and with which statistic.
+11. **Aggregates were found by name.** FIXED: the platform computes the references
+    listed under `derived_attributes`, from the ontology's declaration of each
+    aggregate class (`aggregatesAttribute`, `usesStatistic`, core 0.7.0), never
+    from a statistic suffix of the name (section 6.3).
 12. **Three reference shapes.** FIXED: one shape (section 3), shared by the
     converter, the validator, the clean step and the gate.
 13. **No version.** A contract carries no language version; changes to the language
     are visible only in the platform's history.
+14. **References inside a YAML list never resolve, but the gate requires them.** A
+    mapping inside a list (`rows: [{height: Site.Height}]`) is read for its
+    references, so the completeness gate and payload validation require
+    `Site.Height`; the converter returns the list as written, so the service receives
+    the text `Site.Height` and validation reports it unresolved. A string directly in
+    a list (`names: [Site.Name]`) is read as a literal by every reader and sent as
+    written. No contract in the bundled demo workspaces, the test use cases, the
+    regression harness or the test suites uses either form (checked 2026-10-10), so
+    nothing depends on it yet. It needs a decision: resolve references in lists
+    (one value per listed reference), or refuse a reference in a list when the
+    contract is read.
 
 ## 14. Versioning
 
