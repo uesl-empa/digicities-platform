@@ -140,6 +140,28 @@ def is_component_class(client, class_iri: str) -> bool:
         return False
 
 
+def aggregate_declarations(client, class_iris) -> pd.DataFrame:
+    """The aggregate declarations of the given attribute classes in the schema
+    graph: one row per class that sits under ``dici_onto:AggregateAttribute``
+    and states ``aggregatesAttribute`` (the attribute class it summarises) and
+    ``usesStatistic`` (the statistic property). Columns ``cls``, ``base``,
+    ``stat``; a class without a declaration has no row."""
+    values = " ".join(f"<{c}>" for c in sorted({str(c) for c in class_iris}))
+    if not values:
+        return pd.DataFrame(columns=["cls", "base", "stat"])
+    query = f"""
+    {_PREFIXES}
+    SELECT DISTINCT ?cls ?base ?stat
+    {from_clause(ONTOLOGY_GRAPH)}WHERE {{
+      VALUES ?cls {{ {values} }}
+      ?cls rdfs:subClassOf+ dici_onto:AggregateAttribute ;
+           dici_onto:aggregatesAttribute ?base ;
+           dici_onto:usesStatistic ?stat .
+    }}
+    """
+    return run_df(client, query, ["cls", "base", "stat"])
+
+
 def component_grouped_member_values(client, target_class_iri: str,
                                     grouping_component_class_iri: str,
                                     dataset_iri: Optional[str] = None) -> pd.DataFrame:

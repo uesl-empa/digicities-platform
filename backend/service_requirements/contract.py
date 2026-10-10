@@ -138,6 +138,20 @@ def exempt_references(contract: Any) -> set:
     return {str(item).strip() for item in listed}
 
 
+def derived_references(contract: Any) -> list:
+    """The ``derived_attributes`` entries as references (``Tree.WeightMean``),
+    deduplicated, in the order listed. An entry that is not a reference is
+    left out: the list names attributes, never free text."""
+    if not isinstance(contract, dict):
+        return []
+    seen: dict = {}
+    for item in contract.get(DERIVED_KEY) or []:
+        ref = parse_reference(str(item).strip())
+        if ref is not None and ref.attribute is not None:
+            seen.setdefault(ref.text, ref)
+    return list(seen.values())
+
+
 def is_required(ref: Reference, exempt: set) -> bool:
     """Required unless the reference, or the attribute it reads, is listed."""
     if ref.text in exempt:

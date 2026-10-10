@@ -42,17 +42,6 @@ Impact: a client that ignores the convert report can submit an incomplete payloa
 Since: platform 0.5.0 or earlier.
 Status: open.
 
-**Derived values are recognised by their name.**
-What: a contract field such as `Tree.WeightMean` is treated as a statistic because the
-attribute name ends in a statistic word (`Mean`, `StandardDeviation`, ...)
-(`ensure_template_aggregates` in `backend/collections/materializer.py`). The schema then
-confirms the base attribute and the component class.
-Impact: a real attribute whose name happens to end in `Mean` or `Count` is materialised as
-a statistic.
-Since: platform 0.5.0 or earlier.
-Status: open. Needs a class-level declaration in the ontology: which attribute class an
-aggregate class summarises, and with which statistic.
-
 **Service-side adapters can hide missing data.**
 What: an adapter in front of a model (the flexibility optimiser's, for example) can match names
 loosely and fill in defaults.
@@ -133,10 +122,16 @@ What: the triplestore holds the core it was provisioned with. Provenance written
 `hasDataSource` (onboardings from 2026-08-13 on) is found through the core's deprecated alias
 only once core 0.7.0 is loaded. Data onboarded before 2026-08-13 used `hasSource` for
 provenance, which no alias can fix because `hasSource` is the flow property.
+A contract's derived values (`Tree.WeightMean`) are computed only when the workspace
+extension declares the aggregate class (`aggregatesAttribute`, `usesStatistic`); extensions
+written before 0.7.0 do not.
 Impact: until re-provisioned, the Collections data-source filter finds no sources. Pre-August
-workspaces show no record sources.
+workspaces show no record sources. A workspace whose service asks for derived values (the
+orchard use case) sends them empty, with a warning naming the undeclared class, until it is
+rebuilt.
 Since: the next platform release (unreleased) and core ontology 0.7.0.
-Status: re-provision every workspace; re-onboard workspaces onboarded before 2026-08-13.
+Status: re-provision every workspace; re-onboard workspaces onboarded before 2026-08-13; rebuild
+(or re-onboard) workspaces whose services ask for derived values, so the agent declares them.
 
 ## Code quality
 
@@ -181,6 +176,11 @@ an old image.
   (a requirement on `EnergyConverter` takes a PV system that carries the required attributes).
 - Reading a contract back takes the time series flavour from the reference property, not
   from the field name.
+- Derived values are read from the ontology, not from their names: a contract lists them
+  under `derived_attributes`, and the workspace ontology declares each aggregate class with
+  `aggregatesAttribute` and `usesStatistic` (core 0.7.0; the onboarding agent writes the
+  declaration). A real attribute whose name ends in `Mean` or `Count` is no longer computed
+  as a statistic.
 
 ### In the next platform release (unreleased) and core ontology 0.6.0
 
