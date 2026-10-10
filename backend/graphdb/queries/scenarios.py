@@ -148,8 +148,18 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
         for p, o in scn.predicate_objects(ln):
             out.add((ln, p, o))
 
-    # Override map: superseded attribute -> superseding attribute.
-    old_to_new = {old_a: new_a for new_a, _, old_a in scn.triples((None, SUP, None))}
+    # Override map: superseded attribute -> superseding attribute. Only THIS
+    # scenario's overrides count: the scenarios graph holds every variant, and
+    # each writer tags its override nodes with usedInScenario <suri>.
+    old_to_new: dict = {}
+    for new_a, _, old_a in scn.triples((None, SUP, None)):
+        if (new_a, USED, suri) not in scn:
+            continue
+        if old_a in old_to_new and old_to_new[old_a] != new_a:
+            raise ValueError(
+                f"Scenario {suri} overrides {old_a} twice "
+                f"({old_to_new[old_a]} and {new_a}); keep one override.")
+        old_to_new[old_a] = new_a
 
     view = ReadOnlyGraphAggregate(
         [g for g in (scn, rep, ontology_graph) if g is not None] + [core_graph()])
@@ -175,6 +185,8 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
             continue
         attrs: Set = set()
         for p, o in _po_union(comp):
+            if p == USED and o != suri:
+                continue  # another scenario's anchor on a shared component
             if isinstance(o, URIRef) and _is_attr_edge(p, o):
                 tgt = old_to_new.get(o, o)
                 out.add((comp, p, tgt))
