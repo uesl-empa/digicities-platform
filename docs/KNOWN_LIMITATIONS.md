@@ -42,6 +42,14 @@ Impact: a client that ignores the convert report can submit an incomplete payloa
 Since: platform 0.5.0 or earlier.
 Status: open.
 
+**References inside a YAML list are not resolved.**
+What: a reference in a mapping inside a list (`rows: [{height: Site.Height}]`) is required by
+the completeness gate and validation, but the converter sends the list as written; a reference
+directly in a list is sent as text.
+Impact: such a contract can never be complete. No bundled or test contract uses a list today.
+Since: platform 0.5.0 or earlier.
+Status: open, needs a decision ([spec issue 14](SERVICE_REQUIREMENTS_SPEC.md)).
+
 **Service-side adapters can hide missing data.**
 What: an adapter in front of a model (the flexibility optimiser's, for example) can match names
 loosely and fill in defaults.

@@ -639,6 +639,17 @@ FIXED; each open one needs a decision.
     converter, the validator, the clean step and the gate.
 13. **No version.** A contract carries no language version; changes to the language
     are visible only in the platform's history.
+14. **References inside a YAML list never resolve, but the gate requires them.** A
+    mapping inside a list (`rows: [{height: Site.Height}]`) is read for its
+    references, so the completeness gate and payload validation require
+    `Site.Height`; the converter returns the list as written, so the service receives
+    the text `Site.Height` and validation reports it unresolved. A string directly in
+    a list (`names: [Site.Name]`) is read as a literal by every reader and sent as
+    written. No contract in the bundled demo workspaces, the test use cases, the
+    regression harness or the test suites uses either form (checked 2026-10-10), so
+    nothing depends on it yet. It needs a decision: resolve references in lists
+    (one value per listed reference), or refuse a reference in a list when the
+    contract is read.
 
 ## 14. Versioning
 
