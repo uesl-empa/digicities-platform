@@ -113,13 +113,16 @@ def test_the_stream_is_the_live_reference_of_the_weather_component():
                                 "WindspeedForecast_live": "weather.forecasts.openmeteo.Alkmaar"}]
 
 
-def test_connection_is_dropped_and_metadata_is_copied():
+def test_connection_and_control_lists_never_reach_the_payload():
     template = dict(_wind(), optional_attributes=["WindTurbine.HubHeight"],
+                    derived_attributes=["WindPark.RoughnessMean"],
                     required_attributes=["Roughness"])
-    payload = convert_scenario(template, SCENARIO)
-    assert "connection" not in payload                                   # section 7
-    assert payload["service_name"] == "WindForecast"                     # section 9, issue 3
-    assert payload["optional_attributes"] == [] and payload["required_attributes"] == ["Roughness"]
+    for clean in (True, False):
+        payload = convert_scenario(template, SCENARIO, clean=clean)
+        assert "connection" not in payload                               # section 7
+        assert payload["service_name"] == "WindForecast"                 # section 9
+        for key in ("optional_attributes", "derived_attributes", "required_attributes"):
+            assert key not in payload                                    # issue 3, fixed
 
 
 def test_nested_paths_read_one_time_series_property_only():
@@ -133,15 +136,19 @@ def test_nested_paths_read_one_time_series_property_only():
     assert "NotSeries" not in got
 
 
-def test_validation_guarantees_and_gaps():
-    template = dict(_wind(), required_attributes=["HubHeight"])
-    raw = convert_scenario(template, SCENARIO, clean=False)
-    result = validate_payload(raw, template)
-    # a required field that did not resolve is an error (section 6.2)
-    assert not result.is_valid and any("HubHeight" in e for e in result.errors)
+# The values the small scenario does not have (T2 has no hub height, no turbine
+# has a rotor diameter or power curve).
+_TURBINE_GAPS = ["WindTurbine.HubHeight", "WindTurbine.RotorDiameter", "WindTurbine.PowerCurve"]
 
+
+def test_validation_guarantees_and_gaps():
+    # every reference is required unless listed optional (section 6.2, issue 1)
     plain = validate_payload(convert_scenario(_wind(), SCENARIO, clean=False), _wind())
-    assert plain.is_valid and any("HubHeight" in w for w in plain.warnings)
+    assert not plain.is_valid and any("HubHeight" in e for e in plain.errors)
+
+    template = dict(_wind(), optional_attributes=_TURBINE_GAPS)
+    result = validate_payload(convert_scenario(template, SCENARIO, clean=False), template)
+    assert result.is_valid and any("HubHeight" in w for w in result.warnings)
 
     broken = _example("BrokenLink")
     report = validate_payload(convert_scenario(broken, SCENARIO, clean=False), broken)
@@ -150,8 +157,11 @@ def test_validation_guarantees_and_gaps():
     wrong = _example("WrongNestedProperty")
     wrong["scenario_data"]["park"] = {"name": "WindPark.label", "uri": "WindPark.URI",
                                       "RoughnessUnit": "WindPark.Roughness.hasUnitLabel"}
+    wrong["optional_attributes"] = _TURBINE_GAPS
     report = validate_payload(convert_scenario(wrong, SCENARIO, clean=False), wrong)
-    assert report.is_valid and any("RoughnessUnit" in w for w in report.warnings)
+    # a nested property that is no time series reference resolves to nothing
+    # (issue 4), so the required field is reported as missing
+    assert not report.is_valid and any("RoughnessUnit" in e for e in report.errors)
 
 
 def test_a_root_block_with_no_linked_instance_yields_no_list():

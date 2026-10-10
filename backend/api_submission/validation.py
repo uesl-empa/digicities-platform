@@ -18,23 +18,30 @@ The goal: a green tick should mean "this building genuinely has what the model
 needs", not "we sent something and the service filled in the blanks".
 
 This module stays GENERIC. It walks any template/payload pair and knows nothing
-about a specific service. A template may optionally list `required_attributes`
-(leaf field names that must resolve); those become blocking errors rather than
-warnings.
+about a specific service. Every reference is REQUIRED unless the contract lists
+it (or the attribute it reads) under `optional_attributes` or
+`derived_attributes`: the same rule as the Scenario Builder's completeness gate,
+both read through ``backend.service_requirements.contract``. A required field
+that does not resolve is a blocking error; an optional one is a warning.
 
 Headless: the Streamlit report renderer (``render_validation``) lives in the
 ``components.api_submission_module.validation`` shim, not here.
 """
 
-import re
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List
 
-# A template leaf is an ontology reference (e.g. "Building.GroundFloorArea",
-# "Scenario.URI") when it is a CapitalisedComponent.attribute string. Plain string
-# constants in the template (service_name: FlexibilityOptimizer, free-text
-# description) are not references and need no checking.
-_REFERENCE_RE = re.compile(r'^[A-Z][A-Za-z0-9_]*\.[A-Za-z0-9_.]+$')
+from backend.service_requirements.contract import (
+    LINK_KEY,
+    REQUIRED_KEY,
+    TEMPLATE_KEY,
+    exempt_references,
+    is_link_block,
+    is_reference,
+    is_required,
+    parse_reference,
+    payload_template,
+)
 
 
 @dataclass
@@ -50,48 +57,44 @@ class ValidationResult:
 
 
 def _is_reference(template_leaf: Any) -> bool:
-    """True if a template leaf is an ontology reference the converter should resolve."""
-    return isinstance(template_leaf, str) and bool(_REFERENCE_RE.match(template_leaf))
+    """True if a template leaf is a reference the converter resolves."""
+    return is_reference(template_leaf)
 
 
 def _is_unresolved(value: Any, reference: str) -> bool:
-    """A reference is unresolved when the converter handed the literal reference
-    back unchanged, or left a `<...not_found>` marker in place."""
-    if not isinstance(value, str):
-        return False
-    return value == reference or '_not_found' in value
+    """A reference is unresolved when the converter handed the literal
+    reference back unchanged."""
+    return isinstance(value, str) and value == reference
 
 
-def validate_payload(payload: Any, template: Any,
-                     required: Optional[List[str]] = None) -> ValidationResult:
-    """Validate a converted payload against the service requirements template.
+def validate_payload(payload: Any, template: Any) -> ValidationResult:
+    """Validate a converted payload against the service contract.
 
     Validate the RAW (pre-clean) converted payload so unresolved references are
     still visible, since placeholder cleaning strips them.
 
     Args:
         payload: the converted payload (nested dict/list mirroring the template).
-        template: the service requirements template (nested dict).
-        required: leaf field names that must resolve. Defaults to the template's
-            top-level `required_attributes` list if present.
+        template: the full service contract (with its control lists).
     """
     result = ValidationResult()
-
-    if required is None and isinstance(template, dict):
-        required = template.get('required_attributes') or []
-    required_set = set(required or [])
+    exempt = exempt_references(template)
+    if isinstance(template, dict) and template.get(REQUIRED_KEY):
+        result.warnings.append(
+            f"'{REQUIRED_KEY}' is deprecated and has no effect: every reference is "
+            "required unless listed under optional_attributes or derived_attributes.")
 
     def walk(t: Any, p: Any, path: str) -> None:
         if isinstance(t, dict):
             # A link node: the converter expands it into a list of components.
-            if 'link' in t and 'template' in t:
+            if is_link_block(t):
                 if not isinstance(p, list) or len(p) == 0:
                     result.errors.append(
-                        f"{path or 'scenario'}: no components found for link '{t['link']}'"
+                        f"{path or 'scenario'}: no components found for link '{t[LINK_KEY]}'"
                     )
                 else:
                     for i, item in enumerate(p):
-                        walk(t['template'], item, f"{path}[{i + 1}]")
+                        walk(t[TEMPLATE_KEY], item, f"{path}[{i + 1}]")
                 return
             # An implicit root block (component type keyed, no link:) that the
             # converter expanded into a component list — validate each element
@@ -107,31 +110,31 @@ def validate_payload(payload: Any, template: Any,
                 return
             # A regular mapping: recurse into each field.
             for k, sub in t.items():
-                if k in ('link', 'template', 'required_attributes'):
+                if k in (LINK_KEY, TEMPLATE_KEY):
                     continue
                 child = p.get(k) if isinstance(p, dict) else None
                 walk(sub, child, f"{path}.{k}" if path else k)
             return
 
-        # A leaf. Only ontology references need resolving; literals are constants.
-        if _is_reference(t):
-            key = path.split('.')[-1].split('[')[0]
-            is_required = key in required_set
+        # A leaf. Only references need resolving; literals are constants.
+        ref = parse_reference(t)
+        if ref is not None:
+            required = is_required(ref, exempt)
             if p is None:
                 result.missing_fields.append(path)
                 msg = f"{path} ({t}) did not resolve to a value"
-                (result.errors if is_required else result.warnings).append(
-                    ("Required attribute missing: " if is_required else "") + msg
+                (result.errors if required else result.warnings).append(
+                    ("Required attribute missing: " if required else "Optional attribute missing: ") + msg
                 )
             elif _is_unresolved(p, t):
                 result.unresolved_fields.append(path)
                 result.placeholder_count += 1
                 msg = f"{path} still holds the unresolved reference '{p}'"
-                (result.errors if is_required else result.warnings).append(
-                    ("Required attribute unresolved: " if is_required else "") + msg
+                (result.errors if required else result.warnings).append(
+                    ("Required attribute unresolved: " if required else "Optional attribute unresolved: ") + msg
                 )
 
-    walk(template, payload, "")
+    walk(payload_template(template), payload, "")
 
     # Nothing meaningful to submit (service_name/description alone don't count).
     if not payload or (isinstance(payload, dict) and not any(

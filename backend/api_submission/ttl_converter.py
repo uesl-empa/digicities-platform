@@ -22,6 +22,10 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from backend.service_requirements.contract import (
+    NON_PAYLOAD_KEYS, is_reference, parse_link, parse_reference,
+)
+
 try:
     import rdflib
     from rdflib import Graph, URIRef, Literal, Namespace
@@ -189,10 +193,12 @@ class RobustTTL2YAMLProcessor:
         # Build indexes
         self._build_indexes()
 
-        # 'connection' is registration metadata (where the service listens), not
-        # part of the payload the service receives - drop it before processing.
-        if isinstance(template_content, dict) and 'connection' in template_content:
-            template_content = {k: v for k, v in template_content.items() if k != 'connection'}
+        # 'connection' (where the service listens) and the control lists
+        # (optional/derived/required_attributes) describe the contract; they are
+        # not part of the payload the service receives - drop them first.
+        if isinstance(template_content, dict):
+            template_content = {k: v for k, v in template_content.items()
+                                if k not in NON_PAYLOAD_KEYS}
 
         # Process template
         return self._process_value(template_content, context_component=None)
@@ -355,10 +361,9 @@ class RobustTTL2YAMLProcessor:
             return None
 
         for key, value in template_dict.items():
-            if isinstance(value, str) and '.' in value:
-                parts = value.split('.')
-                if len(parts) >= 2 and self._instances_of(parts[0]):
-                    return parts[0]
+            ref = parse_reference(value)
+            if ref is not None and self._instances_of(ref.owner):
+                return ref.owner
         return None
 
     def _find_components_for_context(self, component_type: str, context: Optional[URIRef]) -> List[URIRef]:
@@ -399,15 +404,10 @@ class RobustTTL2YAMLProcessor:
             context_info = f"context: {self._extract_name(str(context))} ({self._type_label(context)})" if context else "no context"
             print(f"\n*** PROCESSING LINK: {link_spec} with {context_info} ***")
 
-        if not link_spec.startswith('CL.'):
+        link = parse_link(link_spec)
+        if link is None:
             return None
-
-        parts = link_spec.split('.')
-        if len(parts) != 3:
-            return None
-
-        source_type = parts[1]
-        target_type = parts[2]
+        source_type, target_type = link
 
         # Determine sources based on link specification and context
         sources = []
@@ -506,33 +506,29 @@ class RobustTTL2YAMLProcessor:
     def _resolve_string_value(self, value: str, context: Optional[URIRef]) -> Any:
         """Resolve string values that may contain references."""
 
-        # Handle Scenario references
-        if value == 'Scenario.URI':
-            return str(self.current_scenario)
-        elif value == 'Scenario.label':
+        ref = parse_reference(value)
+        if ref is None:
+            return value
+
+        # An identity field of a Scenario class (the ontology decides) is the
+        # scenario's own IRI / label.
+        owner_cls = self._term(ref.owner)
+        if ref.identity and owner_cls is not None and is_scenario_class(self.view, owner_cls):
+            if ref.identity == 'uri':
+                return str(self.current_scenario)
             labels = list(self.g.objects(self.current_scenario, RDFS.label))
             return str(labels[0]) if labels else self._extract_name(str(self.current_scenario))
 
-        # Parse component.attribute references
-        if '.' in value:
-            parts = value.split('.')
-            if len(parts) >= 2:
-                comp_type = parts[0]
-
-                # Check if we have context of the right type
-                if context and self._is_a(context, comp_type):
-                    if parts[1].lower() == 'uri':
-                        return str(context)
-                    elif parts[1].lower() == 'label':
-                        labels = list(self.g.objects(context, RDFS.label))
-                        return str(labels[0]) if labels else self._extract_name(str(context))
-                    else:
-                        # Get attribute value
-                        if len(parts) == 2:
-                            return self._get_attribute_value(context, comp_type, parts[1])
-                        else:
-                            # Nested attribute
-                            return self._get_nested_attribute(context, comp_type, parts[1:])
+        # Component references resolve against a context of the right type.
+        if context and self._is_a(context, ref.owner):
+            if ref.identity == 'uri':
+                return str(context)
+            if ref.identity == 'label':
+                labels = list(self.g.objects(context, RDFS.label))
+                return str(labels[0]) if labels else self._extract_name(str(context))
+            if len(ref.members) == 1:
+                return self._get_attribute_value(context, ref.owner, ref.members[0])
+            return self._get_nested_attribute(context, ref.owner, list(ref.members))
 
         return value
 
@@ -549,12 +545,19 @@ class RobustTTL2YAMLProcessor:
         want = self._term(attr_name)
         if want is None:
             return None
+        found = []
         for pred, node in self.g.predicate_objects(component):
             if not isinstance(node, URIRef) or want not in self._classes_of(node):
                 continue
             if is_attribute_predicate(self.view, pred) or is_attribute_node(self.view, node):
-                return node
-        return None
+                # A node typed with the class itself wins over one that is an
+                # instance only through a subclass: a category class under two
+                # attribute classes (ElectricallyHeated under both DHWSupply and
+                # HeatingSupply) makes the DHWSupply node a HeatingSupply too.
+                if (node, RDF.type, want) in self.g:
+                    return node
+                found.append(node)
+        return found[0] if found else None
 
     def _get_attribute_value(self, component: URIRef, comp_type: str, attr_name: str) -> Any:
         """Get attribute value from component."""
@@ -596,10 +599,17 @@ class RobustTTL2YAMLProcessor:
             # value written before values were declared sends its name.
             return category_code(self.view, value) or self._extract_name(str(value))
         want = self._term(attr_name) if attr_name else None
-        for t in self.g.objects(attr_uri, RDF.type):
-            if t == want or not in_dici_namespace(t) or is_attribute_class(self.view, t):
-                continue
-            return self._extract_name(str(t))
+        types = [t for t in self.g.objects(attr_uri, RDF.type)
+                 if t != want and in_dici_namespace(t)]
+        # A category declared as a subclass of the attribute class (GasHeated
+        # rdfs:subClassOf HeatingSupply): the node's type below the class asked for.
+        if want is not None:
+            for t in types:
+                if want in superclasses(self.view, t):
+                    return self._extract_name(str(t))
+        for t in types:
+            if not is_attribute_class(self.view, t):
+                return self._extract_name(str(t))
         return None
 
     def _extract_attribute_value(self, attr_uri: URIRef,
@@ -694,14 +704,9 @@ def _legacy_curve_points(raw: str) -> Optional[List[List[float]]]:
     return points
 
 
-# Sentinels for the template walk in clean_placeholder_values: the caller gave
-# no template at all, vs. a template was given but has nothing at this spot.
-_NO_TEMPLATE = object()
+# Sentinel for the template walk in clean_placeholder_values: the template has
+# nothing at this spot.
 _NO_COUNTERPART = object()
-
-# Without a template, only this strict <ClassName>.<AttrName> shape counts as
-# an unresolved placeholder.
-_STRICT_PLACEHOLDER_RE = re.compile(r'^[A-Z][A-Za-z0-9]*\.[A-Z][A-Za-z0-9_]*$')
 
 
 def _is_link_spec(t: Any) -> bool:
@@ -712,7 +717,7 @@ def _element_template(t: Any) -> Any:
     """The template each element of a converter-expanded list follows: a link
     spec's ``template`` (plus its extra fields), an implicit component block
     itself, the matching item of a literal list."""
-    if t is _NO_TEMPLATE or t is _NO_COUNTERPART:
+    if t is _NO_COUNTERPART:
         return t
     if _is_link_spec(t):
         inner = t['template']
@@ -727,37 +732,24 @@ def _element_template(t: Any) -> Any:
 
 
 def _is_unresolved_placeholder(value: str, t: Any) -> bool:
-    """True when ``value`` is a template reference the converter handed back
-    unresolved. With a template, only a string IDENTICAL to the reference at
-    the same position counts (a resolved value never is); without one, only
-    the strict ``<ClassName>.<AttrName>`` shape does."""
-    if t is _NO_TEMPLATE:
-        return bool(_STRICT_PLACEHOLDER_RE.match(value))
-    if isinstance(t, str) and value == t:
-        from backend.api_submission.validation import _is_reference
-        return _is_reference(t)
-    return False
+    """True when ``value`` is the template's reference at the same position,
+    handed back unresolved (a resolved value never equals its reference)."""
+    return isinstance(t, str) and value == t and is_reference(t)
 
 
-def clean_placeholder_values(data: Any, template: Any = _NO_TEMPLATE) -> Any:
-    """Remove placeholder values from results.
+def clean_placeholder_values(data: Any, template: Any) -> Any:
+    """Remove unresolved references from a converted payload.
 
-    Drops unresolved ``.URI`` / ``.label`` / ``_not_found`` markers and any
-    template reference that came back unresolved (e.g. ``Building.Height``
-    when the component has no such attribute), so a literal reference string
-    never reaches a service as if it were data.
-
-    Pass the service ``template`` the payload was converted from: a string is
-    then only treated as an unresolved reference when it equals the template's
-    reference at that exact position. Without it, only strings of the strict
-    ``<ClassName>.<AttrName>`` shape are.
+    A string is removed only when it equals the ``template``'s reference at the
+    same position, i.e. the converter handed the reference back because the
+    component has no such value. Any other string is data and is kept, whatever
+    it contains (free text with ``.URI`` in it, a dotted product name, ...).
+    The template is required: without it nothing tells a reference from data.
     """
     if isinstance(data, dict):
         cleaned = {}
         for key, value in data.items():
-            if template is _NO_TEMPLATE:
-                sub = _NO_TEMPLATE
-            elif isinstance(template, dict) and not _is_link_spec(template):
+            if isinstance(template, dict) and not _is_link_spec(template):
                 sub = template.get(key, _NO_COUNTERPART)
             else:
                 sub = _NO_COUNTERPART
@@ -777,9 +769,6 @@ def clean_placeholder_values(data: Any, template: Any = _NO_TEMPLATE) -> Any:
                 cleaned.append(cleaned_item)
         return cleaned if cleaned else []
     elif isinstance(data, str):
-        # Remove unresolved references
-        if any(x in data for x in ['_not_found>', '.URI', '.label'] if '.' in data):
-            return None
         if _is_unresolved_placeholder(data, template):
             return None
         return data

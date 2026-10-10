@@ -11,17 +11,24 @@ component must carry. The Streamlit builder derived these constraints inline
 is that logic moved behind the backend seam so the REST API — and with it the
 React builder — can drive the same service-constrained flow.
 
-The functions are deliberately verbatim ports: the extraction is heuristic
-(``Component.Attribute`` string patterns, a small context map for well-known
-collection keys), and the emitter's completeness gate keys off exactly the
-dotted-path form produced here, so behaviour must not drift from what the
-Streamlit builder pinned.
+What counts as a reference, a link and a required input is defined once in
+``backend.service_requirements.contract`` (shared with the converter and payload
+validation). The emitter's completeness gate keys off exactly the dotted-path
+form produced here.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from backend.scenario_builder.semantics import names_scenario_class
+from backend.service_requirements.contract import (
+    LINK_KEY,
+    TEMPLATE_KEY,
+    exempt_references,
+    parse_link,
+    parse_reference,
+    required_references,
+)
 
 
 def extract_component_links(yaml_content: dict) -> list[str]:
@@ -31,7 +38,7 @@ def extract_component_links(yaml_content: dict) -> list[str]:
     def find_links(data: Any) -> None:
         if isinstance(data, dict):
             for key, value in data.items():
-                if key == "link" and isinstance(value, str) and value.startswith("CL."):
+                if key == LINK_KEY and parse_link(value) is not None:
                     links.append(value)
                 elif isinstance(value, (dict, list)):
                     find_links(value)
@@ -46,7 +53,7 @@ def extract_component_links(yaml_content: dict) -> list[str]:
 
 def extract_component_types_from_templates(yaml_content: dict) -> set[str]:
     """Component types named in template blocks: explicit ``type:`` fields and
-    the ``ComponentType.Attribute`` prefixes of template values."""
+    the owners of the references in ``template`` blocks."""
     component_types: set[str] = set()
 
     def find_component_types(data: Any) -> None:
@@ -54,14 +61,13 @@ def extract_component_types_from_templates(yaml_content: dict) -> set[str]:
             for key, value in data.items():
                 if isinstance(value, dict) and "type" in value:
                     comp_type = value["type"]
-                    if isinstance(comp_type, str) and not comp_type.startswith("CL."):
+                    if isinstance(comp_type, str) and parse_link(comp_type) is None:
                         component_types.add(comp_type)
-                elif key == "template" and isinstance(value, dict):
+                elif key == TEMPLATE_KEY and isinstance(value, dict):
                     for template_value in value.values():
-                        if isinstance(template_value, str) and "." in template_value:
-                            comp_type = template_value.split(".")[0]
-                            if comp_type and not comp_type.startswith("CL"):
-                                component_types.add(comp_type)
+                        ref = parse_reference(template_value)
+                        if ref is not None:
+                            component_types.add(ref.owner)
                 elif isinstance(value, (dict, list)):
                     find_component_types(value)
         elif isinstance(data, list):
@@ -74,32 +80,29 @@ def extract_component_types_from_templates(yaml_content: dict) -> set[str]:
 
 
 def drop_optional_requirements(yaml_content: dict, required: dict, nested: dict | None = None) -> None:
-    """Remove the template's ``optional_attributes`` (``Type.Attr``) from the
-    required sets, in place.
+    """Remove the template's ``optional_attributes`` and ``derived_attributes``
+    (``Type.Attr``) from already-extracted required sets, in place.
 
     An optional attribute stays in the payload template, but an instance without
     a value for it is sent without it instead of being dropped from the scenario.
-    The onboarding agent marks an input optional when the source data has it for
-    some instances but not all — requiring it would silently throw away the
-    instances the data does describe. Templates without the key are unchanged.
-
-    ``derived_attributes`` are treated the same way: an aggregate such as
-    ``Tree.WeightMean`` (a statistic over the components linked to each tree)
-    is computed from the graph at convert time (``ensure_template_aggregates``),
-    so no stored instance carries it and requiring it would drop every one.
+    A derived attribute (an aggregate such as ``Tree.WeightMean``) is computed at
+    convert time, so no stored instance carries it. The rule itself lives in
+    ``backend.service_requirements.contract`` (``is_required``);
+    ``extract_required_attributes_enhanced`` applies it while extracting, this
+    helper applies it to sets a caller built itself.
     """
-    keys = list((yaml_content or {}).get("optional_attributes") or []) \
-        + list((yaml_content or {}).get("derived_attributes") or [])
-    for key in keys:
-        comp_type, _, attr = str(key).partition(".")
-        if not attr or comp_type not in required:
+    for key in exempt_references(yaml_content):
+        ref = parse_reference(key)
+        if ref is None or ref.owner not in required:
             continue
-        kept = [a for a in required[comp_type] if a != attr and not str(a).startswith(attr + ".")]
-        if isinstance(required[comp_type], set):
+        attr = ".".join(ref.members)
+        kept = [a for a in required[ref.owner]
+                if a != attr and not str(a).startswith(attr + ".")]
+        if isinstance(required[ref.owner], set):
             kept = set(kept)
-        required[comp_type] = kept
-        if nested is not None and comp_type in nested:
-            nested[comp_type].pop(attr, None)
+        required[ref.owner] = kept
+        if nested is not None and ref.owner in nested:
+            nested[ref.owner].pop(attr, None)
 
 
 def extract_required_attributes_enhanced(
@@ -108,66 +111,39 @@ def extract_required_attributes_enhanced(
     """Required attributes per component type, in the dotted-path form the
     emitter's completeness gate resolves.
 
-    Returns ``(required_attributes, nested_requirements)``:
-    - ``required_attributes[CompType]`` holds simple names (``HubHeight``) and,
-      for nested requirements, BOTH the base attribute (``Power``) and the full
-      dotted path (``Power.hasHistoricTimeSeriesReference``).
+    Which references are required is decided by
+    ``backend.service_requirements.contract.required_references`` (required
+    unless listed under ``optional_attributes`` / ``derived_attributes``), the
+    same function payload validation uses. Returns
+    ``(required_attributes, nested_requirements)``:
+    - ``required_attributes[CompType]`` holds simple names (``HubHeight``,
+      ``URI``) and, for nested requirements, BOTH the base attribute (``Power``)
+      and the full dotted path (``Power.hasHistoricTimeSeriesReference``).
     - ``nested_requirements[CompType][BaseAttr]`` lists the nested properties.
     """
     required_attributes: dict[str, set] = {}
     nested_requirements: dict[str, dict[str, set]] = {}
 
-    def process_attribute_pattern(pattern_value: str) -> None:
-        parts = pattern_value.split(".")
-        if len(parts) < 2:
-            return
-        comp_type = parts[0]
-        required_attributes.setdefault(comp_type, set())
-        if len(parts) > 2:
-            base_attr = parts[1]
-            nested_prop = ".".join(parts[2:])
-            required_attributes[comp_type].add(base_attr)
-            nested_requirements.setdefault(comp_type, {}).setdefault(base_attr, set()).add(nested_prop)
-            required_attributes[comp_type].add(f"{base_attr}.{nested_prop}")
+    for ref in required_references(yaml_content):
+        attrs = required_attributes.setdefault(ref.owner, set())
+        if len(ref.members) > 1:
+            base_attr = ref.members[0]
+            nested_prop = ".".join(ref.members[1:])
+            attrs.add(base_attr)
+            attrs.add(f"{base_attr}.{nested_prop}")
+            nested_requirements.setdefault(ref.owner, {}).setdefault(base_attr, set()).add(nested_prop)
         else:
-            required_attributes[comp_type].add(parts[1])
-
-    def find_attributes(data: Any) -> None:
-        # NOTE: component types come from the dotted values themselves
-        # (``GlobalWindAtlasSite.Roughness`` names its type). The verbatim
-        # Streamlit port carried a hardcoded collection-key → usecase-class
-        # context map here, whose result was threaded through the recursion
-        # but never read — removed 2026-09-24 (hardcoding audit), behavior
-        # identical.
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key == "template" and isinstance(value, dict):
-                    for template_value in value.values():
-                        if isinstance(template_value, str) and "." in template_value:
-                            process_attribute_pattern(template_value)
-                        elif isinstance(template_value, dict):
-                            find_attributes(template_value)
-                elif isinstance(value, str) and "." in value and key != "link":
-                    process_attribute_pattern(value)
-                elif isinstance(value, (dict, list)):
-                    find_attributes(value)
-        elif isinstance(data, list):
-            for item in data:
-                if isinstance(item, (dict, list)):
-                    find_attributes(item)
-
-    find_attributes(yaml_content.get("scenario_data", {}))
-    drop_optional_requirements(yaml_content, required_attributes, nested_requirements)
+            attrs.add(ref.members[0])
 
     result_attributes = {
         comp_type: sorted(attrs)
         for comp_type, attrs in required_attributes.items()
-        if attrs and comp_type != "CL"
+        if attrs
     }
     result_nested = {
         comp_type: {base: sorted(props) for base, props in nested.items() if props}
         for comp_type, nested in nested_requirements.items()
-        if nested and comp_type != "CL"
+        if nested
     }
     return result_attributes, result_nested
 
