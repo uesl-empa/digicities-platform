@@ -70,7 +70,7 @@ def test_display_utils_shim_identity():
 
 TEMPLATE = {
     "service_name": "FlexibilityOptimizer",
-    "required_attributes": ["PeakPower"],
+    "optional_attributes": ["Building.GroundFloorArea"],
     "scenario": {
         "uri": "Scenario.URI",
         "buildings": {
@@ -126,14 +126,30 @@ def test_validate_payload_unresolved_required_blocks():
     assert any("Required attribute unresolved" in e for e in vr.errors)
 
 
-def test_validate_payload_not_found_marker_counts_as_unresolved():
+def test_validate_payload_a_value_is_only_unresolved_when_it_is_the_reference():
     from backend.api_submission.validation import validate_payload
 
-    vr = validate_payload(_payload(floor_area="<Building.GroundFloorArea_not_found>"),
-                          TEMPLATE)
-    assert vr.is_valid                      # floor_area is optional
-    assert vr.unresolved_fields == ["scenario.buildings[1].floor_area"]
-    assert vr.data_quality == "needs_review"
+    # No converter writes a "_not_found" marker; a value that happens to
+    # contain the text is data.
+    vr = validate_payload(_payload(floor_area="plan_not_found_v2.pdf"), TEMPLATE)
+    assert vr.is_valid and vr.unresolved_fields == []
+    assert vr.data_quality == "good"
+
+
+def test_validate_payload_missing_required_blocks():
+    from backend.api_submission.validation import validate_payload
+
+    vr = validate_payload(_payload(peak=None), TEMPLATE)
+    assert not vr.is_valid
+    assert any("Required attribute missing" in e and "PeakPower" in e for e in vr.errors)
+
+
+def test_validate_payload_required_attributes_is_deprecated():
+    from backend.api_submission.validation import validate_payload
+
+    vr = validate_payload(_payload(), dict(TEMPLATE, required_attributes=["PeakPower"]))
+    assert vr.is_valid
+    assert any("deprecated" in w for w in vr.warnings)
 
 
 def test_validate_payload_empty_link_expansion_is_an_error():

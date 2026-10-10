@@ -17,11 +17,12 @@ the change; replace it with the version number when you tag the release.
 
 **Requirements are read by syntax, not against a schema.**
 What: a service contract (`services/<Name>.yaml`) states its inputs as dotted strings
-(`WindTurbine.HubHeight`, `CL.WindPark.WindTurbine`). The platform reads any template value
-containing a dot as a requirement and any value starting with `CL.` as a link
-(`backend/scenario_builder/requirements.py`). There is no schema for the language yet.
-Impact: a constant that happens to contain a dot (a version number, a host name) is read as a
-requirement. Mistakes in the contract show up late, at conversion.
+(`WindTurbine.HubHeight`, `CL.WindPark.WindTurbine`). One reader
+(`backend/service_requirements/contract.py`) takes any value of the grammar's shape
+(dot-separated names) as a reference and `CL.S.T` as a link; nothing checks that the names
+exist in the ontology when the contract is read. There is no schema for the language yet.
+Impact: a constant of that shape (`Acme.Industries`) is read as a reference, and so as a
+required input. Mistakes in the contract show up late, at conversion.
 Since: platform 0.5.0 or earlier.
 Status: the language is specified in [`SERVICE_REQUIREMENTS_SPEC.md`](SERVICE_REQUIREMENTS_SPEC.md);
 SHACL shapes for it are planned.
@@ -174,6 +175,10 @@ an old image.
 
 ### In the next platform release (unreleased) and core ontology 0.6.0
 
+- A service contract's inputs are required unless listed optional, in the Scenario Builder and
+  in payload validation alike (they used to have opposite defaults); the optional lists hold
+  references, never field names; control lists are no longer sent to the service; free text
+  that mentions `.URI` / `.label` is no longer dropped; one reference shape for every reader.
 - A categorical value is an IRI: `hasCategoricalValue` is an object property pointing at the
   category (a named individual of the attribute's class), and every writer states it.
 - Instances carry their record id as `rdfs:label`, and typed instance names are matched by label.

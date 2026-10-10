@@ -22,8 +22,9 @@ Status: in place for completeness, not yet for units, types or allowed values.
 `validate_payload` (`backend/api_submission/validation.py`) checks every converted
 payload against the service's contract before it is sent:
 
-- a template reference that did not resolve to a value is reported (an error when the
-  field is listed under `required_attributes`, a warning otherwise),
+- a template reference that did not resolve to a value is reported (an error unless the
+  contract lists it under `optional_attributes` or `derived_attributes`, then a warning;
+  the same rule as the Scenario Builder's completeness gate),
 - a value that still holds the unresolved reference (for example the text
   `Building.PeakSpaceHeatingPower` instead of a number) is reported the same way,
 - a component link that produced no components is an error.

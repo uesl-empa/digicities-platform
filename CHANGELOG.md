@@ -23,7 +23,11 @@ All notable changes to the Digicities platform are recorded here. The project fo
 - **Service templates**: a running service can name the field that carries an instance's id; a top-level block can be reached through a component link.
 - **Ontology extension edits** follow naming rules and one safe sequence of operations; parent-class suggestions match noun phrases by their head noun.
 
+### Changed
+- **A service contract's inputs are required unless listed optional, everywhere.** Payload validation now uses the Scenario Builder's rule: every reference is required unless it (or the attribute it reads) is listed under `optional_attributes` or `derived_attributes`, so a missing value is a blocking error instead of a warning. The lists hold references (`T.A`), never field names. `required_attributes` is deprecated and ignored (validation warns). One reader (`backend/service_requirements/contract.py`) decides what is a reference, a link and a control list for the converter, the clean step, validation and the gate; the Streamlit Scenario Builder's own copy of the requirement extraction is gone. The control lists are no longer sent to the service, and the clean step keeps free text that mentions `.URI` or `.label`. See `docs/SERVICE_REQUIREMENTS_SPEC.md` section 6 (issues 1, 2, 3, 9 and 12 of section 13 fixed).
+
 ### Fixed
+- Categorical values written as a category class under the attribute class (the bundled energy-simulation demo) are sent again, and an attribute is read from the node typed with its own class when a category class sits under two attribute classes (ElectricallyHeated under DHWSupply and HeatingSupply).
 - Chat streams no longer die during long builds (SSE heartbeat); agent sessions are scoped to their own workspace; the agent can add files to a kept working folder after a restart.
 - Zero-valued required attributes no longer drop components from scenarios; payloads are complete after one build.
 - The NextCloud mirror push runs off the event loop; the API refuses to start when login is enforced on the public development secret; an empty `JWT_SECRET` no longer breaks login; the Postgres driver is named explicitly (SQLAlchemy 2.1 broke sign-in).

@@ -126,7 +126,7 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
         raw = convert_scenario(template, ttl_text, clean=False, ontology_graph=schema)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
-    validation = validate_payload(raw, template, template.get("required_attributes"))
+    validation = validate_payload(raw, template)
     # A replica file that does not parse drops every component in it — say so
     # next to the payload instead of only in the server log.
     for s in skipped_files:
