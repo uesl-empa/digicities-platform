@@ -28,6 +28,7 @@ from backend.ontology_kinds import (
     is_subproperty_of,
     is_time_series_predicate,
     is_time_series_reference_predicate,
+    superclass_distances,
     superclasses,
     with_core,
 )
@@ -160,6 +161,34 @@ def requirement_classes(component_type: Any, required: Mapping[str, Any],
         return [component_type] if component_type in required else []
     above = {dici_local_name(c) for c in superclasses(schema_view(schema), t)}
     return [key for key in required if key in above]
+
+
+def requirement_distances(component_type: Any, required: Iterable[str],
+                          schema: Optional[Graph] = None) -> dict:
+    """For each requirement class in ``required`` that ``component_type`` falls
+    under, how many ``rdfs:subClassOf`` steps lie between them (0 = the class
+    itself, 1 = a direct subclass; the shortest path when there are several).
+    A PV instance offered under an ``EnergyConverter`` requirement is 1."""
+    t = term(component_type)
+    if t is None:
+        return {}
+    by_name = {dici_local_name(c): d
+               for c, d in superclass_distances(schema_view(schema), t).items()}
+    return {key: by_name[key] for key in required if key in by_name}
+
+
+def subclass_marker(distance: int) -> str:
+    """The marker shown next to an instance offered under a requirement on a
+    class above its own: one ``*`` per level (``PV*`` under EnergyConverter).
+    The class itself gets none."""
+    return "*" * max(int(distance), 0)
+
+
+def subclass_note(required_class: str, distance: int) -> str:
+    """The tooltip for :func:`subclass_marker`; empty for the class itself."""
+    if distance <= 0:
+        return ""
+    return f"subclass of {required_class} ({distance} level{'s' if distance != 1 else ''})"
 
 
 def requirements_for(component_type: Any, required: Mapping[str, Any],

@@ -316,7 +316,10 @@ it (`rdfs:subClassOf*` in the workspace extension plus the core): a requirement 
 system without them is left out. A component under two requirement classes must meet
 both. When the workspace extension cannot be read, only the core hierarchy is used and
 the response says so (`warnings`). The Scenario Builder offers the instances of a
-required class and of its subclasses.
+required class and of its subclasses, and marks a subclass instance with one `*` per
+`rdfs:subClassOf` level below the required class (`PV*` under `EnergyConverter`), so it
+is not mistaken for the required class. The API gives the levels: `superclass_distance`
+in `GET /scenario/instances`, `requirement_distance` in `POST /scenario/validate`.
 
 ```yaml
 # example: valid

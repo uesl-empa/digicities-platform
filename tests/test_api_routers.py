@@ -1072,7 +1072,9 @@ def test_scenario_instances_shapes_palette(client, ws, monkeypatch):
                      "class": "https://digicities.info/ontology#Building",
                      "instances": [{"uri": "https://p/Building/B1", "label": "B1"}],
                      # the class and every class above it, for subclass matching
-                     "superclasses": ["Building"]}]
+                     "superclasses": ["Building"],
+                     # subClassOf steps from this class to each of them
+                     "superclass_distance": {"Building": 0}}]
 
 
 # ── agent (onboarder stubbed at the module seam) ──────────────────────────────
@@ -1652,6 +1654,35 @@ def test_submission_convert_says_when_the_extension_is_unreadable(client, ws, mo
                for w in got["validation"]["warnings"])
 
 
+def test_scenario_instances_give_the_distance_to_each_class_above(client, ws, monkeypatch):
+    """RooftopPV sits two subClassOf steps below EnergyConverter in the
+    workspace extension, so a client marks its instances ``**`` there."""
+    import pandas as pd
+    import backend.explorer as ce
+    import apps.api.deps as deps
+
+    ext = ws / "ontology" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "pv.ttl").write_text(
+        "@prefix dici_onto: <https://digicities.info/ontology#> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "dici_onto:PV rdfs:subClassOf dici_onto:EnergyConverter .\n"
+        "dici_onto:RooftopPV rdfs:subClassOf dici_onto:PV .\n", encoding="utf-8")
+    monkeypatch.setattr(deps, "_client_for", lambda repo, url: object())
+    monkeypatch.setattr(
+        ce, "get_component_types_with_instances",
+        lambda client: pd.DataFrame(
+            [{"componentName": "RooftopPV",
+              "componentType": "https://digicities.info/ontology#RooftopPV"}]))
+    monkeypatch.setattr(ce, "get_component_data_unified", lambda client, name: ([], []))
+    body = client.get(f"{B}/scenario/instances").json()
+    dist = body[0]["superclass_distance"]
+    assert dist["RooftopPV"] == 0
+    assert dist["PV"] == 1
+    assert dist["EnergyConverter"] == 2
+    assert body[0]["superclasses"] == sorted(dist)
+
+
 def test_scenario_validate_applies_a_requirement_to_subclass_instances(client, ws):
     """The workspace extension places PV under EnergyConverter: a PV instance
     must carry what a requirement on EnergyConverter asks, and /instances
@@ -1676,4 +1707,7 @@ def test_scenario_validate_applies_a_requirement_to_subclass_instances(client, w
     assert by_uri["https://x/PV1"]["required"] == ["RatedPower"]
     assert by_uri["https://x/PV1"]["included"] is False
     assert by_uri["https://x/B1"]["status"] == "compliant"
+    # PV is one subClassOf step below the requirement class, for the marker
+    assert by_uri["https://x/PV1"]["requirement_distance"] == {"EnergyConverter": 1}
+    assert by_uri["https://x/B1"]["requirement_distance"] == {}
     assert got["warnings"] == []
