@@ -123,3 +123,31 @@ def test_an_attribute_is_found_by_class_never_by_spelling():
     assert find_target_attribute(comp, "ratedpower", EXTENSION) == (None, None)
     assert not is_attribute_match("RatedPowerDerated", "RatedPower", EXTENSION)
     assert not is_attribute_match("rated_power", "RatedPower", EXTENSION)
+
+
+# ── marking an instance offered under a class above its own ──────────────────
+def test_the_distance_to_the_requirement_class_counts_subclass_steps():
+    from backend.scenario_builder.semantics import (
+        requirement_distances, subclass_marker, subclass_note)
+    assert requirement_distances("EnergyConverter", REQUIRED, EXTENSION) == {"EnergyConverter": 0}
+    assert requirement_distances("PV", REQUIRED, EXTENSION) == {"EnergyConverter": 1}
+    assert requirement_distances("RooftopPV", REQUIRED, EXTENSION) == {"EnergyConverter": 2}
+    assert requirement_distances("Building", REQUIRED, EXTENSION) == {}
+    assert [subclass_marker(d) for d in (0, 1, 2)] == ["", "*", "**"]
+    assert subclass_note("EnergyConverter", 0) == ""
+    assert subclass_note("EnergyConverter", 1) == "subclass of EnergyConverter (1 level)"
+    assert subclass_note("EnergyConverter", 2) == "subclass of EnergyConverter (2 levels)"
+
+
+def test_the_shortest_subclass_path_counts():
+    """A class reachable along a short and a long path is as far as the
+    short one."""
+    from backend.scenario_builder.semantics import requirement_distances
+    g = Graph().parse(data=f"""
+        @prefix dici_onto: <{D}> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        dici_onto:HybridPV rdfs:subClassOf dici_onto:RooftopPV, dici_onto:EnergyConverter .
+        dici_onto:RooftopPV rdfs:subClassOf dici_onto:PV .
+        dici_onto:PV rdfs:subClassOf dici_onto:EnergyConverter .
+    """, format="turtle")
+    assert requirement_distances("HybridPV", REQUIRED, g) == {"EnergyConverter": 1}

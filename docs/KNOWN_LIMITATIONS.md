@@ -179,6 +179,8 @@ an old image.
 - A requirement on a class is met by instances of its subclasses everywhere: the Scenario
   Builder's completeness gate and instance lists, scenario sync and the Assumptions module
   (a requirement on `EnergyConverter` takes a PV system that carries the required attributes).
+  Such instances are marked where they are offered: one `*` per subclass level below the
+  required class (`PV*`, `RooftopPV**`), with a "subclass of EnergyConverter (N levels)" tooltip.
 - Reading a contract back takes the time series flavour from the reference property, not
   from the field name.
 

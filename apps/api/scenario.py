@@ -56,7 +56,10 @@ def instances(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
 
     ``superclasses`` lists the class and every class above it
     (``rdfs:subClassOf*``, local names), so a requirement on ``EnergyConverter``
-    can offer the PV instances."""
+    can offer the PV instances. ``superclass_distance`` gives, for each of
+    them, the number of ``rdfs:subClassOf`` steps from this class (0 = itself,
+    the shortest path when there are several), so a client can mark an
+    instance offered under a class above its own (``PV*``)."""
     from backend.explorer import (
         get_component_types_with_instances,
         get_component_data_unified,
@@ -64,7 +67,7 @@ def instances(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
     )
     from rdflib import URIRef
 
-    from backend.ontology_kinds import dici_local_name, superclasses
+    from backend.ontology_kinds import dici_local_name, superclass_distances
     from backend.scenario_builder.semantics import schema_view
 
     client = graph_client(ctx)
@@ -83,10 +86,11 @@ def instances(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
                 uri = row.get("URI")
                 if isinstance(uri, str) and uri:
                     rows.append({"uri": uri, "label": str(row.get("instance_id") or row.get("label") or uri)})
-        above = sorted(n for n in (dici_local_name(c) for c in
-                                   superclasses(view, URIRef(str(r.componentType)))) if n)
+        dist = {dici_local_name(c): d for c, d in
+                superclass_distances(view, URIRef(str(r.componentType))).items()}
+        dist = {n: dist[n] for n in sorted(n for n in dist if n)}
         out.append({"component": name, "class": str(r.componentType), "instances": rows,
-                    "superclasses": above})
+                    "superclasses": list(dist), "superclass_distance": dist})
     return out
 
 
@@ -337,7 +341,7 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         get_filtered_links_for_ttl,
         resolve_nested_attribute_requirement,
     )
-    from backend.scenario_builder.semantics import requirements_for
+    from backend.scenario_builder.semantics import requirement_distances, requirements_for
 
     warnings: list[str] = []
     schema = _workspace_schema(ctx, warnings)
@@ -381,7 +385,11 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         else:
             status = "partial"
         results.append({"uri": comp["uri"], "type": comp["type"], "label": comp["label"],
-                        "status": status, "missing": missing, "required": list(reqs)})
+                        "status": status, "missing": missing, "required": list(reqs),
+                        # requirement class -> subClassOf steps from the
+                        # component's class (0 = the class itself)
+                        "requirement_distance": requirement_distances(
+                            comp["type"], required, schema)})
 
     included = get_filtered_components_for_ttl(comps, required, schema)
     included_uris = {c["uri"] for c in included}
