@@ -28,7 +28,8 @@ from backend.graphdb.graphs import COLLECTIONS_GRAPH
 from backend.ontology_kinds import kind_for_class
 from . import queries
 from .registry import (
-    BASE_TYPE_FAMILY, BOOLEAN, CATEGORICAL, NUMERIC, SIMPLE_VALUE_BASE,
+    BASE_TYPE_FAMILY, BOOLEAN, CATEGORICAL, NUMERIC, PROJECTABLE_STATISTICS,
+    SIMPLE_VALUE_BASE,
     TEMPORAL, UNSUPPORTED_BASE_TYPES, CollectionError, compute_stats,
     sniff_family,
 )
@@ -355,7 +356,8 @@ def materialize_component_grouped_set(client, workspace_id: str,
                                       grouping_component_class_iri: str,
                                       dataset_iri: Optional[str] = None,
                                       project_statistics=("mean",),
-                                      touch: bool = True) -> str:
+                                      touch: bool = True,
+                                      aggregate_classes: Optional[Dict[str, str]] = None) -> str:
     """Materialize a component-grouped GroupedSet: the target attribute's
     values partitioned by the instances of a component class the owners are
     linked to (e.g. HubHeight per WindPark). One group Set per container
@@ -370,7 +372,15 @@ def materialize_component_grouped_set(client, workspace_id: str,
     ``qudt:value``/``qudt:unit`` — so a service template can request e.g.
     ``District.FloorAreaMean`` exactly like any Component.attribute. Pass an
     empty tuple to skip projection. ``touch=False`` leaves the workspace's
-    activity stamp to the caller (a batch stamps it once)."""
+    activity stamp to the caller (a batch stamps it once).
+
+    ``aggregate_classes`` maps a statistic to the aggregate class the schema
+    DECLARES for it (``{"mean": dici_onto:WeightMean}``, see
+    ``ensure_template_aggregates``); the projected nodes are typed with that
+    class. A statistic without one (a projection asked for from the
+    Collections view) gets a class minted as ``<Attr><Stat>``, declared here
+    in the collections graph with the same ``aggregatesAttribute`` /
+    ``usesStatistic`` statements."""
     if not queries.is_component_class(client, grouping_component_class_iri):
         raise CollectionError(
             f"{_local(grouping_component_class_iri)} is not a Component "
@@ -438,6 +448,9 @@ def materialize_component_grouped_set(client, workspace_id: str,
     if project_statistics and effective_t_family != _NUM:
         print(f"[collections] projection skipped: {attr_local} is "
               f"{effective_t_family}, only numeric statistics are projected")
+    declared = {k: URIRef(v) for k, v in (aggregate_classes or {}).items()}
+    agg_class = {stat: declared.get(stat) or dici_onto[f"{attr_local}{stat[0].upper()}{stat[1:]}"]
+                 for stat in project}
 
     for container in sorted(groups):
         vals = [v for v, _ in groups[container]]
@@ -463,12 +476,12 @@ def materialize_component_grouped_set(client, workspace_id: str,
         for stat in project:
             if stat not in stats:
                 continue                      # e.g. stdev on a 1-member group
-            agg_name = f"{attr_local}{stat[0].upper()}{stat[1:]}"
+            agg_name = _local(agg_class[stat])
             node = URIRef(f"{container}/{agg_name}")
             cont_ref = URIRef(container)
             g.add((cont_ref, dici_onto.hasAttribute, node))
             g.add((cont_ref, dici_onto[f"has{comp_local}{agg_name}Attribute"], node))
-            g.add((node, RDF.type, dici_onto[agg_name]))
+            g.add((node, RDF.type, agg_class[stat]))
             g.add((node, RDF.type, dici_onto.AggregateAttribute))
             g.add((node, RDF.type, dici_onto.PhysicalAttribute))
             g.add((node, RDFS.label,
@@ -488,15 +501,18 @@ def materialize_component_grouped_set(client, workspace_id: str,
             g.add((node, dici_onto.aggregateOf, member_set))
             g.add((node, dici_onto.statisticUsed, Literal(stat)))
 
-    # Declare each projected aggregate class once, in the collections graph
-    # (derived schema for derived nodes — wiped with the rest on reload).
+    # Declare each minted aggregate class once, in the collections graph
+    # (derived schema for derived nodes — wiped with the rest on reload). A
+    # class the schema declares is left to the schema.
     for stat in project:
-        agg_name = f"{attr_local}{stat[0].upper()}{stat[1:]}"
-        g.add((dici_onto[agg_name], RDF.type,
-               URIRef("http://www.w3.org/2002/07/owl#Class")))
-        g.add((dici_onto[agg_name], RDFS.subClassOf, dici_onto.AggregateAttribute))
-        g.add((dici_onto[agg_name], RDFS.label,
-               Literal(f"{attr_local} {stat} (aggregate)")))
+        if stat in declared:
+            continue
+        cls = agg_class[stat]
+        g.add((cls, RDF.type, URIRef("http://www.w3.org/2002/07/owl#Class")))
+        g.add((cls, RDFS.subClassOf, dici_onto.AggregateAttribute))
+        g.add((cls, RDFS.label, Literal(f"{attr_local} {stat} (aggregate)")))
+        g.add((cls, dici_onto.aggregatesAttribute, URIRef(target_attribute_class_iri)))
+        g.add((cls, dici_onto.usesStatistic, dici_onto[stat]))
 
     _replace_collection(client, str(gset_iri), g)
     if touch:
@@ -504,81 +520,95 @@ def materialize_component_grouped_set(client, workspace_id: str,
     return str(gset_iri)
 
 
-# Statistic-name suffix ↔ registry key, for template references like
-# ``District.BuildingHeightMean``. The SUFFIX is only the trigger — both the
-# attribute class and the component class are then verified against the
-# schema graph before anything is materialized.
-_STAT_SUFFIXES = {
-    "Mean": "mean", "Median": "median", "Sum": "sum",
-    "MinValue": "minValue", "MaxValue": "maxValue", "Count": "count",
-    "StandardDeviation": "standardDeviation",
-}
+# A class's ``usesStatistic`` names the DescriptiveStatistics property; this
+# maps that IRI to the registry's statistic key.
+_STATISTIC_BY_PROPERTY = {dici_onto[key]: key for key in PROJECTABLE_STATISTICS}
 
 
-def ensure_template_aggregates(client, workspace_id: str, template) -> List[str]:
-    """Make every aggregate a service template references resolvable BEFORE
+def ensure_template_aggregates(client, workspace_id: str, template,
+                               problems: Optional[List[Dict]] = None) -> List[str]:
+    """Make every derived value a service contract lists resolvable BEFORE
     conversion, so Convert→Submit works end-to-end without anyone having to
     pre-materialize collections.
 
-    Walks the template for ``Component.Attr`` references where ``Attr`` ends
-    in a statistic suffix (Mean, Sum, ...). A candidate is acted on only when
-    the schema graph confirms it: the base is a real Attribute subclass and
-    the component is a real Component subclass. Each confirmed aggregate's
-    component-grouped set is (re)materialized idempotently, projecting that
-    statistic. Never raises — an unmaterializable aggregate (e.g. no links)
-    just stays unresolved, exactly as before.
+    Reads the contract's ``derived_attributes`` (``Tree.WeightMean``) and, for
+    each, the schema's declaration of the aggregate class: ``WeightMean
+    aggregatesAttribute Weight ; usesStatistic dici_onto:mean`` (core 0.7.0).
+    What to compute comes from that declaration, never from the class name.
+    The owner (``Tree``) must be a Component class. Each aggregate's
+    component-grouped set is (re)materialized idempotently, projecting the
+    declared statistic onto the declared class.
 
-    All the statistics a template asks of one attribute per one component
+    All the statistics a contract asks of one attribute per one component
     (``Tree.WeightMean`` and ``Tree.WeightStandardDeviation``) share ONE
     collection, so they are projected in one pass: materializing them one by
     one replaced the collection each time and kept only the last statistic.
 
+    Never raises: a derived value that is undeclared, declared with a
+    statistic the platform cannot project, or not materializable (no linked
+    records) stays unresolved, and the reason is printed and appended to
+    ``problems`` (``{"reference", "error"}``), so the caller can show it.
+
     Returns the collection IRIs that were ensured.
     """
-    refs: set = set()
+    from backend.service_requirements.contract import derived_references
 
-    def _walk(node):
-        if isinstance(node, dict):
-            for v in node.values():
-                _walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                _walk(v)
-        elif isinstance(node, str) and node.count(".") == 1 and not node.startswith("CL."):
-            comp, attr = node.split(".")
-            if comp and attr and comp[0].isupper():
-                refs.add((comp, attr))
+    def report(ref_text: str, error: str) -> None:
+        print(f"[collections] derived value {ref_text}: {error}")
+        if problems is not None:
+            problems.append({"reference": ref_text, "error": error})
 
-    _walk(template)
+    refs = derived_references(template)
+    if not refs:
+        return []
+    classes = {str(dici_onto[r.attribute]) for r in refs}
+    try:
+        decl = queries.aggregate_declarations(client, classes)
+    except Exception as exc:  # debt-ok: triplestore read; reported per reference below
+        for r in refs:
+            report(r.text, f"the schema could not be read ({type(exc).__name__}: {exc})")
+        return []
+    declared = {str(row["cls"]): (str(row["base"]), str(row["stat"]))
+                for _, row in decl.iterrows()}
 
-    wanted: Dict[Tuple[str, str], List[str]] = {}     # (comp, base) -> stats
-    for comp, attr in sorted(refs):
-        suf = next((s for s in _STAT_SUFFIXES
-                    if attr.endswith(s) and len(attr) > len(s)), None)
-        if suf is None:
+    # (owner component, base attribute) -> {statistic key: aggregate class}
+    wanted: Dict[Tuple[str, str], Dict[str, str]] = {}
+    for r in refs:
+        cls = str(dici_onto[r.attribute])
+        if cls not in declared:
+            report(r.text, f"{r.attribute} is not declared as an aggregate (an "
+                           f"AggregateAttribute subclass stating aggregatesAttribute "
+                           f"and usesStatistic) in this workspace's ontology")
             continue
-        stats = wanted.setdefault((comp, attr[: -len(suf)]), [])
-        if _STAT_SUFFIXES[suf] not in stats:
-            stats.append(_STAT_SUFFIXES[suf])
+        base, stat_iri = declared[cls]
+        stat = _STATISTIC_BY_PROPERTY.get(URIRef(stat_iri))
+        if stat is None:
+            report(r.text, f"{r.attribute} uses the statistic <{stat_iri}>, which the "
+                           f"platform does not project (one of "
+                           + ", ".join(PROJECTABLE_STATISTICS) + ")")
+            continue
+        comp = str(dici_onto[r.owner])
+        group = wanted.setdefault((comp, base), {})
+        if stat in group and group[stat] != cls:
+            report(r.text, f"{r.owner} asks for the {stat} of {_local(base)} twice "
+                           f"({_local(group[stat])} and {r.attribute})")
+            continue
+        group[stat] = cls
 
     ensured: List[str] = []
-    for (comp, base), stats in sorted(wanted.items()):
-        base_iri = f"{dici_onto}{base}"
-        comp_iri = f"{dici_onto}{comp}"
-        names = ", ".join(f"{comp}.{base}{s[0].upper()}{s[1:]}" for s in stats)
+    for (comp, base), by_stat in sorted(wanted.items()):
+        names = ", ".join(f"{_local(comp)}.{_local(c)}" for c in by_stat.values())
         try:
-            if not queries.base_types_of(client, base_iri):
-                continue                       # not an attribute class here
-            if not queries.is_component_class(client, comp_iri):
-                continue                       # not a component class here
+            if not queries.is_component_class(client, comp):
+                report(names, f"{_local(comp)} is not a Component class in this workspace")
+                continue
             ensured.append(materialize_component_grouped_set(
-                client, workspace_id, base_iri, comp_iri,
-                project_statistics=tuple(stats)))
+                client, workspace_id, base, comp,
+                project_statistics=tuple(by_stat), aggregate_classes=by_stat))
         except CollectionError as exc:
-            print(f"[collections] template aggregate(s) {names} not "
-                  f"materializable: {exc}")
-        except Exception as exc:
-            print(f"[collections] template aggregate(s) {names} skipped: {exc}")
+            report(names, f"not materializable: {exc}")
+        except Exception as exc:  # debt-ok: one failed aggregate never blocks the others; reported
+            report(names, f"skipped: {type(exc).__name__}: {exc}")
     return ensured
 
 

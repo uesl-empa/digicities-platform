@@ -34,6 +34,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import yaml
 
+from backend.scenario_builder.semantics import property_matches
 from backend.service_requirements.models import ComponentEntry
 
 # Dynamic attribute flavor -> the time-series reference predicate its field
@@ -445,14 +446,28 @@ def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntr
         raise ValueError(f"Error parsing YAML: {str(e)}")
 
 
+def time_series_flavor(reference_property: str) -> str:
+    """The flavor (Historic / Live / Future) whose time-series reference
+    property ``reference_property`` names, or a property under it
+    (``rdfs:subPropertyOf*`` in the core); ``Static`` when it names none."""
+    for flavor, prop in TS_REFERENCE.items():
+        if property_matches(reference_property, prop):
+            return flavor
+    return "Static"
+
+
 def extract_attributes_from_dict(data_dict: Dict, component_type: str) -> Dict[str, List[str]]:
     """Attribute name -> flavor list, recovered from one component's YAML block.
 
-    Reference strings decide the attribute and its flavor; ``*_historic`` /
-    ``*_live`` / ``*_future`` field-name suffixes win over the reference when
-    they disagree, and a ``name`` field referencing ``label`` normalizes to
-    ``label``. Nested dicts that are themselves child components (link+template
-    or uri+label/name) are left to the component parser.
+    A field is an attribute of the block when its reference's class segment
+    IS the block's component type (``<Type>.<attr>`` or
+    ``<Type>.<attr>.<referenceProperty>``). The flavor comes from the
+    reference property's place under the time-series reference properties,
+    never from the field's name: ``WindSpeed_live:
+    Weather.WindSpeed.hasHistoricTimeSeriesReference`` is Historic. A ``name``
+    field referencing ``label`` is ``label``. Nested dicts that are themselves
+    child components (link+template or uri+label/name) are left to the
+    component parser.
     """
     attributes = {}
 
@@ -460,52 +475,16 @@ def extract_attributes_from_dict(data_dict: Dict, component_type: str) -> Dict[s
         if key in ['uri', 'link', 'template']:
             continue
 
-        # Parse the reference to determine attribute name and type
-        if isinstance(value, str) and component_type and component_type in value:
-            # Format: ComponentType.AttributeName or ComponentType.AttributeName.hasXTimeSeriesReference
+        if isinstance(value, str) and component_type:
             parts = value.split('.')
-
-            if len(parts) >= 2:
-                attr_name = parts[1]
-
-                # Backward compatibility: if field name is 'name' and reference is to 'label', convert to 'label'
-                if key == 'name' and attr_name == 'label':
-                    key = 'label'
-
-                # Determine type based on field name and reference
-                if len(parts) == 2:
-                    # Static attribute
-                    attr_type = "Static"
-                elif len(parts) == 3:
-                    # Dynamic attribute with time series reference
-                    ts_ref = parts[2]
-                    if 'Historic' in ts_ref:
-                        attr_type = "Historic"
-                    elif 'Live' in ts_ref:
-                        attr_type = "Live"
-                    elif 'Future' in ts_ref:
-                        attr_type = "Future"
-                    else:
-                        attr_type = "Static"
-                else:
-                    attr_type = "Static"
-
-                # Handle field names with suffixes like attr_historic, attr_live, etc.
-                if key.endswith('_historic'):
-                    attr_name = key.replace('_historic', '')
-                    attr_type = "Historic"
-                elif key.endswith('_live'):
-                    attr_name = key.replace('_live', '')
-                    attr_type = "Live"
-                elif key.endswith('_future'):
-                    attr_name = key.replace('_future', '')
-                    attr_type = "Future"
-
-                # Add to attributes dict
-                if attr_name not in attributes:
-                    attributes[attr_name] = []
-                if attr_type not in attributes[attr_name]:
-                    attributes[attr_name].append(attr_type)
+            if len(parts) < 2 or parts[0] != component_type:
+                continue
+            attr_name = parts[1]
+            attr_type = time_series_flavor(parts[2]) if len(parts) == 3 else "Static"
+            if attr_name not in attributes:
+                attributes[attr_name] = []
+            if attr_type not in attributes[attr_name]:
+                attributes[attr_name].append(attr_type)
 
         # A nested dict that is itself a child component (has link+template, or
         # uri+label/name) is parsed separately by parse_component — don't fold its

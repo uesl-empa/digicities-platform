@@ -13,8 +13,9 @@ step behind the backend seam, so the REST convert sees the same full picture.
 """
 from __future__ import annotations
 
-import re
 from typing import Optional
+
+from backend.graphdb.queries.scenarios import ScenarioMaterializationError
 
 
 def workspace_schema(storage, *, skipped: Optional[list] = None):
@@ -43,28 +44,13 @@ def workspace_schema(storage, *, skipped: Optional[list] = None):
 def _template_attribute_classes(template) -> set:
     """The attribute classes a service template names: the ``Attr`` of every
     ``Component.Attr`` reference (``Tree.WeightMean`` names ``WeightMean``),
-    as dici_onto: IRIs. Link specs (``CL.A.B``) and nested references
-    (``A.B.hasLiveTimeSeriesReference``) name no derived value."""
+    as dici_onto: IRIs, read by the one contract reader. Link specs
+    (``CL.A.B``) and nested references (``A.B.hasLiveTimeSeriesReference``)
+    name no derived value."""
     from backend.ontology_kinds import DICI
-    classes: set = set()
-
-    def walk(node) -> None:
-        if isinstance(node, dict):
-            for value in node.values():
-                walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-        elif isinstance(node, str):
-            parts = node.split(".")
-            if len(parts) == 2 and parts[0] != "CL" and _LOCAL_NAME.fullmatch(parts[1]):
-                classes.add(DICI[parts[1]])
-
-    walk(template)
-    return classes
-
-
-_LOCAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*")
+    from backend.service_requirements.contract import iter_references, payload_template
+    return {DICI[ref.attribute] for ref in iter_references(payload_template(template))
+            if ref.attribute is not None and len(ref.members) == 1}
 
 
 def derived_value_query(classes) -> str:
@@ -178,6 +164,12 @@ def materialize_against_workspace(storage, scenario_text: str, client=None,
         scenarios = list(scn.subjects(RDF.type, _DICI.Scenario))
         if not scenarios:
             return scenario_text
+        suri = scenarios[0]
+        # The scenarios it is based on live in their own files: read them so
+        # their overrides are inherited (each scenario's overrides stay scoped
+        # by its own usedInScenario tag, so the other files cannot leak in).
+        if _has_parent_outside(scn, suri, ontology_graph):
+            _add_workspace_scenarios(storage, scn, _record_skip)
 
         rep = Graph()
         try:
@@ -199,11 +191,38 @@ def materialize_against_workspace(storage, scenario_text: str, client=None,
 
         if ontology_graph is None:
             ontology_graph = workspace_schema(storage, skipped=skipped)
+        lineage_notes: list = []
         materialized: Optional[str] = materialize_scenario_graphs(
-            scn, rep, str(scenarios[0]), ontology_graph=ontology_graph)
+            scn, rep, str(suri), ontology_graph=ontology_graph, warnings=lineage_notes)
+        if skipped is not None:
+            skipped.extend({"file": "scenarios", "error": n} for n in lineage_notes)
         return materialized or scenario_text
+    except ScenarioMaterializationError:
+        raise  # the scenario is wrong as written: converting the thin text would hide it
     except Exception:
         return scenario_text
+
+
+def _has_parent_outside(scn, suri, schema) -> bool:
+    """True when ``suri`` is based on a scenario that ``scn`` does not hold."""
+    from rdflib.graph import ReadOnlyGraphAggregate
+
+    from backend.graphdb.queries.scenarios import scenario_parents
+    from backend.ontology_kinds import core_graph
+    view = ReadOnlyGraphAggregate([g for g in (scn, schema) if g is not None] + [core_graph()])
+    return any(next(scn.predicate_objects(p), None) is None
+               for p in scenario_parents(scn, suri, view))
+
+
+def _add_workspace_scenarios(storage, scn, record_skip) -> None:
+    """Parse every ``scenarios/*.ttl`` of the workspace into ``scn``."""
+    if storage is None or not storage.exists("scenarios"):
+        return
+    for rel in storage.glob("scenarios/*.ttl"):
+        try:
+            scn.parse(data=storage.read_text(rel), format="turtle")
+        except (OSError, SyntaxError, ValueError) as exc:
+            record_skip(rel, exc)
 
 
 __all__ = ["derived_value_query", "derived_values", "materialize_against_workspace",

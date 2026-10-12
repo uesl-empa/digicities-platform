@@ -934,7 +934,7 @@ def render_groups_as_workspaces(groups):
         # Name/description search filter
         if search:
             haystack = f"{metadata.get('name', '')} {group} {metadata.get('description', '')}".lower()
-            if search.lower() not in haystack:
+            if search.lower() not in haystack:  # debt-ok: user search text
                 continue
         rendered += 1
         ws_source = _source_of(group)
@@ -961,7 +961,7 @@ def render_groups_as_workspaces(groups):
             import base64
             img_b64 = base64.b64encode(img_data).decode()
             mime_type = "image/jpeg"
-            if workspace_id.endswith('.png') or any(fmt in workspace_id.lower() for fmt in ['png']):
+            if workspace_id.endswith('.png') or any(fmt in workspace_id.lower() for fmt in ['png']):  # debt-ok: image file name
                 mime_type = "image/png"
 
             st.markdown(f"""

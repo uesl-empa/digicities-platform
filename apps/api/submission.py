@@ -110,23 +110,28 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
         client = None
     # Aggregates the template asks for (District.FloorAreaMean) are DERIVED:
     # materialize them before the merge, as the Streamlit Convert tab does.
+    derived_problems: list[dict[str, str]] = []
     if client is not None:
-        try:
-            from backend.collections import ensure_template_aggregates
-            ensure_template_aggregates(client, ctx.id, template)
-        except Exception:
-            pass                      # an unresolved aggregate is reported by validation
+        from backend.collections import ensure_template_aggregates
+        ensure_template_aggregates(client, ctx.id, template, problems=derived_problems)
     skipped_files: list[dict[str, str]] = []
     storage = getattr(ctx, "storage", None)
     schema = workspace_schema(storage, skipped=skipped_files)
-    ttl_text = materialize_against_workspace(storage, scen.read_text(encoding="utf-8"), client,
-                                             skipped=skipped_files, ontology_graph=schema,
-                                             template=template)
+    from backend.graphdb.queries.scenarios import ScenarioMaterializationError
+    try:
+        ttl_text = materialize_against_workspace(storage, scen.read_text(encoding="utf-8"),
+                                                 client, skipped=skipped_files,
+                                                 ontology_graph=schema, template=template)
+    except ScenarioMaterializationError as exc:
+        raise HTTPException(status_code=422, detail=f"Scenario cannot be used: {exc}") from exc
     try:
         raw = convert_scenario(template, ttl_text, clean=False, ontology_graph=schema)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
-    validation = validate_payload(raw, template, template.get("required_attributes"))
+    validation = validate_payload(raw, template)
+    for p in derived_problems:
+        validation.warnings.append(
+            f"Derived value {p['reference']} was not computed: {p['error']}")
     # A replica file that does not parse drops every component in it — say so
     # next to the payload instead of only in the server log.
     for s in skipped_files:
@@ -134,6 +139,9 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
             validation.warnings.append(
                 f"The workspace ontology extension could not be read, so only the core "
                 f"hierarchy decided what each node is ({s['error']})")
+            continue
+        if s["file"] == "scenarios":
+            validation.warnings.append(s["error"])
             continue
         if s["file"] == "collections":
             validation.warnings.append(

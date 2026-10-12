@@ -21,12 +21,15 @@ from backend.ontology_kinds import (
     DICI,
     AttributeKind,
     attribute_kind,
+    dici_local_name,
     is_component_link_class,
     is_scenario_class,
     is_subclass_of,
     is_subproperty_of,
     is_time_series_predicate,
     is_time_series_reference_predicate,
+    superclass_distances,
+    superclasses,
     with_core,
 )
 
@@ -122,10 +125,84 @@ def kind_of(attr_data: Any) -> Optional[AttributeKind]:
     return as_attribute_kind(attr_data.get('attribute_type'))
 
 
-def names_subclass_of(name: Any, sup: Any) -> bool:
-    """``name`` names ``sup`` or a class under it (``rdfs:subClassOf*``)."""
+def schema_view(schema: Optional[Graph] = None) -> Graph:
+    """The hierarchy class questions are asked of: the workspace schema (its
+    extension, which places the workspace's own classes under core) plus the
+    core, or the core alone when no schema is given."""
+    return core() if schema is None else with_core(schema)
+
+
+def names_subclass_of(name: Any, sup: Any, schema: Optional[Graph] = None) -> bool:
+    """``name`` names ``sup`` or a class under it (``rdfs:subClassOf*``), in
+    the workspace ``schema`` (plus core) when one is given."""
     t, s = term(name), term(sup)
-    return t is not None and s is not None and (t == s or is_subclass_of(core(), t, s))
+    return t is not None and s is not None and (
+        t == s or is_subclass_of(schema_view(schema), t, s))
+
+
+def attribute_class_kind(name: Any, schema: Optional[Graph] = None) -> Optional[AttributeKind]:
+    """The kind of the attribute class ``name`` names (``ConstructionYear`` ->
+    EVENT when the schema places it under EventAttribute), read from the
+    hierarchy; None when the class is unknown there."""
+    t = term(name)
+    return attribute_kind(schema_view(schema), [t]) if t is not None else None
+
+
+def requirement_classes(component_type: Any, required: Mapping[str, Any],
+                        schema: Optional[Graph] = None) -> list:
+    """The keys of ``required`` (requirement classes) that apply to a
+    component of class ``component_type``: its own class and every class it is
+    ``rdfs:subClassOf*``. A requirement on ``EnergyConverter`` applies to a PV
+    system when the schema places PV under EnergyConverter."""
+    if not component_type or not required:
+        return []
+    t = term(component_type)
+    if t is None:
+        return [component_type] if component_type in required else []
+    above = {dici_local_name(c) for c in superclasses(schema_view(schema), t)}
+    return [key for key in required if key in above]
+
+
+def requirement_distances(component_type: Any, required: Iterable[str],
+                          schema: Optional[Graph] = None) -> dict:
+    """For each requirement class in ``required`` that ``component_type`` falls
+    under, how many ``rdfs:subClassOf`` steps lie between them (0 = the class
+    itself, 1 = a direct subclass; the shortest path when there are several).
+    A PV instance offered under an ``EnergyConverter`` requirement is 1."""
+    t = term(component_type)
+    if t is None:
+        return {}
+    by_name = {dici_local_name(c): d
+               for c, d in superclass_distances(schema_view(schema), t).items()}
+    return {key: by_name[key] for key in required if key in by_name}
+
+
+def subclass_marker(distance: int) -> str:
+    """The marker shown next to an instance offered under a requirement on a
+    class above its own: one ``*`` per level (``PV*`` under EnergyConverter).
+    The class itself gets none."""
+    return "*" * max(int(distance), 0)
+
+
+def subclass_note(required_class: str, distance: int) -> str:
+    """The tooltip for :func:`subclass_marker`; empty for the class itself."""
+    if distance <= 0:
+        return ""
+    return f"subclass of {required_class} ({distance} level{'s' if distance != 1 else ''})"
+
+
+def requirements_for(component_type: Any, required: Mapping[str, Any],
+                     schema: Optional[Graph] = None) -> list:
+    """Every attribute ``required`` asks of a component of class
+    ``component_type``, over all the requirement classes it falls under (see
+    :func:`requirement_classes`), each named once, in requirement order."""
+    out: list = []
+    for key in requirement_classes(component_type, required, schema):
+        attrs = required[key]
+        for attr in (sorted(attrs) if isinstance(attrs, (set, frozenset)) else attrs):
+            if attr not in out:
+                out.append(attr)
+    return out
 
 
 def property_matches(key: Any, wanted: Any) -> bool:

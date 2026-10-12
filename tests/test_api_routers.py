@@ -310,7 +310,9 @@ def test_scenario_requirements_parses_service_template(client, ws):
     assert got["file"] == "demo_sim.yaml"
     assert got["component_links"] == ["CL.Location.Building", "CL.Scenario.Location"]
     assert set(got["required_component_types"]) >= {"Location", "Building"}
-    assert set(got["required_attributes"]["Building"]) == {"URI", "GroundFloorArea"}
+    assert set(got["requirements_by_class"]["Building"]) == {"URI", "GroundFloorArea"}
+    # the deprecated name stays one release for clients that still read it
+    assert got["required_attributes"] == got["requirements_by_class"]
 
 
 def test_scenario_requirements_404_for_unknown_service(client, ws):
@@ -772,19 +774,29 @@ def test_submission_convert_ensures_template_aggregates(client, ws, monkeypatch)
     graph = object()
     seen = []
     monkeypatch.setattr(sub, "graph_client", lambda ctx: graph)
-    monkeypatch.setattr(coll, "ensure_template_aggregates",
-                        lambda c, ws_id, tmpl: seen.append((c, ws_id, tmpl)) or [])
+    def ensure(c, ws_id, tmpl, problems=None):
+        seen.append((c, ws_id, tmpl))
+        problems.append({"reference": "Tree.WeightMean", "error": "not declared"})
+        return []
+
+    monkeypatch.setattr(coll, "ensure_template_aggregates", ensure)
     (ws / "services").mkdir(exist_ok=True)
     (ws / "services" / "Agg.yaml").write_text(yaml.safe_dump({
         "service_name": "Agg",
         "scenario_data": {"tree": {"uri": "Tree.URI", "WeightMean": "Tree.WeightMean"}},
+        "derived_attributes": ["Tree.WeightMean"],
     }), encoding="utf-8")
     (ws / "scenarios").mkdir(exist_ok=True)
-    (ws / "scenarios" / "S.ttl").write_text("", encoding="utf-8")
-    client.post(f"{B}/submission/convert",
-                json={"template_file": "Agg.yaml", "scenario_file": "S.ttl"})
+    (ws / "scenarios" / "S.ttl").write_text(
+        "<https://p/S> a <https://digicities.info/ontology#Scenario> .\n", encoding="utf-8")
+    r = client.post(f"{B}/submission/convert",
+                    json={"template_file": "Agg.yaml", "scenario_file": "S.ttl"})
     assert seen and seen[0][0] is graph
     assert seen[0][2]["scenario_data"]["tree"]["WeightMean"] == "Tree.WeightMean"
+    # A derived value that could not be computed is reported with the payload.
+    assert r.status_code == 200, r.text
+    assert any("Tree.WeightMean was not computed: not declared" in w
+               for w in r.json()["validation"]["warnings"]), r.json()
 
 
 def test_payload_validation_walks_implicit_root_lists():
@@ -1070,7 +1082,11 @@ def test_scenario_instances_shapes_palette(client, ws, monkeypatch):
     body = client.get(f"{B}/scenario/instances").json()
     assert body == [{"component": "Building",
                      "class": "https://digicities.info/ontology#Building",
-                     "instances": [{"uri": "https://p/Building/B1", "label": "B1"}]}]
+                     "instances": [{"uri": "https://p/Building/B1", "label": "B1"}],
+                     # the class and every class above it, for subclass matching
+                     "superclasses": ["Building"],
+                     # subClassOf steps from this class to each of them
+                     "superclass_distance": {"Building": 0}}]
 
 
 # ── agent (onboarder stubbed at the module seam) ──────────────────────────────
@@ -1648,3 +1664,62 @@ def test_submission_convert_says_when_the_extension_is_unreadable(client, ws, mo
                       json={"template_file": "T.yaml", "scenario_file": "S.ttl"}).json()
     assert any("ontology extension could not be read" in w
                for w in got["validation"]["warnings"])
+
+
+def test_scenario_instances_give_the_distance_to_each_class_above(client, ws, monkeypatch):
+    """RooftopPV sits two subClassOf steps below EnergyConverter in the
+    workspace extension, so a client marks its instances ``**`` there."""
+    import pandas as pd
+    import backend.explorer as ce
+    import apps.api.deps as deps
+
+    ext = ws / "ontology" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "pv.ttl").write_text(
+        "@prefix dici_onto: <https://digicities.info/ontology#> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "dici_onto:PV rdfs:subClassOf dici_onto:EnergyConverter .\n"
+        "dici_onto:RooftopPV rdfs:subClassOf dici_onto:PV .\n", encoding="utf-8")
+    monkeypatch.setattr(deps, "_client_for", lambda repo, url: object())
+    monkeypatch.setattr(
+        ce, "get_component_types_with_instances",
+        lambda client: pd.DataFrame(
+            [{"componentName": "RooftopPV",
+              "componentType": "https://digicities.info/ontology#RooftopPV"}]))
+    monkeypatch.setattr(ce, "get_component_data_unified", lambda client, name: ([], []))
+    body = client.get(f"{B}/scenario/instances").json()
+    dist = body[0]["superclass_distance"]
+    assert dist["RooftopPV"] == 0
+    assert dist["PV"] == 1
+    assert dist["EnergyConverter"] == 2
+    assert body[0]["superclasses"] == sorted(dist)
+
+
+def test_scenario_validate_applies_a_requirement_to_subclass_instances(client, ws):
+    """The workspace extension places PV under EnergyConverter: a PV instance
+    must carry what a requirement on EnergyConverter asks, and /instances
+    lists EnergyConverter among the PV class's superclasses."""
+    ext = ws / "ontology" / "extensions"
+    ext.mkdir(parents=True)
+    (ext / "pv.ttl").write_text(
+        "@prefix dici_onto: <https://digicities.info/ontology#> .\n"
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
+        "dici_onto:PV rdfs:subClassOf dici_onto:EnergyConverter .\n", encoding="utf-8")
+    r = client.post(f"{B}/scenario/validate", json={
+        "required_attributes": {"EnergyConverter": ["RatedPower"]},
+        "components": [
+            {"uri": "https://x/PV1", "type": "PV", "label": "PV1"},
+            {"uri": "https://x/B1", "type": "Building", "label": "B1"},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    got = r.json()
+    by_uri = {c["uri"]: c for c in got["components"]}
+    assert by_uri["https://x/PV1"]["status"] == "missing_all"
+    assert by_uri["https://x/PV1"]["required"] == ["RatedPower"]
+    assert by_uri["https://x/PV1"]["included"] is False
+    assert by_uri["https://x/B1"]["status"] == "compliant"
+    # PV is one subClassOf step below the requirement class, for the marker
+    assert by_uri["https://x/PV1"]["requirement_distance"] == {"EnergyConverter": 1}
+    assert by_uri["https://x/B1"]["requirement_distance"] == {}
+    assert got["warnings"] == []

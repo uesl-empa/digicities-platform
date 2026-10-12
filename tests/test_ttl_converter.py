@@ -258,12 +258,30 @@ def test_cleaner_with_template_only_drops_the_reference_at_its_position():
     assert m["part"] == [{"size": 3.0}]
 
 
-def test_cleaner_without_template_uses_the_strict_shape():
+def test_cleaner_needs_the_template():
     from backend.api_submission.ttl_converter import clean_placeholder_values
 
-    cleaned = clean_placeholder_values({"a": "Machine.Height", "b": "Machine.height",
-                                        "c": "plain text", "d": 4.2})
-    assert cleaned == {"b": "Machine.height", "c": "plain text", "d": 4.2}
+    # Without the template nothing tells a reference from data.
+    with pytest.raises(TypeError):
+        clean_placeholder_values({"a": "Machine.Height"})
+
+
+def test_cleaner_keeps_free_text_that_mentions_uri_or_label():
+    from backend.api_submission.ttl_converter import clean_placeholder_values
+
+    template = {"service_name": "svc", "scenario_data": {
+        "note": "See Building.URI and the Site.label column",
+        "machine": {"link": "CL.Scenario.Machine",
+                    "template": {"uri": "Machine.URI", "comment": "Machine.Comment"}}}}
+    raw = {"service_name": "svc", "scenario_data": {
+        "note": "See Building.URI and the Site.label column",
+        "machine": [{"uri": "urn:m1", "comment": "copied from old.URI field"},
+                    {"uri": "Machine.URI"}]}}
+    cleaned = clean_placeholder_values(raw, template)
+    assert cleaned["scenario_data"]["note"] == "See Building.URI and the Site.label column"
+    # the unresolved Machine.URI is removed; free text with ".URI" stays
+    assert cleaned["scenario_data"]["machine"] == [
+        {"uri": "urn:m1", "comment": "copied from old.URI field"}]
 
 
 def test_no_scenario_in_ttl_raises():

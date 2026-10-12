@@ -37,7 +37,11 @@ except ImportError:
     GRAPHDB_LOADER_AVAILABLE = False
 
 from backend.ontology_kinds import AttributeKind
-from backend.scenario_builder.semantics import has_time_series_data, is_unknown_precision, kind_of
+from backend.scenario_builder.semantics import (
+    has_time_series_data, is_unknown_precision, kind_of, requirement_distances,
+    requirements_for, subclass_marker, subclass_note,
+)
+from components.scenario_builder.workspace_schema import session_workspace_schema
 
 # Pure display helpers (no loader dependency).
 from components.scenario_builder.component_display_utils import (
@@ -401,6 +405,22 @@ def create_automatic_scenario_link(component):
         st.session_state.scenario_links.append(scenario_link)
 
 
+def _subclass_mark(comp, comp_type, schema):
+    """Display only: the ``*`` marker (one per subClassOf level) and its
+    tooltip for a component offered under ``comp_type`` whose own class is a
+    subclass of it. The stored label and URI never change."""
+    dist = requirement_distances(comp.get('type'), [comp_type], schema).get(comp_type, 0)
+    # escaped so markdown shows the stars instead of reading them as emphasis
+    return subclass_marker(dist).replace("*", "\\*"), subclass_note(comp_type, dist)
+
+
+def _subclass_legend(components, comp_type, schema):
+    """One legend line above a candidate list that holds subclass instances."""
+    if any(_subclass_mark(c, comp_type, schema)[0] for c in components):
+        st.caption(f"`*` marks an instance of a subclass of {comp_type}: "
+                   f"one `*` per level below it.")
+
+
 @st.fragment
 def display_component_type_section_no_form(comp_type):
     """Display components with checkboxes (FRAGMENT - no full rerun!)"""
@@ -414,6 +434,8 @@ def display_component_type_section_no_form(comp_type):
     kg_source = "Knowledge Graph"
 
     all_components = dp_components + kg_components
+    sub_schema = session_workspace_schema()
+    _subclass_legend(all_components, comp_type, sub_schema)
 
     # Display data products
     if dp_components:
@@ -443,8 +465,9 @@ def display_component_type_section_no_form(comp_type):
             with col2:
                 source_badge = '📊 DP'
                 display_label = comp.get('uri_fragment', comp['label'])
+                marker, marker_note = _subclass_mark(comp, comp_type, sub_schema)
                 status = " ✅" if is_in_scenario else ""
-                st.write(f"{source_badge} **{display_label}**{status}")
+                st.markdown(f"{source_badge} **{display_label}**{marker}{status}", help=marker_note or None)
 
                 if comp.get('source_catalog'):
                     st.caption(f"Catalog: {comp['source_catalog']}")
@@ -493,8 +516,9 @@ def display_component_type_section_no_form(comp_type):
                     source_badge = '📄 TTL'
 
                 display_label = comp.get('uri_fragment', comp['label'])
+                marker, marker_note = _subclass_mark(comp, comp_type, sub_schema)
                 status = " ✅" if is_in_scenario else ""
-                st.write(f"{source_badge} **{display_label}**{status}")
+                st.markdown(f"{source_badge} **{display_label}**{marker}{status}", help=marker_note or None)
 
                 if comp.get('workspace_id'):
                     st.caption(f"Workspace: {workspace_name}")
@@ -513,7 +537,8 @@ def display_component_type_section_no_form(comp_type):
                 with col1:
                     source_badge = '📊 DP' if comp in dp_components else ('🔗 KG' if comp.get('source') == 'knowledge_graph' else '📄 TTL')
                     display_label = comp.get('uri_fragment', comp['label'])
-                    st.write(f"{source_badge} **{display_label}**")
+                    marker, marker_note = _subclass_mark(comp, comp_type, sub_schema)
+                    st.markdown(f"{source_badge} **{display_label}**{marker}", help=marker_note or None)
                 with col2:
                     if comp.get('attributes'):
                         uri_hash = hashlib.md5(comp['uri'].encode()).hexdigest()[:8]
@@ -653,6 +678,8 @@ def display_component_type_section_optimized(comp_type):
 
     available_components = []
     all_components = dp_components + kg_components
+    sub_schema = session_workspace_schema()
+    _subclass_legend(all_components, comp_type, sub_schema)
 
     with st.form(f"component_selection_form_{comp_type}"):
         if dp_components:
@@ -676,8 +703,9 @@ def display_component_type_section_optimized(comp_type):
                 with col2:
                     source_badge = '📊 DP'
                     display_label = comp.get('uri_fragment', comp['label'])
+                    marker, marker_note = _subclass_mark(comp, comp_type, sub_schema)
                     status = " ✅" if is_in_scenario else ""
-                    st.write(f"{source_badge} **{display_label}**{status}")
+                    st.markdown(f"{source_badge} **{display_label}**{marker}{status}", help=marker_note or None)
 
                     if comp.get('source_catalog'):
                         st.caption(f"Catalog: {comp['source_catalog']}")
@@ -720,8 +748,9 @@ def display_component_type_section_optimized(comp_type):
                         source_badge = '📄 TTL'
 
                     display_label = comp.get('uri_fragment', comp['label'])
+                    marker, marker_note = _subclass_mark(comp, comp_type, sub_schema)
                     status = " ✅" if is_in_scenario else ""
-                    st.write(f"{source_badge} **{display_label}**{status}")
+                    st.markdown(f"{source_badge} **{display_label}**{marker}{status}", help=marker_note or None)
 
                     if comp.get('workspace_id'):
                         st.caption(f"Workspace: {workspace_name}")
@@ -811,7 +840,8 @@ def display_component_type_section_optimized(comp_type):
                 with col1:
                     source_badge = '📊 DP' if comp in dp_components else ('🔗 KG' if comp.get('source') == 'knowledge_graph' else '📄 TTL')
                     display_label = comp.get('uri_fragment', comp['label'])
-                    st.write(f"{source_badge} **{display_label}**")
+                    marker, marker_note = _subclass_mark(comp, comp_type, sub_schema)
+                    st.markdown(f"{source_badge} **{display_label}**{marker}", help=marker_note or None)
                 with col2:
                     if comp.get('attributes'):
                         # Use index + hash to ensure unique keys
@@ -926,13 +956,15 @@ def display_scenario_summary():
     source_counts = {}
     attribute_compliance = {'compliant': 0, 'partial': 0, 'missing': 0}
 
+    schema = session_workspace_schema()
     for comp in st.session_state.scenario_components:
         source = comp.get('source', 'unknown')
         source_counts[source] = source_counts.get(source, 0) + 1
 
         comp_type = comp['type']
-        if comp_type in st.session_state.get('required_attributes', {}):
-            required_attrs = st.session_state.required_attributes[comp_type]
+        required_attrs = requirements_for(
+            comp_type, st.session_state.get('required_attributes', {}), schema)
+        if required_attrs:
             missing_count = sum(1 for req_attr in required_attrs
                                 if not resolve_nested_attribute_requirement(comp, req_attr))
 

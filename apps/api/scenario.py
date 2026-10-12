@@ -28,19 +28,53 @@ def _safe(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.\-]", "_", name.strip()) or "scenario"
 
 
+def _workspace_schema(ctx: WorkspaceContext, warnings: list[str]):
+    """The workspace's ontology extension, which places its own classes under
+    core, so a requirement on a class reaches the instances of its subclasses.
+    When it cannot be read the reason goes into ``warnings`` and only the core
+    hierarchy is used."""
+    from backend.api_submission.materialize import workspace_schema
+    from backend.workspace.storage import WorkspaceStorage
+
+    storage = getattr(ctx, "storage", None)
+    if storage is None:
+        root = ws_root(ctx)
+        if not root.is_dir():
+            warnings.append("workspace storage not found; only the core class hierarchy was used")
+            return None
+        storage = WorkspaceStorage.local(str(root))
+    skipped: list = []
+    schema = workspace_schema(storage, skipped=skipped)
+    warnings.extend(f"{e['file']}: {e['error']}; only the core class hierarchy was used"
+                    for e in skipped)
+    return schema
+
+
 @router.get("/instances")
 def instances(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
-    """Component types with their instance URIs, to pick into a scenario."""
+    """Component types with their instance URIs, to pick into a scenario.
+
+    ``superclasses`` lists the class and every class above it
+    (``rdfs:subClassOf*``, local names), so a requirement on ``EnergyConverter``
+    can offer the PV instances. ``superclass_distance`` gives, for each of
+    them, the number of ``rdfs:subClassOf`` steps from this class (0 = itself,
+    the shortest path when there are several), so a client can mark an
+    instance offered under a class above its own (``PV*``)."""
     from backend.explorer import (
         get_component_types_with_instances,
         get_component_data_unified,
         process_enhanced_component_data,
     )
+    from rdflib import URIRef
+
+    from backend.ontology_kinds import dici_local_name, superclass_distances
+    from backend.scenario_builder.semantics import schema_view
 
     client = graph_client(ctx)
     types = get_component_types_with_instances(client)
     if types is None or types.empty:
         return []
+    view = schema_view(_workspace_schema(ctx, []))
     out = []
     for r in types.itertuples():
         name = str(r.componentName)
@@ -52,7 +86,11 @@ def instances(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
                 uri = row.get("URI")
                 if isinstance(uri, str) and uri:
                     rows.append({"uri": uri, "label": str(row.get("instance_id") or row.get("label") or uri)})
-        out.append({"component": name, "class": str(r.componentType), "instances": rows})
+        dist = {dici_local_name(c): d for c, d in
+                superclass_distances(view, URIRef(str(r.componentType))).items()}
+        dist = {n: dist[n] for n in sorted(n for n in dist if n)}
+        out.append({"component": name, "class": str(r.componentType), "instances": rows,
+                    "superclasses": list(dist), "superclass_distance": dist})
     return out
 
 
@@ -100,6 +138,9 @@ def service_requirements(service: str, ctx: WorkspaceContext = Depends(get_ctx))
 
     file, template = _resolve_service_template(ctx, service)
     out = parse_service_requirements(template)
+    # Deprecated name of requirements_by_class, kept one release for clients
+    # that read it (the React Scenario Builder until it is updated).
+    out["required_attributes"] = out["requirements_by_class"]
     out["file"] = file
     if not out.get("service_name"):
         out["service_name"] = file.rsplit(".", 1)[0]
@@ -155,9 +196,14 @@ def materialized(name: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[st
         client = graph_client(ctx)
     except Exception:
         client = None
+    from backend.graphdb.queries.scenarios import ScenarioMaterializationError
+
     skipped: list[dict[str, str]] = []
-    ttl = materialize_against_workspace(getattr(ctx, "storage", None), source, client,
-                                        skipped=skipped)
+    try:
+        ttl = materialize_against_workspace(getattr(ctx, "storage", None), source, client,
+                                            skipped=skipped)
+    except ScenarioMaterializationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"name": name, "ttl": ttl, "chars": len(ttl),
             "materialized": ttl != source,
             # Replica files that did not parse (their data is missing above).
@@ -298,7 +344,10 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         get_filtered_links_for_ttl,
         resolve_nested_attribute_requirement,
     )
+    from backend.scenario_builder.semantics import requirement_distances, requirements_for
 
+    warnings: list[str] = []
+    schema = _workspace_schema(ctx, warnings)
     required = spec.required_attributes
     if required is None and spec.service:
         from backend.scenario_builder.requirements import extract_required_attributes_enhanced
@@ -310,7 +359,8 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
     comps = [{"uri": c.uri, "type": c.type, "label": c.label or c.uri,
               "attributes": c.attributes or {}, "nested_properties": c.nested_properties or {}}
              for c in spec.components]
-    _attach_graph_attributes(ctx, [c for c in comps if required.get(c["type"] or "")])
+    _attach_graph_attributes(ctx, [c for c in comps
+                                   if requirements_for(c["type"], required, schema)])
     # The Streamlit builder injects URI/label as synthetic attributes on add
     # (templates reference them via e.g. Building.URI); mirror that here so
     # they never show up as missing.
@@ -320,7 +370,7 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
 
     results = []
     for comp in comps:
-        reqs = required.get(comp["type"] or "", [])
+        reqs = requirements_for(comp["type"], required, schema)
         missing = []
         for req_attr in reqs:
             try:
@@ -338,9 +388,13 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         else:
             status = "partial"
         results.append({"uri": comp["uri"], "type": comp["type"], "label": comp["label"],
-                        "status": status, "missing": missing, "required": list(reqs)})
+                        "status": status, "missing": missing, "required": list(reqs),
+                        # requirement class -> subClassOf steps from the
+                        # component's class (0 = the class itself)
+                        "requirement_distance": requirement_distances(
+                            comp["type"], required, schema)})
 
-    included = get_filtered_components_for_ttl(comps, required)
+    included = get_filtered_components_for_ttl(comps, required, schema)
     included_uris = {c["uri"] for c in included}
     for r in results:
         r["included"] = r["uri"] in included_uris
@@ -357,7 +411,7 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
     for r in results:
         by_type.setdefault(r["type"] or "", []).append(r)
     for type_name, rs in by_type.items():
-        for req_attr in required.get(type_name, []):
+        for req_attr in requirements_for(type_name, required, schema):
             if rs and all(req_attr in r["missing"] for r in rs):
                 diagnostics.append({
                     "type": type_name,
@@ -371,6 +425,7 @@ def validate(spec: ValidateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
                 })
 
     return {
+        "warnings": warnings,
         "diagnostics": diagnostics,
         "components": results,
         "summary": {
@@ -425,6 +480,7 @@ def build(spec: ScenarioSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
     if not spec.components:
         raise HTTPException(status_code=400, detail="Add at least one component to the scenario.")
 
+    warnings: list[str] = []
     if _wants_full_emitter(spec):
         from backend.scenario_builder.draft import ScenarioDraft
         from backend.scenario_builder.emitter import generate_full_ttl
@@ -451,7 +507,7 @@ def build(spec: ScenarioSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
             )
         except ValueError as bad_draft:
             raise HTTPException(status_code=400, detail=str(bad_draft))
-        ttl = generate_full_ttl(draft)
+        ttl = generate_full_ttl(draft, _workspace_schema(ctx, warnings))
     else:
         from backend.scenario_builder import build_scenario_ttl, scenario_uri_for
 
@@ -477,4 +533,4 @@ def build(spec: ScenarioSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
         path = d / f"{_safe(spec.scenario_name)}.ttl"
         path.write_text(ttl, encoding="utf-8")
         saved = path.name
-    return {"ttl": ttl, "chars": len(ttl), "saved": saved}
+    return {"ttl": ttl, "chars": len(ttl), "saved": saved, "warnings": warnings}

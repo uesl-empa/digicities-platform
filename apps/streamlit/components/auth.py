@@ -108,7 +108,7 @@ def is_running_locally():
             'docker',
             'container'
         ]
-        if any(indicator in cwd for indicator in production_indicators):
+        if any(indicator in cwd for indicator in production_indicators):  # debt-ok: deployment environment detection
             return False
     except:
         pass
@@ -123,7 +123,7 @@ def is_running_locally():
             'digicities',
             'platform'
         ]
-        if any(indicator in hostname for indicator in production_hostnames):
+        if any(indicator in hostname for indicator in production_hostnames):  # debt-ok: deployment environment detection
             return False
     except:
         pass

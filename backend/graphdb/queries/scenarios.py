@@ -15,7 +15,7 @@ the graph, so a user can load a scenario that only exists in the triplestore.
 
 from __future__ import annotations
 
-from typing import Optional, Set
+from typing import Dict, List, Optional, Set
 
 import pandas as pd
 import rdflib
@@ -31,7 +31,9 @@ from backend.graphdb.graphs import (
 )
 from backend.graphdb.queries._exec import run_df
 from backend.graphdb.queries.graph_io import construct_named_graph
-from backend.ontology_kinds import core_graph, is_attribute_node, is_attribute_predicate
+from backend.ontology_kinds import (
+    core_graph, is_attribute_node, is_attribute_predicate, is_subproperty_of,
+)
 
 _PREFIXES = (
     "PREFIX dici_onto: <https://digicities.info/ontology#>\n"
@@ -42,6 +44,67 @@ _PREFIXES = (
 _DICI = rdflib.Namespace("https://digicities.info/ontology#")
 
 _SCENARIO_COLS = ["scenario", "label", "workspace", "service"]
+
+
+class ScenarioMaterializationError(ValueError):
+    """A scenario cannot be materialised as written: its lineage has a cycle
+    or two parents, or it overrides one attribute twice."""
+
+
+def scenario_parents(scn: Graph, suri: URIRef, schema) -> List[URIRef]:
+    """The scenarios ``suri`` is based on: objects of any property that is
+    ``rdfs:subPropertyOf* dici_onto:basedOn`` in ``schema`` (so the deprecated
+    ``derivedFrom`` alias counts too)."""
+    return sorted({o for p, o in scn.predicate_objects(suri)
+                   if isinstance(o, URIRef) and is_subproperty_of(schema, p, _DICI.basedOn)})
+
+
+def scenario_lineage(scn: Graph, suri: URIRef, schema,
+                     warnings: Optional[list] = None) -> List[URIRef]:
+    """``[suri, parent, grandparent, ...]`` following basedOn.
+
+    A cycle or a scenario with two parents raises
+    :class:`ScenarioMaterializationError`. A parent that is not in ``scn``
+    ends the lineage; that is reported (printed, and appended to ``warnings``
+    when a list is given), because its overrides are then not inherited."""
+    lineage = [suri]
+    while True:
+        parents = scenario_parents(scn, lineage[-1], schema)
+        if not parents:
+            return lineage
+        if len(parents) > 1:
+            raise ScenarioMaterializationError(
+                f"Scenario {lineage[-1]} is based on {len(parents)} scenarios "
+                f"({', '.join(map(str, parents))}); a scenario has one parent.")
+        parent = parents[0]
+        if parent in lineage:
+            chain = " -> ".join(map(str, lineage + [parent]))
+            raise ScenarioMaterializationError(f"Scenario lineage has a cycle: {chain}")
+        if next(scn.predicate_objects(parent), None) is None:
+            msg = (f"Scenario {lineage[-1]} is based on {parent}, which is not in the "
+                   f"scenarios read; its overrides are not inherited.")
+            print(f"[scenarios] WARNING: {msg}")
+            if warnings is not None:
+                warnings.append(msg)
+            return lineage
+        lineage.append(parent)
+
+
+def _own_overrides(scn: Graph, suri: URIRef) -> Dict[URIRef, URIRef]:
+    """superseded attribute -> override, for the overrides tagged
+    ``usedInScenario <suri>`` only. Two overrides of one attribute in one
+    scenario raise :class:`ScenarioMaterializationError`."""
+    used, sup = _DICI.usedInScenario, _DICI.supersedesAttribute
+    own: Dict[URIRef, URIRef] = {}
+    for new_a, _, old_a in scn.triples((None, sup, None)):
+        if (new_a, used, suri) not in scn:
+            continue
+        if old_a in own and own[old_a] != new_a:
+            raise ScenarioMaterializationError(
+                f"Scenario {suri} overrides {old_a} twice "
+                f"({own[old_a]} and {new_a}); keep one override.")
+        own[old_a] = new_a
+    return own
 
 
 def list_scenarios(client) -> pd.DataFrame:
@@ -68,7 +131,8 @@ def list_scenarios(client) -> pd.DataFrame:
 
 def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
                                 scenario_uri,
-                                ontology_graph: Optional[Graph] = None) -> Optional[str]:
+                                ontology_graph: Optional[Graph] = None,
+                                warnings: Optional[list] = None) -> Optional[str]:
     """Materialize one scenario into a self-contained Turtle document.
 
     A scenario references the canonical replica components (``usedInScenario`` /
@@ -86,6 +150,11 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
     workspace schema (core + extension); the vendored core is always included,
     so a typed predicate declared only in the extension is still recognised
     through the attribute node's own core kind type.
+
+    Lineage: a scenario inherits the attribute overrides of the scenarios it is
+    based on (``basedOn``, followed recursively; nearest override wins). Its
+    structure (components, ComponentLinks) is its own: every writer states it
+    in full. ``warnings`` collects lineage notes (a parent not found).
     """
     scn, rep = scenario_graph, replica_graph
     DICI = _DICI
@@ -148,12 +217,24 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
         for p, o in scn.predicate_objects(ln):
             out.add((ln, p, o))
 
-    # Override map: superseded attribute -> superseding attribute.
-    old_to_new = {old_a: new_a for new_a, _, old_a in scn.triples((None, SUP, None))}
-
     view = ReadOnlyGraphAggregate(
         [g for g in (scn, rep, ontology_graph) if g is not None] + [core_graph()])
     attr_pred: dict = {}
+
+    # Override map: superseded attribute -> the attribute that finally replaces
+    # it. A scenario inherits the overrides of the scenarios it is based on
+    # (rdfs:subPropertyOf* dici_onto:basedOn), farthest ancestor first, so the
+    # nearest scenario's override wins. Each scenario's overrides are scoped by
+    # its own usedInScenario tag: the scenarios graph holds every variant.
+    lineage = scenario_lineage(scn, suri, view, warnings=warnings)
+    old_to_new: dict = {}
+    for level in reversed(lineage):
+        for old_a, new_a in _own_overrides(scn, level).items():
+            for k, v in list(old_to_new.items()):
+                if v == old_a:  # this level overrides an ancestor's override
+                    old_to_new[k] = new_a
+            old_to_new[old_a] = new_a
+    inherited = {new_a for new_a in old_to_new.values() if (new_a, USED, suri) not in scn}
 
     def _is_attr_edge(p, o) -> bool:
         if p not in attr_pred:
@@ -175,6 +256,8 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
             continue
         attrs: Set = set()
         for p, o in _po_union(comp):
+            if p == USED and o != suri:
+                continue  # another scenario's anchor on a shared component
             if isinstance(o, URIRef) and _is_attr_edge(p, o):
                 tgt = old_to_new.get(o, o)
                 out.add((comp, p, tgt))
@@ -183,7 +266,11 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
                 out.add((comp, p, o))
         for a in attrs:
             for p, o in _po_union(a):
+                if p == USED and o != suri:
+                    continue  # an ancestor's tag: re-tagged below
                 out.add((a, p, o))
+            if a in inherited:
+                out.add((a, USED, suri))
 
     if len(out) == 0:
         return None

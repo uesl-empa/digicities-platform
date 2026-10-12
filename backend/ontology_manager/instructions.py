@@ -40,7 +40,9 @@ Instruction file shape::
         {"op": "add_class", "name": "OnboardedFile",
          "annotations": {"comment": "Kind of cited source."}},
         {"op": "add_custom_unit", "code": "VehiclePerHour",
-         "label": "vehicles per hour"}
+         "label": "vehicles per hour"},
+        {"op": "add_aggregate_attribute", "name": "WeightMean",
+         "attribute": "Weight", "statistic": "mean"}
       ]
     }
 
@@ -67,6 +69,13 @@ Op → backend mapping:
 ``rename_component`` :meth:`ComponentMixin.rename_component`
                      (``{"name", "new_name"}``)
 ``remove_component`` :meth:`ComponentMixin.remove_component` (``{"name"}``)
+``add_aggregate_attribute`` a derived attribute class: ``owl:Class``
+                     under ``AggregateAttribute`` stating
+                     ``aggregatesAttribute <attribute>`` and
+                     ``usesStatistic dici_onto:<statistic>`` (one of the
+                     statistics the collections can project), so the
+                     platform computes it from the declaration
+                     (``{"name", "attribute", "statistic"}``)
 ``annotate``         set annotations on an existing term (``{"name",
                      "annotations"}``)
 ``add_deprecated_alias`` an old term kept for one release:
@@ -295,6 +304,23 @@ class _Checker:
                 return "error", (", ".join(f"`{s}`" for s in subs) + " sit under it — move or "
                                  "remove them first")
             return "ok", ""
+        if kind == "add_aggregate_attribute":
+            from backend.collections.registry import PROJECTABLE_STATISTICS
+            if name in self.core_classes:
+                return "error", f"`{name}` is a core class, not an aggregate of this extension"
+            if name in self.ext_classes:
+                return "skip", "aggregate already in extension"
+            chk = check_class_name(name, core=self.core, existing=self.ext_classes)
+            if not chk.ok:
+                return "error", "; ".join(chk.errors)
+            att = self._local(op.get("attribute") or "")
+            if not att or not self.known(att) or not self._is_attribute_class(att, live):
+                return "error", (f"`{att}` is not an attribute class of the core ontology or "
+                                 "this extension — declare it first")
+            if op.get("statistic") not in PROJECTABLE_STATISTICS:
+                return "error", (f"statistic `{op.get('statistic')}` is not one the platform "
+                                 "projects: " + ", ".join(PROJECTABLE_STATISTICS))
+            return "ok", "; ".join(chk.warnings)
         if kind == "annotate":
             if not self._exists(name, live):
                 return "error", f"`{name}` is not a term of the core ontology or this extension"
@@ -309,6 +335,27 @@ class _Checker:
             return "ok", ""
         return "ok", ""
 
+    def _is_attribute_class(self, name: str, live: Optional[rdflib.Graph]) -> bool:
+        """``name rdfs:subClassOf* dici_onto:Attribute`` in the core plus the
+        graph as it stands (the add_attribute op files a class under its value
+        kind, which the in-memory tree does not know). The dry run, with no
+        live graph, accepts any declared class."""
+        if live is None:
+            return True
+        start, target = dici_onto[name], dici_onto.Attribute
+        seen, frontier = set(), [start]
+        while frontier:
+            node = frontier.pop()
+            if node == target:
+                return True
+            if node in seen:
+                continue
+            seen.add(node)
+            for g in (live, self.core):
+                frontier.extend(o for o in g.objects(node, RDFS.subClassOf)
+                                if isinstance(o, URIRef))
+        return False
+
     def _exists(self, term: str, live: Optional[rdflib.Graph]) -> bool:
         local = self._local(term)
         if live is not None and (_uri(term), None, None) in live:
@@ -322,6 +369,9 @@ class _Checker:
             self.ext_classes.add(name)
             parent = op.get("parent") or ("Component" if kind == "add_component" else "")
             self.parents.setdefault(name, [self._local(parent)] if parent else [])
+        if kind == "add_aggregate_attribute":
+            self.ext_classes.add(name)
+            self.parents.setdefault(name, ["AggregateAttribute"])
         if kind == "add_component":
             # The scaffold add_component mints for a new class (its general
             # predicate), so a later op in the same file may annotate it.
@@ -552,6 +602,20 @@ class _Executor:
         self._annotate(name, op.get("annotations"))
         self._record(op, "applied")
 
+    def add_aggregate_attribute(self, op: Dict[str, Any]) -> None:
+        name = op["name"]
+        g = self._graph()
+        uri = dici_onto[name]
+        g.add((uri, RDF.type, OWL.Class))
+        g.add((uri, RDFS.label, Literal(_label_for(name))))
+        g.add((uri, RDFS.subClassOf, dici_onto.AggregateAttribute))
+        g.add((uri, dici_onto.aggregatesAttribute, _uri(op["attribute"])))
+        g.add((uri, dici_onto.usesStatistic, dici_onto[op["statistic"]]))
+        self._save(g)
+        self.declared.append(name)
+        self._annotate(name, op.get("annotations"))
+        self._record(op, "applied")
+
     def add_custom_unit(self, op: Dict[str, Any]) -> None:
         code = op["code"]
         uri = UNIT[code]
@@ -611,7 +675,8 @@ class _Executor:
 
 _OPS = ("add_component", "add_attribute", "link_attribute", "add_named_individual",
         "add_object_property", "add_class", "add_custom_unit", "change_parent",
-        "rename_component", "remove_component", "annotate", "add_deprecated_alias")
+        "rename_component", "remove_component", "annotate", "add_deprecated_alias",
+        "add_aggregate_attribute")
 
 
 def check_extension_instructions(

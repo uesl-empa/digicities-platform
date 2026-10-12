@@ -114,7 +114,7 @@ top-level-key   = "service_name"          (* MUST, a non-empty string *)
                 | "scenario_data"         (* MUST to produce a payload, a block *)
                 | "optional_attributes"   (* MAY, list of attribute-ref *)
                 | "derived_attributes"    (* MAY, list of attribute-ref *)
-                | "required_attributes" ; (* MAY, list of field names *)
+                | "required_attributes" ; (* deprecated, ignored: see section 6 *)
 
 block           = mapping of field-name to value ;
 value           = reference | literal | block | link-block | list of value ;
@@ -122,8 +122,7 @@ link-block      = mapping with "link" : link-ref , "template" : block ,
                   and any number of further field-name : link-block ;
 
 link-ref        = "CL." , class-token , "." , class-token ;
-reference       = scenario-ref | class-token , "." , member ;
-scenario-ref    = "Scenario.URI" | "Scenario.label" ;
+reference       = class-token , "." , member ;  (* class-token not "CL" *)
 member          = identity | attribute-token , [ "." , property-token ] ;
 identity        = "URI" | "label" ;           (* matched without regard to case *)
 attribute-ref   = class-token , "." , attribute-token ;
@@ -135,6 +134,14 @@ local-name      = letter-or-underscore , { letter | digit | "_" | "-" } ;
 field-name      = any YAML mapping key ;
 literal         = any YAML scalar that is not a reference in its context ;
 ```
+
+Every reader (the converter, its clean step, payload validation and the Scenario
+Builder's completeness gate) decides what is a reference, a link and a control list
+with one implementation, so the shape above is the only one. A string inside a YAML
+list is a literal.
+
+**Source:** `backend/service_requirements/contract.py` (`parse_reference`,
+`parse_link`).
 
 **Source:** `backend/api_submission/ttl_converter.py` (`RobustTTL2YAMLProcessor._term`,
 `_process_value`, `_process_link`, `_resolve_string_value`),
@@ -151,7 +158,8 @@ names nothing. A link-ref MUST have exactly three dot-separated parts.
 
 ### 4.1 Scenario fields
 
-`Scenario.URI` resolves to the scenario's IRI. `Scenario.label` resolves to its
+`T.URI` and `T.label`, where `T` is `dici_onto:Scenario` or a subclass of it (the
+ontology decides, not the spelling), resolve to the scenario's IRI and to its
 `rdfs:label`, or the last segment of its IRI when it has none.
 
 **Source:** `ttl_converter.py` `_resolve_string_value`.
@@ -210,6 +218,8 @@ The generator names these fields `<A>_historic`, `<A>_live` and `<A>_future`.
 A string that is not a reference in its context is sent unchanged. This includes a
 string that has the reference shape but names a class other than the current
 block's class: it is left as written and then removed by the clean step (section 9).
+The clean step removes a string only when it equals the contract's reference at the
+same position; any other string is data, whatever it contains.
 
 **Source:** `ttl_converter.py` `_resolve_string_value`, `clean_placeholder_values`.
 
@@ -273,23 +283,43 @@ pairs, because links are followed in both directions.
 
 ## 6. Optional, derived and required inputs
 
-Three optional top-level lists change how strictly a contract is checked. Their
-defaults are opposite in the two checks that read them (see issue 1).
+**Every reference in `scenario_data` is required**, unless the reference, or the
+attribute it reads (`T.A` for `T.A.p`), is listed under one of two optional
+top-level lists. Both checks that read a contract, the Scenario Builder's
+completeness gate and payload validation, apply this one rule through the same
+function.
+
+- `optional_attributes: [T.A, ...]`: the data may lack `T.A`. The field stays in the
+  payload template; an instance without a value is sent without that field.
+- `derived_attributes: [T.A, ...]`: values the platform computes at convert time
+  (section 6.3), exempt in the same way.
+
+The lists hold references as written in the contract (`T.A`), never payload field
+names, so two blocks with a field of the same name do not collide. `URI` and `label`
+fields are required like any other; they always resolve for an instance.
+
+`required_attributes` is **deprecated** and has no effect: every reference is
+required already. Validation reports a warning when a contract still carries it.
+
+**Source:** `backend/service_requirements/contract.py` (`required_references`,
+`is_required`, `exempt_references`).
 
 ### 6.1 In the Scenario Builder (completeness gate)
 
-Every attribute a contract references is **required by default**. When a scenario is
-built against the contract, an instance of a component type that lacks a value
-(no value, or an empty string or list) for any required attribute is **left out of
-the scenario**, with its links. `URI` and `label` are always met.
+When a scenario is built against the contract, an instance of a component type that
+lacks a value (no value, or an empty string or list) for any required attribute is
+**left out of the scenario**, with its links.
 
-- `optional_attributes: [T.A, ...]` takes `T.A` out of the required set. The field
-  stays in the payload; an instance without a value is sent without that field.
-- `derived_attributes: [T.A, ...]` does the same, for values the platform computes at
-  convert time (section 6.3).
-
-The gate matches a component's type by its exact name, not by the hierarchy (see
-issue 5).
+A requirement on a class applies to instances of that class and of every class under
+it (`rdfs:subClassOf*` in the workspace extension plus the core): a requirement on
+`EnergyConverter` is met by a PV system that carries the required attributes, and a PV
+system without them is left out. A component under two requirement classes must meet
+both. When the workspace extension cannot be read, only the core hierarchy is used and
+the response says so (`warnings`). The Scenario Builder offers the instances of a
+required class and of its subclasses, and marks a subclass instance with one `*` per
+`rdfs:subClassOf` level below the required class (`PV*` under `EnergyConverter`), so it
+is not mistaken for the required class. The API gives the levels: `superclass_distance`
+in `GET /scenario/instances`, `requirement_distance` in `POST /scenario/validate`.
 
 ```yaml
 # example: valid
@@ -316,10 +346,8 @@ derived_attributes:
 
 ### 6.2 In payload validation
 
-Every field is **optional by default**. A field whose reference does not resolve is a
-warning. `required_attributes: [fieldName, ...]` makes the fields with those
-**names** errors instead. The names are matched against the last part of the field's
-path anywhere in the payload, not against `T.A` references (see issue 2).
+A required field whose reference does not resolve, or comes back unchanged, is an
+**error**. An optional or derived field that does not resolve is a **warning**.
 
 **Source:** `backend/api_submission/validation.py` (`validate_payload`).
 
@@ -327,17 +355,31 @@ path anywhere in the payload, not against `T.A` references (see issue 2).
 
 A derived value is a statistic over the components linked to each instance:
 `Tree.WeightMean` is the mean of `Apple.Weight` over the apples linked to each tree.
-It is written `<Container>.<Attribute><Statistic>`, where the statistic is one of
-`Mean`, `Median`, `Sum`, `MinValue`, `MaxValue`, `Count`, `StandardDeviation`. A
-contract that uses one SHOULD list it under `derived_attributes`.
+A contract that uses one MUST list it under `derived_attributes`, and the workspace
+ontology MUST declare its attribute class as an aggregate (core 0.7.0):
+
+```turtle
+dici_onto:WeightMean rdfs:subClassOf dici_onto:AggregateAttribute ;
+    dici_onto:aggregatesAttribute dici_onto:Weight ;
+    dici_onto:usesStatistic dici_onto:mean .
+```
+
+`usesStatistic` names the statistic property the Collections compute: `mean`,
+`median`, `sum`, `minValue`, `maxValue`, `count` or `standardDeviation`. What to
+compute comes from this declaration, never from the class name: the name
+`WeightMean` is only the convention the onboarding agent uses when it writes the
+declaration (instruction `add_aggregate_attribute`). A reference that is listed but
+not declared is not computed, and the reason is reported with the conversion.
 
 At convert time the platform computes the statistic in the Collections graph and
 adds exactly the values the contract names to the scenario. The scenario never
 receives any other collection data.
 
-**Source:** `backend/collections/materializer.py` (`ensure_template_aggregates`,
-`_STAT_SUFFIXES`); `backend/api_submission/materialize.py` (`derived_values`,
-`materialize_against_workspace`).
+**Source:** `backend/collections/materializer.py` (`ensure_template_aggregates`);
+`backend/collections/queries.py` (`aggregate_declarations`);
+`backend/api_submission/materialize.py` (`derived_values`,
+`materialize_against_workspace`); `backend/ontology_manager/instructions.py`
+(`add_aggregate_attribute`).
 
 ## 7. The connection block
 
@@ -407,9 +449,9 @@ a child's `label` field.
 A field whose reference does not resolve is left out of the payload. A block that
 ends up empty is left out. Lists stay, possibly empty.
 
-The top-level keys other than `connection` are copied into the payload: the
-`service_name` and `description` strings, and the `optional_attributes`,
-`derived_attributes` and `required_attributes` lists (see issue 3).
+`service_name` and `description` are copied into the payload. `connection` and the
+control lists (`optional_attributes`, `derived_attributes`, `required_attributes`)
+describe the contract and are never sent.
 
 **Source:** `ttl_converter.py` (`process`, `clean_placeholder_values`).
 
@@ -453,7 +495,7 @@ scenario_data:
 ```
 
 A nested property that is not a time series reference resolves to nothing
-(section 4.4). Validation reports it as a warning.
+(section 4.4). Validation reports the field as a missing required input.
 
 **Source:** `template.py` `parse_yaml_to_components`, `parse_service_template`.
 
@@ -464,7 +506,7 @@ a contract has a non-empty value for every attribute the contract requires of it
 type (section 6.1), including nested time series references.
 
 **Does not guarantee:** that the values are correct, in range or in the right unit;
-that the required links exist; requirements on a superclass (issue 5); anything about
+that the required links exist; anything about
 scenarios written by other tools (the onboarding agent writes its own baseline
 scenarios and checks them with its own build gate).
 
@@ -477,9 +519,9 @@ Validation runs on the converted payload before placeholders are removed.
 **Guarantees:**
 - An error for every link-block or root block that found no component.
 - An error when the payload holds nothing besides `service_name` and `description`.
-- For every field named in `required_attributes`: an error when its reference did
-  not resolve or came back unchanged.
-- A warning for every other field whose reference did not resolve.
+- For every required field (section 6): an error when its reference did not
+  resolve or came back unchanged.
+- A warning for every optional or derived field whose reference did not resolve.
 
 The result is `is_valid` (no errors), the errors and warnings, and a data quality of
 `good`, `needs_review` or `poor`.
@@ -487,7 +529,7 @@ The result is `is_valid` (no errors), the errors and warnings, and a data qualit
 **Does not catch:**
 - Wrong values: units, ranges, datatypes, plausibility.
 - A reference to a class or attribute that does not exist in the ontology. It just
-  does not resolve, which is a warning unless the field is required.
+  does not resolve, which is an error unless the field is listed optional.
 - Why a link-block found nothing: a malformed link-ref (section 10.1), a class with
   no instances and a missing link all give the same error.
 - A missing `request_stream` on a Redis contract.
@@ -558,48 +600,59 @@ SHACL (SHACL rules or the current Collections step).
 
 ## 13. Open issues found while writing this specification
 
-These are inconsistencies or gaps in the implementation. They are listed, not
-resolved; each needs a decision.
+These are inconsistencies or gaps in the implementation. Fixed ones are marked
+FIXED; each open one needs a decision.
 
-1. **"Required" has opposite defaults.** The Scenario Builder treats every referenced
-   attribute as required unless listed as optional or derived (section 6.1).
-   Payload validation treats every field as optional unless its name is in
-   `required_attributes` (section 6.2).
-2. **Two meanings of `required_attributes`.** In a contract it is a list of payload
-   field names, matched by the last part of the path anywhere in the payload, so two
-   blocks with a field of the same name collide. In the requirement extraction's
-   output (`parse_service_requirements`) the same key is a map from class to
-   attributes.
-3. **Control lists reach the payload.** `optional_attributes`, `derived_attributes`
-   and `required_attributes` are copied into the payload sent to the service (the
-   first two as empty lists after cleaning, the last one as written).
+1. **"Required" had opposite defaults.** FIXED: one rule, required unless listed
+   optional or derived, read by one function for the gate and validation
+   (section 6).
+2. **Two meanings of `required_attributes`.** FIXED: the control lists hold
+   references (`T.A`), never field names; `required_attributes` is deprecated and
+   ignored. The requirement extraction's class-to-attributes map
+   (`parse_service_requirements`, `GET /scenario/requirements`) is called
+   `requirements_by_class`; the API also returns it under the old name
+   `required_attributes` for one release.
+3. **Control lists reached the payload.** FIXED: they are never sent (section 9).
 4. **Nested paths differ between modules.** The converter reads one time series
    reference property and ignores further segments; the Scenario Builder accepts any
    property and any depth.
-5. **Type matching differs.** The converter matches classes through
-   `rdfs:subClassOf*` (a requirement on `Turbine` finds wind turbines); the
-   completeness gate matches the exact class name.
+5. **Type matching differs.** FIXED: the
+   completeness gate, the Scenario Builder's instance lists and the Assumptions
+   module now match classes through `rdfs:subClassOf*`, like the converter
+   (section 6.1).
 6. **Link direction and predicate are not part of resolution.** Conversion walks the
    scenario's ComponentLink nodes in both directions; the replica's link predicate
    plays no part. Nesting is decided only when the contract is written (section 5.4).
 7. **Event values are shortened.** A temporal value holding a year is sent as
    `01-01-<year>`, dropping its month and day.
-8. **The template parser reads names.** Reading a contract back
-   (`parse_yaml_to_components`) takes a time series flavour from a field-name suffix
-   (`_live`) or from the property name containing `Historic`, `Live` or `Future`, and
-   decides a field's class with a substring test on the reference.
-9. **Text that looks like a reference is removed.** The clean step drops any string
-   containing `.URI` or `.label`, including free text.
+8. **The template parser reads names.** FIXED:
+   reading a contract back (`parse_yaml_to_components`) takes the flavour from the
+   reference property's place under the time series reference properties
+   (`rdfs:subPropertyOf*`), never from the field name, and a field belongs to a block
+   only when its reference's class segment is the block's class.
+9. **Text that looked like a reference was removed.** FIXED: the clean step
+   removes a string only when it equals the contract's reference at that position.
 10. **REST submission does not block on validation errors.** Streamlit refuses a
     payload that failed validation; `POST /submit` refuses only an empty one.
-11. **Aggregates are found by name.** The platform finds derived values by the
-    statistic suffix of the attribute name in every reference, not from the
-    `derived_attributes` list.
-12. **Three reference shapes.** The converter, the validator (`_REFERENCE_RE`, any
-    capitalised `Class.member`) and the clean step (strict `Class.Attr`) each decide
-    differently what counts as a reference.
+11. **Aggregates were found by name.** FIXED: the platform computes the references
+    listed under `derived_attributes`, from the ontology's declaration of each
+    aggregate class (`aggregatesAttribute`, `usesStatistic`, core 0.7.0), never
+    from a statistic suffix of the name (section 6.3).
+12. **Three reference shapes.** FIXED: one shape (section 3), shared by the
+    converter, the validator, the clean step and the gate.
 13. **No version.** A contract carries no language version; changes to the language
     are visible only in the platform's history.
+14. **References inside a YAML list never resolve, but the gate requires them.** A
+    mapping inside a list (`rows: [{height: Site.Height}]`) is read for its
+    references, so the completeness gate and payload validation require
+    `Site.Height`; the converter returns the list as written, so the service receives
+    the text `Site.Height` and validation reports it unresolved. A string directly in
+    a list (`names: [Site.Name]`) is read as a literal by every reader and sent as
+    written. No contract in the bundled demo workspaces, the test use cases, the
+    regression harness or the test suites uses either form (checked 2026-10-10), so
+    nothing depends on it yet. It needs a decision: resolve references in lists
+    (one value per listed reference), or refuse a reference in a list when the
+    contract is read.
 
 ## 14. Versioning
 

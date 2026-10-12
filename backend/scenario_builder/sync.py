@@ -193,7 +193,9 @@ def sync_scenarios_for_service(storage, client, service_file: str,
         remove_scenario_from_graph,
     )
     from backend.scenario_builder.reload import draft_from_ttl
+    from backend.api_submission.materialize import workspace_schema
     from backend.scenario_builder.requirements import extract_required_attributes_enhanced
+    from backend.scenario_builder.semantics import requirements_for
 
     template = yaml.safe_load(storage.read_text(service_file)) or {}
     service_name = template.get("service_name") or ""
@@ -203,6 +205,14 @@ def sync_scenarios_for_service(storage, client, service_file: str,
     report: dict[str, Any] = {"service": service_name, "scenarios": []}
     if not service_name:
         return report
+    # Requirements apply to a class and its subclasses; the workspace's own
+    # classes sit under core in its extension. An unreadable extension is
+    # reported: only the core hierarchy is then used.
+    schema_errors: list = []
+    schema = workspace_schema(storage, skipped=schema_errors)
+    if schema_errors:
+        report["warnings"] = [f"{e['file']}: {e['error']}; only the core class hierarchy "
+                              f"was used" for e in schema_errors]
 
     graph_types: Optional[dict[str, str]] = None
     type_failures: list[str] = []
@@ -257,7 +267,7 @@ def sync_scenarios_for_service(storage, client, service_file: str,
             c["attributes"].setdefault("URI", {"value": c["uri"]})
             c["attributes"].setdefault("label", {"value": c["label"]})
 
-        kept = get_filtered_components_for_ttl(comps, required)
+        kept = get_filtered_components_for_ttl(comps, required, schema)
         kept_links = get_filtered_links_for_ttl(draft.get("links", []), kept)
         if len(kept) == len(comps) and len(kept_links) == len(draft.get("links", [])):
             report["scenarios"].append(entry)
@@ -267,7 +277,7 @@ def sync_scenarios_for_service(storage, client, service_file: str,
         for c in comps:
             if c["uri"] not in {k["uri"] for k in kept}:
                 entry["dropped"].append(c["label"])
-                missing = [r for r in required.get(c["type"] or "", [])
+                missing = [r for r in requirements_for(c["type"], required, schema)
                            if not _safe_resolve(resolve_nested_attribute_requirement, c, r)]
                 if missing:
                     entry["dropped"][-1] += f" (missing {', '.join(missing)})"

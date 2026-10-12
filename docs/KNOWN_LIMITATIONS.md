@@ -1,7 +1,7 @@
 # Known limitations
 
 Applies to: **platform 0.5.0 plus the unreleased `fix/foundations` work** (it ships in the next
-platform release) and **core ontology 0.6.0**.
+platform release) and **core ontology 0.7.0**.
 
 This is the one list of what Digicities does not do yet, or does not do well. Other pages
 link here instead of keeping their own list.
@@ -17,14 +17,18 @@ the change; replace it with the version number when you tag the release.
 
 **Requirements are read by syntax, not against a schema.**
 What: a service contract (`services/<Name>.yaml`) states its inputs as dotted strings
-(`WindTurbine.HubHeight`, `CL.WindPark.WindTurbine`). The platform reads any template value
-containing a dot as a requirement and any value starting with `CL.` as a link
-(`backend/scenario_builder/requirements.py`). There is no schema for the language yet.
-Impact: a constant that happens to contain a dot (a version number, a host name) is read as a
-requirement. Mistakes in the contract show up late, at conversion.
+(`WindTurbine.HubHeight`, `CL.WindPark.WindTurbine`). One reader
+(`backend/service_requirements/contract.py`) takes any value of the grammar's shape
+(dot-separated names) as a reference and `CL.S.T` as a link; nothing checks that the names
+exist in the ontology when the contract is read. There is no schema for the language yet.
+Impact: a constant of that shape (`Acme.Industries`) is read as a reference, and so as a
+required input. Mistakes in the contract show up late, at conversion.
 Since: platform 0.5.0 or earlier.
-Status: the language is specified in [`SERVICE_REQUIREMENTS_SPEC.md`](SERVICE_REQUIREMENTS_SPEC.md);
-SHACL shapes for it are planned.
+Status: decided (James, 2026-10-10): by the grammar, a reference-shaped constant is a required
+input; write constants in a shape that is not a reference (`Acme Industries`). A check of a
+contract's references against the workspace ontology, when the contract is read, is planned,
+as are SHACL shapes. The language is specified in
+[`SERVICE_REQUIREMENTS_SPEC.md`](SERVICE_REQUIREMENTS_SPEC.md).
 
 **Validation checks completeness, not values.**
 What: `validate_payload` reports references that did not resolve and links that produced no
@@ -41,6 +45,14 @@ Impact: a client that ignores the convert report can submit an incomplete payloa
 Since: platform 0.5.0 or earlier.
 Status: open.
 
+**References inside a YAML list are not resolved.**
+What: a reference in a mapping inside a list (`rows: [{height: Site.Height}]`) is required by
+the completeness gate and validation, but the converter sends the list as written; a reference
+directly in a list is sent as text.
+Impact: such a contract can never be complete. No bundled or test contract uses a list today.
+Since: platform 0.5.0 or earlier.
+Status: open, needs a decision ([spec issue 14](SERVICE_REQUIREMENTS_SPEC.md)).
+
 **Service-side adapters can hide missing data.**
 What: an adapter in front of a model (the flexibility optimiser's, for example) can match names
 loosely and fill in defaults.
@@ -49,25 +61,6 @@ Since: platform 0.5.0 or earlier.
 Status: open; the aim is a contract precise enough that adapters only move data.
 
 ## Ontology
-
-**`hasSource` has two meanings.**
-What: in the core, `hasSource` is a flow property (the component a `Flow` comes from). Some
-platform code and tests also treat a record's `hasSource` as "where this record came from"
-(provenance). The onboarding agent writes record sources with `hasDataSource`, which the
-workspace extension declares, not the core.
-Impact: provenance queries depend on extension declarations; a reasoner that reads the core
-alone sees flows where there is provenance.
-Since: core ontology 0.5.0 or earlier.
-Status: planned. A core `hasReference` (under `prov:wasDerivedFrom`, range `Reference`) will
-carry provenance, and `hasSource` stays the flow property.
-
-**The core gives `qudt:unit` a domain.**
-What: the core declares `qudt:unit` with `rdfs:domain dici_onto:Attribute` and as a
-sub-property of `dici_onto:hasUnit`.
-Impact: any QUDT data loaded next to Digicities data inherits Digicities meaning, and an
-external reasoner that applies domains would type QUDT nodes as Digicities attributes.
-Since: core ontology 0.5.0 or earlier.
-Status: planned: drop both statements and keep `hasUnit` as Digicities' own property.
 
 **Domain and range are not used for reasoning.**
 What: by design, using a link never changes what a thing is, so `rdfs:domain` and `rdfs:range`
@@ -86,32 +79,17 @@ Changing IRIs needs a migration plan.
 
 ## Scenarios and assumptions
 
-**Overrides from one scenario can leak into another.**
-What: when the platform materialises a scenario from the shared scenarios graph
-(`construct_scenario_ttl`), it collects every `supersedesAttribute` override in that graph,
-not only the ones of the scenario it is building (`backend/graphdb/queries/scenarios.py`).
-Impact: two scenarios that override the same attribute can show each other's values in the
-materialised view.
-Since: platform 0.5.0 or earlier.
-Status: planned fix: only the overrides used by the scenario being built, with a test of two
-scenarios overriding one attribute.
-
-**Scenario lineage is one level deep.**
-What: a scenario records the scenario it is based on (`basedOn`), but nothing follows that link,
-and `basedOn` is not declared as provenance.
-Impact: a 2040 scenario based on a 2030 scenario based on the baseline does not pick up the
-2030 changes.
-Since: platform 0.5.0 or earlier.
-Status: planned: follow `basedOn` recursively (with a guard against cycles) and declare it
-under `prov:wasDerivedFrom`.
-
 **Sub-scenarios can only change attribute values.**
 What: a scenario cannot add, remove or replace components, and the assumption tools do not
 cover curves, events or data-path attributes. An assumption is not a node of its own in the
 graph.
-Impact: "what if we add two turbines" has to be built by hand.
+Impact: "what if we add two turbines" has to be built by hand. A scenario inherits the
+attribute overrides of the scenario it is based on, but not its structure: every scenario
+states its own components and links.
 Since: platform 0.5.0 or earlier.
-Status: planned, needs design decisions.
+Status: values-only inheritance is decided (James, 2026-10-10); inheriting structure belongs to
+the sub-scenario design, which is planned and needs design decisions, as do assumptions as
+nodes.
 
 ## Data and onboarding
 
@@ -152,11 +130,36 @@ Impact: queries that read only asserted data see extra triples in those stores.
 Since: the next platform release (unreleased) and core ontology 0.6.0.
 Status: re-provision the workspace, and re-onboard or replay its extension instructions.
 
+**Workspaces need re-provisioning for core 0.7.0.**
+What: the triplestore holds the core it was provisioned with. Provenance written as
+`hasDataSource` (onboardings from 2026-08-13 on) is found through the core's deprecated alias
+only once core 0.7.0 is loaded. Data onboarded before 2026-08-13 used `hasSource` for
+provenance, which no alias can fix because `hasSource` is the flow property.
+A contract's derived values (`Tree.WeightMean`) are computed only when the workspace
+extension declares the aggregate class (`aggregatesAttribute`, `usesStatistic`); extensions
+written before 0.7.0 do not.
+Impact: until re-provisioned, the Collections data-source filter finds no sources. Pre-August
+workspaces show no record sources. A workspace whose service asks for derived values (the
+orchard use case) sends them empty, with a warning naming the undeclared class, until it is
+rebuilt.
+Since: the next platform release (unreleased) and core ontology 0.7.0.
+Status: re-provision every workspace; re-onboard workspaces onboarded before 2026-08-13; rebuild
+(or re-onboard) workspaces whose services ask for derived values, so the agent declares them.
+
+**Deprecated core aliases are kept longer than one release.**
+What: the aliases core 0.6.0 deprecated (renamed attribute categories and duplicate predicates,
+such as `WindResourceAttribute` → `WindAttribute`) are still in core 0.7.0, although the rule is
+to keep an alias for one release.
+Impact: none for data; the deprecated names remain visible in the ontology.
+Since: core ontology 0.7.0.
+Status: decided (James, 2026-10-10): kept until the live workspaces are re-onboarded; removal is
+planned for the release after 0.7.0.
+
 ## Code quality
 
 **Error handling and hand-built Turtle are still being cleaned up.**
 What: a test (`tests/test_code_debt_ratchet.py`) counts these per file and only lets them go
-down. In the next platform release: platform 543 broad `except`, 114 silent `except`, 233
+down. In the next platform release: platform 542 broad `except`, 114 silent `except`, 233
 f-string Turtle lines; onboarding agent 169, 68 and 14.
 Impact: some failures are still swallowed instead of reported.
 Since: platform 0.5.0 or earlier.
@@ -172,13 +175,45 @@ an old image.
 
 ## Resolved
 
+### In the next platform release (unreleased) and core ontology 0.7.0
+
+- A scenario's materialised view holds only its own overrides: overrides are scoped by the
+  scenario's `usedInScenario` tag, with a test of two scenarios overriding one attribute. Two
+  overrides of one attribute in one scenario are refused.
+- Scenario lineage is followed: a scenario inherits the overrides of the scenarios it is
+  `basedOn`, recursively, and its own override wins (tested on a 2030 → 2040 → 2050 chain). A
+  cycle or two parents is an error; a parent that cannot be found is reported. `basedOn` is a
+  sub-property of `prov:wasDerivedFrom`; `derivedFrom` is its deprecated alias.
+- `hasSource` has one meaning, the flow property. Provenance is the core's `hasReference`
+  (under `prov:wasDerivedFrom`, range `Reference`), which the onboarding agent now writes;
+  the old `hasDataSource` is its deprecated alias. Tests read the real vendored core.
+- The core no longer gives `qudt:unit` and `qudt:value` a domain or a Digicities parent
+  property.
+- A service contract's inputs are required unless listed optional, in the Scenario Builder and
+  in payload validation alike (they used to have opposite defaults); the optional lists hold
+  references, never field names; control lists are no longer sent to the service; free text
+  that mentions `.URI` / `.label` is no longer dropped; one reference shape for every reader.
+- A requirement on a class is met by instances of its subclasses everywhere: the Scenario
+  Builder's completeness gate and instance lists, scenario sync and the Assumptions module
+  (a requirement on `EnergyConverter` takes a PV system that carries the required attributes).
+  Such instances are marked where they are offered: one `*` per subclass level below the
+  required class (`PV*`, `RooftopPV**`), with a "subclass of EnergyConverter (N levels)" tooltip.
+- Reading a contract back takes the time series flavour from the reference property, not
+  from the field name.
+- Derived values are read from the ontology, not from their names: a contract lists them
+  under `derived_attributes`, and the workspace ontology declares each aggregate class with
+  `aggregatesAttribute` and `usesStatistic` (core 0.7.0; the onboarding agent writes the
+  declaration). A real attribute whose name ends in `Mean` or `Count` is no longer computed
+  as a statistic.
+
 ### In the next platform release (unreleased) and core ontology 0.6.0
 
 - A categorical value is an IRI: `hasCategoricalValue` is an object property pointing at the
   category (a named individual of the attribute's class), and every writer states it.
 - Instances carry their record id as `rdfs:label`, and typed instance names are matched by label.
 - String matching on class and predicate names removed from platform and agent; a test now bans
-  it (`test_no_string_matching_in_code`).
+  it (`test_no_string_matching_in_code`), including names compared after changing their
+  spelling (`a.lower() == b.lower()`).
 - Derived triples live in their own graphs (`http://inferred/...`), so the graph a user built
   holds exactly what they asserted.
 - `locatedIn` and `hasLocation` no longer collapse into each other under reasoning (`locatedIn`

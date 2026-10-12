@@ -24,7 +24,7 @@ import os
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Optional, Set
+from typing import Dict, Iterable, Optional, Set
 
 from rdflib import OWL, RDF, RDFS, Graph, Namespace, URIRef
 from rdflib.graph import ReadOnlyGraphAggregate
@@ -108,6 +108,23 @@ def with_core(g: Graph) -> Graph:
 def superclasses(g: Graph, cls: URIRef) -> Set[URIRef]:
     """``cls`` and every class it is ``rdfs:subClassOf+``."""
     return set(g.transitive_objects(URIRef(cls), RDFS.subClassOf))
+
+
+def superclass_distances(g: Graph, cls: URIRef) -> Dict[URIRef, int]:
+    """``cls`` and every class above it, each with the length of the shortest
+    ``rdfs:subClassOf`` path to it (``cls`` itself is 0, a direct parent 1)."""
+    start = URIRef(cls)
+    dist = {start: 0}
+    frontier = [start]
+    while frontier:
+        nxt = []
+        for c in frontier:
+            for sup in g.objects(c, RDFS.subClassOf):
+                if isinstance(sup, URIRef) and sup not in dist:
+                    dist[sup] = dist[c] + 1
+                    nxt.append(sup)
+        frontier = nxt
+    return dist
 
 
 def superproperties(g: Graph, prop: URIRef) -> Set[URIRef]:

@@ -54,7 +54,12 @@ def _materialize_against_workspace(storage, scenario_text: str, client=None) -> 
         client = client or st.session_state.get("workspace_client")
     except Exception:
         pass
-    return materialize_against_workspace(storage, scenario_text, client)
+    from backend.graphdb.queries.scenarios import ScenarioMaterializationError
+    try:
+        return materialize_against_workspace(storage, scenario_text, client)
+    except ScenarioMaterializationError as exc:
+        st.error(f"This scenario cannot be used as written: {exc}")
+        st.stop()
 
 
 def _service_allows(declared: Optional[str], wanted: Optional[str],

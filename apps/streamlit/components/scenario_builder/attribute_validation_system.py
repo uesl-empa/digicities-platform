@@ -9,7 +9,10 @@ import streamlit as st
 from typing import Dict, List, Any, Optional, Tuple
 
 from backend.scenario_builder.emitter import resolve_nested_attribute_requirement
-from backend.scenario_builder.semantics import is_time_series_key, is_time_series_reference_key
+from backend.scenario_builder.semantics import (
+    is_time_series_key, is_time_series_reference_key, requirements_for,
+)
+from components.scenario_builder.workspace_schema import session_workspace_schema
 
 # Import enhanced validation functions
 try:
@@ -36,7 +39,7 @@ def tab_enhanced_attribute_validation():
         return
 
     requirements = st.session_state.selected_requirements
-    required_attributes = requirements.get('required_attributes', {})
+    required_attributes = requirements.get('requirements_by_class', {})
 
     if not required_attributes:
         st.info("No attribute requirements specified in the service definition")
@@ -55,13 +58,14 @@ def tab_enhanced_attribute_validation():
 def compute_all_validation_results(required_attributes):
     """Compute validation results for all components at once for better performance"""
     validation_results = {}
+    schema = session_workspace_schema()
 
     for component in st.session_state.scenario_components:
         comp_type = component['type']
         comp_uri = component['uri']
 
-        if comp_type in required_attributes:
-            required_attrs = required_attributes[comp_type]
+        required_attrs = requirements_for(comp_type, required_attributes, schema)
+        if required_attrs:
 
             # FIXED: Use the enhanced validation that properly handles nested attributes
             missing, present, sources = validate_component_attributes_detailed_enhanced(component, required_attrs)
@@ -497,7 +501,7 @@ def export_validation_report():
         st.warning("No components or requirements to export")
         return
 
-    required_attributes = st.session_state.selected_requirements.get('required_attributes', {})
+    required_attributes = st.session_state.selected_requirements.get('requirements_by_class', {})
     validation_results = compute_all_validation_results(required_attributes)
 
     # Create report content
