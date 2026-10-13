@@ -371,25 +371,32 @@ def get_catalogue_instances(client, component_type_label: str) -> pd.DataFrame:
 def get_component_attributes_comprehensive(client, component_type_label: str) -> pd.DataFrame:
     """Attribute values for every instance of a component type (by label).
 
-    Uses a ``rdfs:subPropertyOf* dici_onto:hasAttribute`` property path so typed
-    attribute predicates (e.g. ``hasWindTurbineHubHeightAttribute``) are picked
-    up alongside direct ``hasAttribute`` uses, without relying on backend
-    subproperty inference. Columns: instance, attribute, property, value.
+    Typed attribute predicates (``hasWindTurbineHubHeightAttribute``) count as
+    ``hasAttribute``. The provisioning closure asserts that super-edge, so the
+    query matches it directly; the ``rdfs:subPropertyOf*`` path form, a path per
+    triple, took over two minutes for 158 ehubX technologies (2026-10-13) and is
+    kept as the fallback for a workspace built before the closure.
+    Columns: instance, attribute, property, value.
     """
-    query = f"""
+    def query(edge: str) -> str:
+        return f"""
     {_PREFIXES}
     SELECT DISTINCT ?instance ?attribute ?property ?value
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
-      ?instance ?attrPredicate ?attribute .
-      ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
+{edge}
       {{ ?attribute ?property ?value . }}
       UNION
 {DERIVED_CATEGORICAL_VALUE}    }}
     ORDER BY ?instance ?attribute ?property
     """
-    return _run(client, query, "comprehensive")
+    df = _run(client, query("      ?instance dici_onto:hasAttribute ?attribute ."), "comprehensive")
+    if df is not None and not df.empty:
+        return df
+    return _run(client, query("      ?instance ?attrPredicate ?attribute .\n"
+                              "      ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute ."),
+                "comprehensive")
 
 
 def get_component_sources(client, component_type_label: str) -> pd.DataFrame:

@@ -222,3 +222,29 @@ def test_converter_reads_scenario_and_category_from_the_ontology():
         "buildings": {"link": "CL.Retrofit.Building", "template": {"roof": "Building.Roof"}}}}
     payload = convert_scenario(template, ttl, ontology_graph=onto)
     assert payload["scenario_data"]["buildings"] == [{"roof": "Rooftop"}]
+
+
+def test_attribute_values_read_the_closure_edge_before_the_path():
+    """ehubX (2026-10-13): the path form took over two minutes for 158
+    technologies. The closure's hasAttribute edge answers it; the path form is
+    only the fallback for a workspace built before the closure."""
+    import pandas as pd
+    from backend.graphdb.queries.components import get_component_attributes_comprehensive
+
+    class Recorder:
+        def __init__(self, first):
+            self.first, self.seen = first, []
+
+        def sparql_api_query(self, query, out_format="df", **kw):
+            self.seen.append(query)
+            return self.first if len(self.seen) == 1 else pd.DataFrame(
+                {"instance": ["i"], "attribute": ["a"], "property": ["p"], "value": ["v"]})
+
+    rows = pd.DataFrame({"instance": ["i"], "attribute": ["a"], "property": ["p"],
+                         "value": ["v"]})
+    fast = Recorder(rows)
+    assert len(get_component_attributes_comprehensive(fast, "Technology")) == 1
+    assert len(fast.seen) == 1 and "subPropertyOf* dici_onto:hasAttribute" not in fast.seen[0]
+    old = Recorder(pd.DataFrame())
+    get_component_attributes_comprehensive(old, "Technology")
+    assert len(old.seen) == 2 and "subPropertyOf* dici_onto:hasAttribute" in old.seen[1]
