@@ -387,9 +387,15 @@ def materialize_component_grouped_set(client, workspace_id: str,
             f"subclass in this workspace's schema graph")
     t_family, t_simple = detect_family(client, target_attribute_class_iri)
 
-    df = queries.component_grouped_member_values(
-        client, target_attribute_class_iri, grouping_component_class_iri,
-        dataset_iri)
+    try:
+        df = queries.component_grouped_member_values(
+            client, target_attribute_class_iri, grouping_component_class_iri,
+            dataset_iri)
+    except queries.QueryFailed as exc:
+        # A store that did not answer is not a population without values.
+        raise CollectionError(
+            f"the values of {_local(target_attribute_class_iri)} per "
+            f"{_local(grouping_component_class_iri)} could not be read: {exc}") from exc
 
     # (container_iri, container_label, value, member_iri) — keyed by the
     # container INSTANCE, never its label (labels may collide).

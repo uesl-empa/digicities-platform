@@ -162,6 +162,27 @@ def aggregate_declarations(client, class_iris) -> pd.DataFrame:
     return run_df(client, query, ["cls", "base", "stat"])
 
 
+class QueryFailed(RuntimeError):
+    """A query that did not answer (a timeout, an unreachable store). Not the same
+    as an answer with no rows, which ``run_df`` cannot tell apart."""
+
+
+def _run_or_raise(client, query: str, columns: List[str]) -> pd.DataFrame:
+    if client is None:
+        return pd.DataFrame(columns=columns)
+    try:
+        result = client.sparql_api_query(query, out_format="df")
+    except Exception as exc:  # debt-ok: re-raised as QueryFailed with the cause
+        raise QueryFailed(f"{type(exc).__name__}: {exc}") from exc
+    if result is None or result.empty:
+        return pd.DataFrame(columns=columns)
+    return result
+
+
+_MEMBER_COLUMNS = ["attr", "numValue", "simpleValue", "catValue", "catLabel",
+                   "unit", "unitLabel", "container", "containerLabel"]
+
+
 def component_grouped_member_values(client, target_class_iri: str,
                                     grouping_component_class_iri: str,
                                     dataset_iri: Optional[str] = None) -> pd.DataFrame:
@@ -171,20 +192,50 @@ def component_grouped_member_values(client, target_class_iri: str,
     bookkeeping predicates like ``derivedFromCatalogue`` are subproperties of
     ``prov:wasDerivedFrom``, not ``linksComponent``, so they never group).
     Columns: attr, numValue, simpleValue, catValue, catLabel, container,
-    containerLabel."""
+    containerLabel.
+
+    The provisioning closure asserts every ``hasAttribute`` / ``linksComponent``
+    super-edge and every superclass type, so the query matches those directly
+    (as ``linked_populations`` does). The property-path form, a path per triple,
+    timed out on an energy model of a few thousand instances (ehubX, 2026-10-13),
+    and every population came back as "nothing to group". It is kept as the
+    fallback for a workspace built before the closure. A query that does not
+    answer raises ``QueryFailed``; it is never read as "no values"."""
     ds = _cites("?owner", f"<{dataset_iri}>") if dataset_iri else ""
-    query = f"""
+    graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SYSTEM_DESCRIPTION_GRAPH)
+    values = _VALUE_OPTIONALS.format(node="?attr", q="?numValue", s="?simpleValue",
+                                     c="?catValue", cl="?catLabel")
+    closure = f"""
     {_PREFIXES}
     SELECT DISTINCT ?attr ?numValue ?simpleValue ?catValue ?catLabel
                     ?unit ?unitLabel ?container ?containerLabel
-    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH,
-                 SYSTEM_DESCRIPTION_GRAPH)}WHERE {{
+    {graphs}WHERE {{
+      ?owner dici_onto:hasAttribute ?attr .
+{ds}      ?attr a <{target_class_iri}> .
+{values}
+      OPTIONAL {{ ?attr qudt:unit ?unit . }}
+      OPTIONAL {{ ?attr dici_onto:hasUnitLabel ?unitLabel . }}
+      {{ ?owner dici_onto:linksComponent ?container . }}
+      UNION
+      {{ ?container dici_onto:linksComponent ?owner . }}
+      ?container a <{grouping_component_class_iri}> .
+      FILTER(?container != ?owner)
+      OPTIONAL {{ ?container rdfs:label ?containerLabel . }}
+    }}
+    """
+    df = _run_or_raise(client, closure, _MEMBER_COLUMNS)
+    if not df.empty:
+        return df
+    paths = f"""
+    {_PREFIXES}
+    SELECT DISTINCT ?attr ?numValue ?simpleValue ?catValue ?catLabel
+                    ?unit ?unitLabel ?container ?containerLabel
+    {graphs}WHERE {{
       ?owner ?edge ?attr .
       ?edge rdfs:subPropertyOf* dici_onto:hasAttribute .
 {ds}      ?attr a ?t .
       ?t rdfs:subClassOf* <{target_class_iri}> .
-{_VALUE_OPTIONALS.format(node="?attr", q="?numValue", s="?simpleValue",
-                         c="?catValue", cl="?catLabel")}
+{values}
       OPTIONAL {{ ?attr qudt:unit ?unit . }}
       OPTIONAL {{ ?attr dici_onto:hasUnitLabel ?unitLabel . }}
       {{
@@ -202,9 +253,7 @@ def component_grouped_member_values(client, target_class_iri: str,
       OPTIONAL {{ ?container rdfs:label ?containerLabel . }}
     }}
     """
-    return run_df(client, query,
-                  ["attr", "numValue", "simpleValue", "catValue", "catLabel",
-                   "unit", "unitLabel", "container", "containerLabel"])
+    return _run_or_raise(client, paths, _MEMBER_COLUMNS)
 
 
 def linked_populations(client) -> pd.DataFrame:
