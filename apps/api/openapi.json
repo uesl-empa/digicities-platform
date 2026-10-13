@@ -237,6 +237,41 @@
         "title": "Body_upload_api_workspaces__workspace_id__agent_upload_post",
         "type": "object"
       },
+      "ChatTitleBody": {
+        "properties": {
+          "chat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Id"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "ChatTitleBody",
+        "type": "object"
+      },
       "Column": {
         "properties": {
           "currency": {
@@ -2183,6 +2218,63 @@
           }
         },
         "summary": "Set Api Key",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/agent/chat/title": {
+      "post": {
+        "description": "Name a conversation — the one this session has open, or any saved one by id.\n\nThe title is what both chat switchers show. An empty one puts the chat back to\n`New chat`, where the agent's auto-naming (the uploaded folder, then the\nmodel's name) can fill it in again.",
+        "operationId": "set_chat_title_api_workspaces__workspace_id__agent_chat_title_post",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatTitleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Chat Title Api Workspaces  Workspace Id  Agent Chat Title Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Chat Title",
         "tags": [
           "agent"
         ]
@@ -6197,7 +6289,7 @@
     },
     "/api/workspaces/{workspace_id}/scenario/instances": {
       "get": {
-        "description": "Component types with their instance URIs, to pick into a scenario.",
+        "description": "Component types with their instance URIs, to pick into a scenario.\n\n``superclasses`` lists the class and every class above it\n(``rdfs:subClassOf*``, local names), so a requirement on ``EnergyConverter``\ncan offer the PV instances. ``superclass_distance`` gives, for each of\nthem, the number of ``rdfs:subClassOf`` steps from this class (0 = itself,\nthe shortest path when there are several), so a client can mark an\ninstance offered under a class above its own (``PV*``).",
         "operationId": "instances_api_workspaces__workspace_id__scenario_instances_get",
         "parameters": [
           {

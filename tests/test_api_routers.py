@@ -1099,11 +1099,12 @@ class _FakeAgentSession:
         self.model = model
         self.state = types.SimpleNamespace(oa_messages=[])
         self.proposed = None
+        self.title = "New chat"
         _FakeAgentSession.instances.append(self)
 
     def snapshot(self):
         return {"messages": [], "stage": "start", "model": self.model,
-                "chat_id": "chat-1"}
+                "chat_id": "chat-1", "chat_title": self.title}
 
     def set_model(self, key):
         self.model = key
@@ -1113,6 +1114,23 @@ class _FakeAgentSession:
 
     def load_chat(self, chat_id):
         return self.snapshot()
+
+    def set_api_key(self, provider, key):
+        self.keys = dict(getattr(self, "keys", {}))
+        self.keys[provider] = key
+
+    def settings(self):
+        return {"keys": {p: {"user_set": bool(k), "available": bool(k)}
+                         for p, k in getattr(self, "keys", {}).items()},
+                "chats_dir": "/tmp"}
+
+    def rename_chat(self, title, chat_id=None):
+        if chat_id == "chat-nope":
+            raise FileNotFoundError(chat_id)
+        applied = " ".join(str(title or "").split()) or "New chat"
+        if not chat_id or chat_id == "chat-1":
+            self.title = applied
+        return {"chat_id": chat_id or "chat-1", "title": applied}
 
     def send(self, text):
         return {"messages": [{"role": "user", "content": text}],
@@ -1157,6 +1175,43 @@ def agent_env(monkeypatch, ws):
     import apps.api.agent as agent_mod
     monkeypatch.setattr(agent_mod, "_SESSIONS", collections.OrderedDict())
     return agent_mod
+
+
+def test_agent_accepts_a_key_for_every_provider_the_agent_knows(client, agent_env):
+    """The provider list was hard-coded to anthropic/mistral, so an OpenAI key —
+    for models the agent now registers — came back 400."""
+    for provider in ("anthropic", "mistral", "openai"):
+        r = client.post(f"{B}/agent/api-key", json={"provider": provider, "key": "sk-x"})
+        assert r.status_code == 200, f"{provider}: {r.text}"
+        assert r.json()["keys"][provider]["user_set"] is True
+    bad = client.post(f"{B}/agent/api-key", json={"provider": "nope", "key": "x"})
+    assert bad.status_code == 400
+    assert "anthropic" in bad.json()["detail"]
+
+
+def test_agent_chat_can_be_renamed(client, agent_env):
+    """The title is what the chat switcher shows; it had no way to change."""
+    sid = _start_session(client)
+    r = client.post(f"{B}/agent/chat/title",
+                    json={"session_id": sid, "title": "  Alkmaar  wind park "})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"chat_id": "chat-1", "title": "Alkmaar wind park"}
+    assert client.get(f"{B}/agent/state",
+                      params={"session_id": sid}).json()["chat_title"] == "Alkmaar wind park"
+
+    # an empty title puts it back, where the agent's auto-naming can fill it in
+    assert client.post(f"{B}/agent/chat/title",
+                       json={"session_id": sid, "title": ""}).json()["title"] == "New chat"
+
+    # another saved chat, by id, without opening it
+    assert client.post(f"{B}/agent/chat/title",
+                       json={"session_id": sid, "chat_id": "chat-2",
+                             "title": "renamed from outside"}).json()["chat_id"] == "chat-2"
+
+    # one that is not there
+    assert client.post(f"{B}/agent/chat/title",
+                       json={"session_id": sid, "chat_id": "chat-nope",
+                             "title": "x"}).status_code == 404
 
 
 def _start_session(client):

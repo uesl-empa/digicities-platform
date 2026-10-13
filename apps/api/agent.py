@@ -102,6 +102,26 @@ def chats(ctx: WorkspaceContext = Depends(get_ctx)) -> list[dict[str, Any]]:
     return _new_session(ctx).list_chats()
 
 
+class ChatTitleBody(BaseModel):
+    session_id: str
+    title: str | None = None   # empty/None puts the chat back to "New chat"
+    chat_id: str | None = None # omitted: the conversation this session has open
+
+
+@router.post("/chat/title")
+def set_chat_title(body: ChatTitleBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
+    """Name a conversation — the one this session has open, or any saved one by id.
+
+    The title is what both chat switchers show. An empty one puts the chat back to
+    `New chat`, where the agent's auto-naming (the uploaded folder, then the
+    model's name) can fill it in again.
+    """
+    try:
+        return _get(body.session_id, ctx).rename_chat(body.title, body.chat_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"no chat {body.chat_id!r} in this workspace")
+
+
 @router.post("/session")
 def start_session(body: StartBody | None = None, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Open a conversation — fresh, or load a persisted chat_id; optional model."""
@@ -139,7 +159,7 @@ def set_mode(body: ModeBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
 
 
 class ApiKeyBody(BaseModel):
-    provider: str            # "anthropic" | "mistral"
+    provider: str            # whichever providers the agent knows (see key_status)
     key: str | None = None   # falsy clears the stored key
 
 
@@ -147,8 +167,18 @@ class ApiKeyBody(BaseModel):
 def set_api_key(body: ApiKeyBody, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, Any]:
     """Set (and persist) an LLM provider key from the settings panel; returns the
     updated settings (key status never echoes the key itself)."""
-    if body.provider not in ("anthropic", "mistral"):
-        raise HTTPException(status_code=400, detail="provider must be 'anthropic' or 'mistral'")
+    # The providers are the agent's to define — this list was hard-coded, so adding
+    # OpenAI models to the agent left their key rejected with a 400 here. The agent
+    # module is not always importable (the API's own tests stub it), so its list is
+    # asked for and a known one stands in.
+    try:
+        from onboarding_agent._llm import key_status
+        known = tuple(key_status())
+    except ImportError:                 # stubbed in this router's own tests
+        known = ("anthropic", "mistral", "openai")
+    if body.provider not in known:
+        raise HTTPException(status_code=400,
+                            detail="provider must be one of " + ", ".join(repr(k) for k in known))
     sess = _new_session(ctx)
     sess.set_api_key(body.provider, (body.key or "").strip() or None)
     return sess.settings()
