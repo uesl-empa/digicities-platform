@@ -156,9 +156,17 @@ Thumbs.db
 # Runtime artifacts written into bundled workspaces (submission results, query
 # scratch, ontology exports) — not part of the shipped demo.
 demo_workspaces/*/results/
+demo_workspaces/*/ontology/exports/
+demo_workspaces/*/ontology/temp/
 
-# Local scratch/test workspaces created while exercising the UI — not shipped.
-demo_workspaces/empa-campus-test/
+# Local scratch/test workspaces. This directory is the container's
+# /app/data/usecases mount, so every onboarding run, UI trial and test pass
+# writes a workspace straight into the repo: 111 of them, 87 MB, all untracked
+# and all in the way of `git status`. Only the shipped demo and the README
+# belong to the repo; everything else here is local output.
+demo_workspaces/*
+!demo_workspaces/README.md
+!demo_workspaces/energy-simulation/
 
 # External modules dropped into the bundled mount point (cloned repos) - not shipped.
 modules/*
