@@ -116,7 +116,7 @@ _EMPTY_COLS = {
     "all_direct_props": ["instance", "property", "value"],
     "instances": ["instance", "instanceLabel"],
     "catalogue instances": ["instance"],
-    "comprehensive": ["instance", "attribute", "property", "value"],
+    "comprehensive": ["instance", "attribute", "property", "value", "valueLabel"],
     "basic": ["instance", "property", "value"],
     "classes": ["class", "label"],
     "subclasses": ["component"],
@@ -376,19 +376,22 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
     query matches it directly; the ``rdfs:subPropertyOf*`` path form, a path per
     triple, took over two minutes for 158 ehubX technologies (2026-10-13) and is
     kept as the fallback for a workspace built before the closure.
-    Columns: instance, attribute, property, value.
+    Columns: instance, attribute, property, value, valueLabel (a categorical
+    value's rdfs:label: what a person reads for it; the value stays its IRI).
     """
     def query(edge: str) -> str:
         return f"""
     {_PREFIXES}
-    SELECT DISTINCT ?instance ?attribute ?property ?value
+    SELECT DISTINCT ?instance ?attribute ?property ?value ?valueLabel
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
 {edge}
       {{ ?attribute ?property ?value . }}
       UNION
-{DERIVED_CATEGORICAL_VALUE}    }}
+{DERIVED_CATEGORICAL_VALUE}      OPTIONAL {{ ?value rdfs:label ?valueLabel .
+                 FILTER(?property = dici_onto:hasCategoricalValue) }}
+    }}
     ORDER BY ?instance ?attribute ?property
     """
     df = _run(client, query("      ?instance dici_onto:hasAttribute ?attribute ."), "comprehensive")

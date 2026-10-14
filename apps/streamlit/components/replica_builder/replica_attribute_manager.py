@@ -28,6 +28,7 @@ from backend.replica_builder.attribute_rules import (  # noqa: F401
 # Import ontology helper functions
 try:
     from components.replica_builder.replica_ontology_loader import (
+        category_option_label,
         get_attribute_constraints,
         get_categorical_options,
         get_temporal_precisions
@@ -623,6 +624,7 @@ def render_attribute_type_fields_constrained(
             data['category_value'] = st.selectbox(
                 "Category Value",
                 options=categorical_options,
+                format_func=lambda iri: category_option_label(attr_name, iri),
                 help="Select from ontology-defined named individuals"
             )
         else:
@@ -924,8 +926,14 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
         if constraints and ONTOLOGY_HELPERS_AVAILABLE:
             category_options = get_categorical_options(attr_name)
             if category_options:
+                # A value is its IRI; one saved by name before (`MFH`) is still
+                # offered as it was, so opening the editor never changes it.
+                if current_category and current_category not in category_options:
+                    category_options = [current_category] + category_options
                 default_index = category_options.index(current_category) if current_category in category_options else 0
-                data['category_value'] = st.selectbox("Category", options=category_options, index=default_index)
+                data['category_value'] = st.selectbox(
+                    "Category", options=category_options, index=default_index,
+                    format_func=lambda iri: category_option_label(attr_name, iri))
             else:
                 data['category_value'] = st.text_input("Category Value", value=current_category)
         else:
@@ -1172,7 +1180,9 @@ def render_attribute_value_display(attr_data: Dict[str, Any]):
             st.caption(f"⚡ Live: {attr_data['live_reference']}")
 
     elif attr_type == AttributeKind.CATEGORICAL:
-        st.write(f"Category: {attr_data.get('category_value', 'N/A')}")
+        value = attr_data.get('category_value')
+        shown = category_option_label(None, value) if value and ONTOLOGY_HELPERS_AVAILABLE else value
+        st.write(f"Category: {shown or 'N/A'}")
 
     elif attr_type == AttributeKind.EVENT:
         st.write(f"{attr_data.get('temporal_value', 'N/A')}")

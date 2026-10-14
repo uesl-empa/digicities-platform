@@ -43,8 +43,10 @@ except ImportError:
 
 from backend.nextcloud import NextcloudClient
 from backend.ontology_kinds import (
+    DICI,
     KIND_CLASS,
     AttributeKind,
+    category_label,
     core_graph,
     is_attribute_class,
     is_attribute_node,
@@ -611,6 +613,12 @@ class NextCloudTTLUseCaseLoader:
         kind_classes = set(KIND_CLASS.values())
         types = [t for t in graph.objects(attr_uri, RDF.type)
                  if isinstance(t, URIRef) and t not in kind_classes]
+        # The value the node states (``hasCategoricalValue``); the typed form
+        # below is data written before that property was stated.
+        stated = next(iter(graph.objects(attr_uri, DICI.hasCategoricalValue)), None)
+        if isinstance(stated, URIRef):
+            attr_classes = [t for t in types if is_attribute_class(onto, t)]
+            return (attr_classes[0] if len(attr_classes) == 1 else None), stated
         for value in types:
             for attr_class in types:
                 if attr_class != value and (value, RDF.type, attr_class) in onto:
@@ -638,12 +646,18 @@ class NextCloudTTLUseCaseLoader:
                 attr_class, value = self._categorical_parts(graph, onto, attr_uri)
                 if value is None:
                     self._notify('warning', f"Could not determine categorical value for {attr_uri}")
-                category_value = get_uri_fragment(str(value)) if value is not None else "Unknown"
+                # The value travels as its IRI (the emitter writes it back as
+                # it is) and is shown by its label.
+                category_value = str(value) if value is not None else "Unknown"
                 attr_data.update({
                     'attribute_type': AttributeKind.CATEGORICAL,
                     'category': 'categorical',
                     'value': category_value,
                     'category_value': category_value,
+                    'category_label': (category_label(onto, value)
+                                       if value is not None and (value, None, None) in onto
+                                       else category_label(graph, value)
+                                       if value is not None else "Unknown"),
                     'unit': 'category',
                     'data_type': 'categorical',
                     'specific_attribute_type': (get_uri_fragment(str(attr_class))

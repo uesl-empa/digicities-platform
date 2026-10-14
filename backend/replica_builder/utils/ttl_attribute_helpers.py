@@ -131,6 +131,17 @@ def dici_term(name: Any) -> str:
     return prefixed_or_iri("dici_onto", DICI_ONTO_NS, "".join(str(name).split()))
 
 
+def category_term(value: Any) -> str:
+    """The Turtle term for a categorical value: the value's own IRI when that is
+    what is carried (every value read from a graph; a value declared under its
+    attribute, ``…#SubType/X``, has no other name), else a ``dici_onto:`` name
+    (a draft saved before values were carried by IRI)."""
+    text = str(value).strip()
+    if text.startswith(("http://", "https://")):
+        return f"<{text}>"
+    return dici_term(text)
+
+
 # ---------------------------------------------------------------------------
 # Curve points
 # ---------------------------------------------------------------------------
@@ -407,7 +418,7 @@ def generate_attribute_ttl(attr_uri: str, attr_name: str, attr_data: Dict, compo
         category = attr_data.get('category_value', '')
         if category:
             lines.append("\ta dici_onto:CategoricalAttribute ;")
-            lines.append(f"\tdici_onto:hasCategoricalValue {dici_term(category)} .")
+            lines.append(f"\tdici_onto:hasCategoricalValue {category_term(category)} .")
         else:
             lines.append("\ta dici_onto:CategoricalAttribute .")
 
