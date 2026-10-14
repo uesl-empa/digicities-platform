@@ -216,7 +216,7 @@ def display_simple_component_attributes(component):
                 if attr_data.get('time_series_reference'):
                     formatted_value = f"📊 {attr_data['time_series_reference']}"
             elif kind is AttributeKind.CATEGORICAL:
-                category_value = attr_data.get('category_value', value)
+                category_value = attr_data.get('category_label') or attr_data.get('category_value', value)
                 formatted_value = f"🏷️ {category_value}"
             elif kind is AttributeKind.EVENT:
                 temporal_value = attr_data.get('temporal_value', value)

@@ -46,7 +46,7 @@ from __future__ import annotations
 
 from backend.scenario_builder import scenario_uri_for
 from backend.ontology_kinds import DICI, AttributeKind
-from backend.replica_builder.utils.ttl_attribute_helpers import dici_term
+from backend.replica_builder.utils.ttl_attribute_helpers import category_term
 from backend.scenario_builder.draft import ScenarioDraft
 from backend.scenario_builder.semantics import (
     MISSING,
@@ -306,10 +306,10 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         ])
 
         # The value is the category IRI, stated with hasCategoricalValue, named
-        # the way the replica writer names it (dici_term).
+        # as the replica writer does (category_term: its IRI, or an older name).
         category_value = attr_data.get('category_value', attr_value)
         if category_value and isinstance(category_value, str):
-            ttl_lines.append(f'    dici_onto:hasCategoricalValue {dici_term(category_value)} ;')
+            ttl_lines.append(f'    dici_onto:hasCategoricalValue {category_term(category_value)} ;')
 
     elif kind is AttributeKind.GEOSPATIAL:
         ttl_lines.extend([
@@ -718,7 +718,7 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
         ttl_lines.append(f"    a dici_onto:CategoricalAttribute ;")
         category_value = attr_data.get('category_value', attr_value)
         if category_value and isinstance(category_value, str):
-            ttl_lines.append(f'    dici_onto:hasCategoricalValue {dici_term(category_value)} ;')
+            ttl_lines.append(f'    dici_onto:hasCategoricalValue {category_term(category_value)} ;')
     elif kind is AttributeKind.GEOSPATIAL:
         ttl_lines.append(f"    a dici_onto:GeospatialAttribute ;")
     elif kind is AttributeKind.EVENT:

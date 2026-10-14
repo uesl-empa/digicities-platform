@@ -837,6 +837,7 @@ def _load_categorical_options(client):
     """
     if client is None:
         return {}
+    from backend.ontology_kinds import namespace_of
     try:
         from backend.graphdb.queries.ontology import get_categorical_value_options
         df = get_categorical_value_options(client)
@@ -847,13 +848,15 @@ def _load_categorical_options(client):
     options = {}
     for _, row in df.iterrows():
         attr_cls = str(row["attrClass"]).split("#")[-1].split("/")[-1]
-        value = str(row["value"]).split("#")[-1].split("/")[-1]
+        # A value is carried by its IRI (written back as it is) and shown by
+        # its label; a value declared under its attribute has no other name.
+        value = str(row["value"])
         raw_label = row.get("label")
         label = str(raw_label).strip()
         if label.lower() in ("", "nan", "none"):
             label = ""
         options.setdefault(attr_cls, {})
-        options[attr_cls].setdefault(value, label or value)
+        options[attr_cls].setdefault(value, label or value[len(namespace_of(value) or ""):])
     return options
 
 
@@ -915,6 +918,10 @@ def show_attribute_editor(component_key, attr_name, attr_data, category):
             if opts:
                 names = list(opts.keys())
                 current = str(current_value)
+                # A value saved by name before (`MFH`) is still offered as it
+                # was, so opening the editor never changes it.
+                if current and current not in names:
+                    names = [current] + names
                 index = names.index(current) if current in names else 0
                 new_value = st.selectbox(
                     f"Value for {attr_name}",

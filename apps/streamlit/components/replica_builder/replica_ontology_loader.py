@@ -115,7 +115,7 @@ def query_component_attribute_mappings(client) -> Dict[str, List[str]]:
         return {}
 
 
-def query_named_individuals(client) -> Dict[str, List[str]]:
+def query_named_individuals(client) -> Dict[str, Dict[str, str]]:
     """Query named individuals for categorical attributes
     (via backend.replica_builder.ontology_queries)."""
     try:
@@ -150,8 +150,20 @@ def get_attribute_constraints(attr_name: str) -> Optional[AttributeClass]:
 
 
 def get_categorical_options(attr_name: str) -> List[str]:
-    """Get named individuals for a categorical attribute"""
-    return st.session_state.replica_named_individuals.get(attr_name, [])
+    """The declared values (IRIs) of a categorical attribute; show each with
+    ``category_option_label``."""
+    return list(st.session_state.replica_named_individuals.get(attr_name, {}))
+
+
+def category_option_label(attr_name: Optional[str], iri: str) -> str:
+    """The label a declared value is shown by (its IRI when the ontology gives
+    none, e.g. a value saved before the ontology was loaded)."""
+    if attr_name is None:
+        for values in st.session_state.get('replica_named_individuals', {}).values():
+            if iri in values:
+                return values[iri]
+        return iri
+    return st.session_state.replica_named_individuals.get(attr_name, {}).get(iri, iri)
 
 
 def get_temporal_precisions() -> List[str]:
@@ -207,6 +219,6 @@ def show_ontology_status():
         if named_individuals:
             st.write("**Categorical Attributes with Named Individuals:**")
             for cat_name, individuals in list(named_individuals.items())[:5]:
-                st.write(f"**{cat_name}**: {', '.join(individuals)}")
+                st.write(f"**{cat_name}**: {', '.join(individuals.values())}")
             if len(named_individuals) > 5:
                 st.caption(f"...and {len(named_individuals) - 5} more categories")

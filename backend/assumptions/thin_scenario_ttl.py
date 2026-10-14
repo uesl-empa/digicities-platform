@@ -40,7 +40,7 @@ overrides at materialisation time — the same contract every thin scenario has.
 from typing import Dict, List
 
 from backend.ontology_kinds import AttributeKind
-from backend.replica_builder.utils.ttl_attribute_helpers import dici_term
+from backend.replica_builder.utils.ttl_attribute_helpers import category_term
 from backend.scenario_builder.semantics import as_attribute_kind, local_key
 
 _PREFIXES = [
@@ -111,8 +111,8 @@ def _override_lines(attr_name: str, attr: Dict, scenario_uri: str) -> List[str]:
         category = attr.get("category_value") or attr.get("value") or ""
         if not str(category).strip():
             return []
-        # The value is the category IRI, named like the replica writer names it.
-        props.append(f"dici_onto:hasCategoricalValue {dici_term(category)}")
+        # The value is the category IRI (carried as such; see category_term).
+        props.append(f"dici_onto:hasCategoricalValue {category_term(category)}")
     else:
         if kind not in _QUDT_VALUE_KINDS | _ATTRVALUE_KINDS:
             # Unsupported scalar family — leave the replica value untouched.

@@ -116,7 +116,7 @@ _EMPTY_COLS = {
     "all_direct_props": ["instance", "property", "value"],
     "instances": ["instance", "instanceLabel"],
     "catalogue instances": ["instance"],
-    "comprehensive": ["instance", "attribute", "property", "value"],
+    "comprehensive": ["instance", "attribute", "property", "value", "valueLabel"],
     "basic": ["instance", "property", "value"],
     "classes": ["class", "label"],
     "subclasses": ["component"],
@@ -374,11 +374,13 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
     Uses a ``rdfs:subPropertyOf* dici_onto:hasAttribute`` property path so typed
     attribute predicates (e.g. ``hasWindTurbineHubHeightAttribute``) are picked
     up alongside direct ``hasAttribute`` uses, without relying on backend
-    subproperty inference. Columns: instance, attribute, property, value.
+    subproperty inference. Columns: instance, attribute, property, value,
+    valueLabel (a categorical value's rdfs:label: what a person reads for it;
+    the value itself stays its IRI).
     """
     query = f"""
     {_PREFIXES}
-    SELECT DISTINCT ?instance ?attribute ?property ?value
+    SELECT DISTINCT ?instance ?attribute ?property ?value ?valueLabel
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
@@ -386,7 +388,9 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
       ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
       {{ ?attribute ?property ?value . }}
       UNION
-{DERIVED_CATEGORICAL_VALUE}    }}
+{DERIVED_CATEGORICAL_VALUE}      OPTIONAL {{ ?value rdfs:label ?valueLabel .
+                 FILTER(?property = dici_onto:hasCategoricalValue) }}
+    }}
     ORDER BY ?instance ?attribute ?property
     """
     return _run(client, query, "comprehensive")

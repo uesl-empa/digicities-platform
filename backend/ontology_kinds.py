@@ -268,9 +268,12 @@ def resolve_category(g: Graph, attr_class: URIRef, value) -> Optional[URIRef]:
     value exactly, else the one whose ``rdfs:label`` does. None when no declared
     value, or more than one, carries it. Record values are data, so exact
     equality on a stated notation or label is the match; the IRI is never read
-    for it."""
+    for it. A cell may also hold the value itself, its whole IRI (a replica
+    loaded from a graph and written back to a workbook carries its values so)."""
     text = str(value).strip()
     candidates = categorical_individuals(g, attr_class)
+    if URIRef(text) in candidates:
+        return URIRef(text)
     for prop in (SKOS.notation, RDFS.label):
         hits = {i for i in candidates if any(str(o) == text for o in g.objects(i, prop))}
         if len(hits) == 1:
@@ -289,6 +292,28 @@ def category_code(g: Graph, individual: URIRef) -> Optional[str]:
         if len(values) == 1:
             return values.pop()
     return None
+
+
+def value_iri(attr_class, name: str) -> URIRef:
+    """The IRI a NEW declared value of ``attr_class`` gets: a path under the
+    attribute's own IRI (``…#SubType/DACSorbentBased``). Each attribute has its
+    own values, so a value never collides with a class or with another
+    attribute's value, and its name needs no attribute prefix. Values declared
+    before (``dici_onto:CCGT``) keep their IRIs: every reader finds a value by
+    its type, notation and label, never by how its IRI is spelt."""
+    return URIRef(f"{attr_class}/{name}")
+
+
+def category_label(g: Graph, individual) -> str:
+    """What a person reads for a declared value: its ``rdfs:label``, else its
+    ``skos:notation``, else the last segment of its IRI (data written before
+    values carried labels)."""
+    for prop in (RDFS.label, SKOS.notation):
+        for o in g.objects(URIRef(individual), prop):
+            return str(o)
+    s = str(individual)
+    ns = namespace_of(s)
+    return s[len(ns):] if ns else s
 
 
 def _register_yaml() -> None:

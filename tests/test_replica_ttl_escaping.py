@@ -131,10 +131,12 @@ def test_categorical_values_are_the_declared_values(graph):
     # The cell text names the value the Ontology Manager declared (by its
     # label); the IRI is that value's, never one minted from the cell text,
     # so odd characters cannot break the file.
+    # The value sits under its attribute (``value_iri``).
+    from backend.ontology_kinds import value_iri
     assert _one(graph, URIRef(f"{M1}/Heating"), DICI + "hasCategoricalValue") \
-        == URIRef(DICI + "ElectricallyHeated")
+        == value_iri(DICI + "Heating", "ElectricallyHeated")
     odd = _one(graph, URIRef(f"{M1}/Odd"), DICI + "hasCategoricalValue")
-    assert odd == URIRef(DICI + "ABOddX")
+    assert odd == value_iri(DICI + "Odd", "ABOddX")
     assert (URIRef(f"{M1}/Odd"), rdflib.RDF.type, odd) not in graph
 
 

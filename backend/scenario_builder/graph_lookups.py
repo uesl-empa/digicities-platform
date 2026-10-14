@@ -44,6 +44,26 @@ def categorical_values(client) -> Dict[str, str]:
     return {str(row["attribute"]): str(row["value"]) for _, row in df.iterrows()}
 
 
+def category_labels(client) -> Dict[str, str]:
+    """``{value IRI: label}`` for every declared categorical value: what a person
+    reads for a value (its rdfs:label, else the last segment of its IRI). The
+    value itself stays its IRI wherever it is carried."""
+    from backend.graphdb.queries.ontology import get_named_individuals
+    from backend.ontology_kinds import namespace_of
+
+    df = get_named_individuals(client)
+    out: Dict[str, str] = {}
+    if df is None or df.empty:
+        return out
+    for _, row in df.iterrows():
+        iri, label = str(row["individual"]), row.get("label")
+        if label is not None and str(label) not in ("", "nan"):
+            out[iri] = str(label)
+        else:
+            out.setdefault(iri, iri[len(namespace_of(iri) or ""):])
+    return out
+
+
 def instance_types(client) -> Dict[str, str]:
     """``{instance IRI: class local name}`` for every component instance in the
     workspace graph (its most specific class under dici_onto:Component), the

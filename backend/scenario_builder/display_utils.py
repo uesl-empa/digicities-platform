@@ -16,11 +16,9 @@ from backend.scenario_builder.semantics import kind_of
 
 def get_uri_fragment(uri: str) -> str:
     """Extract the last part of a URI (after the last '/' or '#')."""
-    if '#' in uri:
-        return uri.split('#')[-1]
-    elif '/' in uri:
-        return uri.split('/')[-1]
-    return uri
+    from backend.ontology_kinds import namespace_of
+    ns = namespace_of(uri)
+    return uri[len(ns):] if ns else uri
 
 
 def format_ttl_component_for_display(component: Dict) -> Dict:

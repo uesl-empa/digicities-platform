@@ -1004,7 +1004,7 @@ def show_enhanced_service_requirements_summary():
                                 if isinstance(attr_data, dict):
                                     kind = kind_of(attr_data)
                                     if kind is AttributeKind.CATEGORICAL or attr_data.get('data_type') == 'categorical':
-                                        category_value = attr_data.get('category_value', attr_value)
+                                        category_value = attr_data.get('category_label') or attr_data.get('category_value', attr_value)
                                         status = f"✅ ({category_value})"
                                     # For EventAttribute, show temporal value and precision
                                     elif kind is AttributeKind.EVENT or attr_data.get('data_type') == 'temporal':
