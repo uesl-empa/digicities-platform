@@ -777,15 +777,17 @@ def apply_extension_instructions(
             raise IOError(msg)
 
     ex = _Executor(funcs, ext)
-    for op in instructions.get("instructions", []):
-        kind = op.get("op")
-        if kind not in _OPS:
-            ex._record(op, "error", f"unknown op '{kind}'")
-            continue
-        try:
-            ex.run(op)
-        except Exception as e:                       # keep replaying; report it
-            ex._record(op, "error", str(e))
+    # One batch: the extension is written once at the end, not after every op.
+    with funcs.batch():
+        for op in instructions.get("instructions", []):
+            kind = op.get("op")
+            if kind not in _OPS:
+                ex._record(op, "error", f"unknown op '{kind}'")
+                continue
+            try:
+                ex.run(op)
+            except Exception as e:                       # keep replaying; report it
+                ex._record(op, "error", str(e))
 
     export = (funcs.update_temp_and_export_core_mod() if ext == funcs.CORE_TARGET
               else funcs.update_temp_and_export(ext))
