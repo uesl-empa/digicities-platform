@@ -15,7 +15,9 @@ Streamlit shell at ``components/graphdb.py``) inject those concerns via the
 """
 
 import json
+import logging
 import os
+import re
 import time
 import urllib.parse
 from typing import Any, Callable, Dict, List, Optional
@@ -28,6 +30,30 @@ from backend.graphdb.utils import df_from_json, dict_from_json, split_graph
 
 
 TokenRefresher = Callable[[], Optional[str]]
+
+# How long a query may run. The triple store cancels it at 110 s
+# (services/fuseki/config.ttl); the client waits a little longer so it receives
+# that cancellation instead of walking away from a query that keeps running.
+QUERY_TIMEOUT = float(os.getenv("GRAPHDB_QUERY_TIMEOUT", "120"))
+# A query slower than this is logged (shape, repository, seconds), so a slow
+# build points at its query instead of at "Fuseki is slow".
+SLOW_QUERY_SECONDS = float(os.getenv("GRAPHDB_SLOW_QUERY_SECONDS", "20"))
+
+query_log = logging.getLogger("digicities.queries")
+
+
+def _query_shape(query: str) -> str:
+    """The query without its PREFIX lines and whitespace runs, cut to 300
+    characters: enough to tell which query it is in a log line."""
+    body = re.sub(r"(?im)^\s*PREFIX\s+\S+\s+<[^>]*>\s*", "", str(query))
+    return re.sub(r"\s+", " ", body).strip()[:300]
+
+
+def _cancelled(response) -> bool:
+    """The triple store stopped the query at its timeout (Fuseki answers 503
+    with a "Query cancelled" / "Timeout" body). Resending it only runs it again."""
+    text = (getattr(response, "text", "") or "")[:500].lower()
+    return response.status_code == 503 and ("timeout" in text or "cancel" in text)
 
 
 class UnifiedGraphDBClient:
@@ -333,9 +359,15 @@ class UnifiedGraphDBClient:
                 if self.access_token:
                     headers["Authorization"] = self.access_token
 
-                response = requests.request("GET", url, headers=headers, data=payload, timeout=30)
+                started = time.monotonic()
+                response = requests.request("GET", url, headers=headers, data=payload,
+                                            timeout=(10, QUERY_TIMEOUT))
+                elapsed = time.monotonic() - started
 
                 self._log_debug(f"Response status: {response.status_code}")
+                if elapsed > SLOW_QUERY_SECONDS:
+                    query_log.warning("slow query: %.1f s on %s (status %s): %s", elapsed,
+                                      self.repository, response.status_code, _query_shape(query))
 
                 if response.status_code == 200:
                     try:
@@ -366,6 +398,16 @@ class UnifiedGraphDBClient:
                             f"Authentication failed: {response.status_code}"
                         )
 
+                elif _cancelled(response):
+                    # The store stopped it at its timeout; sending it again only
+                    # runs the same query again.
+                    query_log.error("query cancelled by the triple store after %.1f s on %s, "
+                                    "not resent: %s", elapsed, self.repository,
+                                    _query_shape(query))
+                    last_exception = requests.exceptions.HTTPError(
+                        f"Query cancelled by the triple store after {elapsed:.0f} s (timeout)")
+                    break
+
                 elif self._is_server_error(response):
                     self._log_debug(f"Server error: {response.status_code}, will retry")
                     last_exception = requests.exceptions.HTTPError(
@@ -378,11 +420,13 @@ class UnifiedGraphDBClient:
                     self._log_debug(f"Response content: {response.text[:500]}")
                     response.raise_for_status()
 
-            except requests.exceptions.Timeout as e:
-                self._log_debug(f"Request timeout on attempt {attempt + 1}")
+            except requests.exceptions.ReadTimeout as e:
+                # The query ran past QUERY_TIMEOUT. It is not sent again: the store
+                # may still be running it, and a resend stacks a second copy on top.
+                query_log.error("query took longer than %.0f s on %s, not resent: %s",
+                                QUERY_TIMEOUT, self.repository, _query_shape(query))
                 last_exception = e
-                if attempt < self.max_retries:
-                    continue
+                break
 
             except requests.exceptions.ConnectionError as e:
                 self._log_debug(f"Connection error on attempt {attempt + 1}: {e}")
@@ -395,7 +439,7 @@ class UnifiedGraphDBClient:
                 last_exception = e
                 break
 
-        error_msg = f"Query failed after {self.max_retries + 1} attempts"
+        error_msg = f"Query failed after {attempt + 1} attempt(s)"
         if last_exception:
             error_msg += f": {str(last_exception)}"
 
