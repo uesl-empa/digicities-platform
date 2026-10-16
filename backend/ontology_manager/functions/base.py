@@ -25,6 +25,7 @@ read-only.
 
 import os
 import json
+from contextlib import contextmanager
 import rdflib
 from rdflib import Namespace
 from pathlib import Path
@@ -35,6 +36,21 @@ from backend.workspace.storage import WorkspaceStorage
 
 # Define the dici_onto namespace
 dici_onto = Namespace("https://digicities.info/ontology#")
+
+
+# The parsed core ontology per (file, modification time). Every mutation reads
+# the core (schema view, merge, export) and each read parsed the file again:
+# 724 parses in one refuel build, a third of the time its extension took.
+_CORE_CACHE: Dict[Tuple[str, float], rdflib.Graph] = {}
+
+
+def _copy(g: rdflib.Graph) -> rdflib.Graph:
+    """An independent copy (callers may edit what they are given)."""
+    out = rdflib.Graph()
+    for prefix, ns in g.namespaces():
+        out.bind(prefix, ns, override=False)
+    out += g
+    return out
 
 
 class OntologyBase:
@@ -185,13 +201,17 @@ class OntologyBase:
 
     def load_core_ontology(self) -> rdflib.Graph:
         """Load the core ontology TTL from the vendored platform copy."""
-        g = rdflib.Graph()
         local_core = getattr(self, "CORE_ONTOLOGY_FILE", None)
         if not local_core or not os.path.exists(local_core):
             local_core = os.path.join(self._resolve_global_ontology_dir(), "dici_onto_core.ttl")
-        g.parse(Path(local_core).as_uri(), format="ttl")
-        print(f"✅ Core ontology loaded from vendored copy: {local_core}")
-        return g
+        key = (os.path.abspath(local_core), os.path.getmtime(local_core))
+        if key not in _CORE_CACHE:
+            g = rdflib.Graph()
+            g.parse(Path(local_core).as_uri(), format="ttl")
+            _CORE_CACHE.clear()
+            _CORE_CACHE[key] = g
+            print(f"✅ Core ontology loaded from vendored copy: {local_core}")
+        return _copy(_CORE_CACHE[key])
 
     def list_extension_files(self) -> List[str]:
         """List all .ttl files in the workspace extensions folder, plus the
@@ -233,12 +253,45 @@ class OntologyBase:
         from datetime import datetime
         return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    @contextmanager
+    def batch(self):
+        """Replay many mutations in memory: inside, an extension is read once,
+        each save keeps the graph in memory, and the temp/export refresh after
+        each mutation is skipped; on leaving, every changed extension is written
+        once. A refuel instruction file (299 ops) wrote and re-exported the
+        extension 478 times, with the core merged in each time: 43% of a
+        build. The caller exports once at the end."""
+        if getattr(self, "_batch", None) is not None:
+            yield
+            return
+        self._batch, self._batch_dirty = {}, set()
+        try:
+            yield
+        finally:
+            graphs, dirty = self._batch, self._batch_dirty
+            self._batch = self._batch_dirty = None
+            for name in sorted(dirty):
+                self._write_graph(f"{self.EXTENSION_PATH}/{name}", graphs[name])
+
     def load_extension(self, extension_filename: str) -> rdflib.Graph:
-        """Load the extension graph from the extensions folder."""
+        """Load the extension graph from the extensions folder (in a batch,
+        a copy of the graph as the batch has it)."""
+        batch = getattr(self, "_batch", None)
+        if batch is not None:
+            if extension_filename not in batch:
+                batch[extension_filename] = self._read_graph(
+                    f"{self.EXTENSION_PATH}/{extension_filename}")
+            return _copy(batch[extension_filename])
         return self._read_graph(f"{self.EXTENSION_PATH}/{extension_filename}")
 
     def save_extension(self, extension_filename: str, g: rdflib.Graph) -> bool:
-        """Save the extension graph to the extensions folder."""
+        """Save the extension graph to the extensions folder (in a batch, in
+        memory until the batch ends)."""
+        batch = getattr(self, "_batch", None)
+        if batch is not None:
+            batch[extension_filename] = _copy(g)
+            self._batch_dirty.add(extension_filename)
+            return True
         try:
             self._write_graph(f"{self.EXTENSION_PATH}/{extension_filename}", g)
             return True
@@ -307,7 +360,10 @@ class OntologyBase:
         return merged
 
     def update_temp_and_export(self, extension_filename: str) -> Dict[str, str]:
-        """Update both the temp working file and export file based on the merged ontology."""
+        """Update both the temp working file and export file based on the merged ontology.
+        Skipped inside a batch: the caller exports once when it ends."""
+        if getattr(self, "_batch", None) is not None:
+            return {}
         try:
             merged = self.merge_ontologies(extension_filename)
             base_name = extension_filename.replace(".ttl", "")
