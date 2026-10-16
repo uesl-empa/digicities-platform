@@ -49,11 +49,15 @@ def _query_shape(query: str) -> str:
     return re.sub(r"\s+", " ", body).strip()[:300]
 
 
-def _cancelled(response) -> bool:
-    """The triple store stopped the query at its timeout (Fuseki answers 503
-    with a "Query cancelled" / "Timeout" body). Resending it only runs it again."""
+def _cancelled(response, elapsed: float) -> bool:
+    """The triple store stopped the query at its timeout. Fuseki 5 answers a
+    plain "503 Service Unavailable" after its 110 s, so a 503 that came only
+    after the query had run past the slow-query threshold is a cancellation, as
+    is one whose body says so. Resending it only runs it again."""
+    if response.status_code != 503:
+        return False
     text = (getattr(response, "text", "") or "")[:500].lower()
-    return response.status_code == 503 and ("timeout" in text or "cancel" in text)
+    return elapsed >= SLOW_QUERY_SECONDS or "timeout" in text or "cancel" in text
 
 
 class UnifiedGraphDBClient:
@@ -398,7 +402,7 @@ class UnifiedGraphDBClient:
                             f"Authentication failed: {response.status_code}"
                         )
 
-                elif _cancelled(response):
+                elif _cancelled(response, elapsed):
                     # The store stopped it at its timeout; sending it again only
                     # runs the same query again.
                     query_log.error("query cancelled by the triple store after %.1f s on %s, "

@@ -439,6 +439,24 @@ def test_a_query_the_store_cancelled_is_not_resent(backend_env, monkeypatch):
     assert len(calls) == 1
 
 
+def test_a_plain_503_after_the_store_timeout_is_not_resent(backend_env, monkeypatch):
+    """Fuseki 5 cancels at 110 s with a bare "503 Service Unavailable"."""
+    backend_env("fuseki")
+    client = _no_auth_client(base_url="http://ts:7200", max_retries=3)
+    client.retry_delay = 0
+    calls = []
+    clock = iter(range(0, 1000, 110))
+    monkeypatch.setattr("backend.graphdb.client.time.monotonic", lambda: next(clock))
+
+    def fake_request(*a, **k):
+        calls.append(1)
+        return FakeResponse(503, text="Service Unavailable")
+
+    monkeypatch.setattr("backend.graphdb.client.requests.request", fake_request)
+    assert client.sparql_api_query("q") is None
+    assert len(calls) == 1
+
+
 def test_a_connection_error_is_still_retried(backend_env, monkeypatch):
     import requests
     backend_env("fuseki")
