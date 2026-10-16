@@ -116,7 +116,8 @@ _EMPTY_COLS = {
     "all_direct_props": ["instance", "property", "value"],
     "instances": ["instance", "instanceLabel"],
     "catalogue instances": ["instance"],
-    "comprehensive": ["instance", "attribute", "property", "value", "valueLabel"],
+    "comprehensive": ["instance", "attribute", "property", "value"],
+    "value labels": ["value", "valueLabel"],
     "basic": ["instance", "property", "value"],
     "classes": ["class", "label"],
     "subclasses": ["component"],
@@ -368,6 +369,31 @@ def get_catalogue_instances(client, component_type_label: str) -> pd.DataFrame:
     return _run(client, query, "catalogue instances")
 
 
+
+def _with_value_labels(client, df: pd.DataFrame) -> pd.DataFrame:
+    """A ``valueLabel`` column: each categorical value's rdfs:label (what a
+    person reads for it; the value itself stays its IRI). Asked once for the
+    values present, 200 at a time: as an OPTIONAL on every row of the main
+    query it added 23 of 85 seconds on 05's converters (2026-10-16)."""
+    if df is None or df.empty:
+        return df
+    stated = df["property"].astype(str) == "https://digicities.info/ontology#hasCategoricalValue"
+    values = sorted({str(v) for v in df.loc[stated, "value"] if str(v).startswith("http")})
+    labels: dict = {}
+    for i in range(0, len(values), 200):
+        chunk = " ".join(f"<{v}>" for v in values[i:i + 200])
+        query = (f"{_PREFIXES}\nSELECT ?value (SAMPLE(?l) AS ?valueLabel)\n"
+                 f"{from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{\n"
+                 f"  VALUES ?value {{ {chunk} }}\n  ?value rdfs:label ?l .\n}} GROUP BY ?value\n")
+        got = _run(client, query, "value labels")
+        if got is not None and not got.empty:
+            labels.update(zip(got["value"].astype(str), got["valueLabel"]))
+    out = df.copy()
+    out["valueLabel"] = [labels.get(str(v)) if s else None
+                         for v, s in zip(out["value"], stated)]
+    return out
+
+
 def get_component_attributes_comprehensive(client, component_type_label: str) -> pd.DataFrame:
     """Attribute values for every instance of a component type (by label).
 
@@ -380,7 +406,7 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
     """
     query = f"""
     {_PREFIXES}
-    SELECT DISTINCT ?instance ?attribute ?property ?value ?valueLabel
+    SELECT DISTINCT ?instance ?attribute ?property ?value
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
@@ -388,12 +414,11 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
       ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
       {{ ?attribute ?property ?value . }}
       UNION
-{DERIVED_CATEGORICAL_VALUE}      OPTIONAL {{ ?value rdfs:label ?valueLabel .
-                 FILTER(?property = dici_onto:hasCategoricalValue) }}
+{DERIVED_CATEGORICAL_VALUE}
     }}
     ORDER BY ?instance ?attribute ?property
     """
-    return _run(client, query, "comprehensive")
+    return _with_value_labels(client, _run(client, query, "comprehensive"))
 
 
 def get_component_sources(client, component_type_label: str) -> pd.DataFrame:
