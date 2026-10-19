@@ -199,10 +199,12 @@ class AttributeProcessor:
             prop_uri = prop.get('property', {}).get('value', '')
             prop_value = prop.get('value', {}).get('value', '')
             prop_name = extract_property_name(prop_uri)
-            # A categorical value's label (what a person reads for it).
-            label = prop.get('valueLabel', {}).get('value', '')
-            if prop_uri == str(DICI.hasCategoricalValue) and isinstance(label, str) and label:
-                consolidated['category_label'] = label
+            # A categorical attribute may state several values (a CHP's two
+            # output carriers): every value and its label (what a person reads).
+            if prop_uri == str(DICI.hasCategoricalValue) and prop_value:
+                label = prop.get('valueLabel', {}).get('value', '')
+                values = consolidated.setdefault('category_values', {})
+                values[str(prop_value)] = label if isinstance(label, str) and label else None
 
             if prop_name:
                 if prop_uri == str(RDF.type):
@@ -308,13 +310,20 @@ class AttributeProcessor:
         if value is None:
             return 'Unknown Category'
         # Shown by its label; a value with none shows the last segment of its
-        # IRI (``…#SubType/X`` and ``…#X`` alike show ``X``).
-        return attr_data.get('category_label') or value[len(namespace_of(value) or ''):]
+        # IRI (``…#SubType/X`` and ``…#X`` alike show ``X``). Several values are
+        # listed, comma-separated.
+        labels = attr_data.get('category_values') or {}
+        return ", ".join(labels.get(v) or v[len(namespace_of(v) or ''):]
+                         for v in (value if isinstance(value, list) else [value]))
 
-    def _categorical_value_iri(self, attr_data: Dict) -> Optional[str]:
+    def _categorical_value_iri(self, attr_data: Dict):
         """The value (its IRI) a categorical attribute node states: its
-        ``hasCategoricalValue``, else the one rdf:type older data typed it with
-        (see ``_process_categorical_attribute``). None when there is none."""
+        ``hasCategoricalValue`` (a sorted list of IRIs when it states several),
+        else the one rdf:type older data typed it with (see
+        ``_process_categorical_attribute``). None when there is none."""
+        stated = sorted(attr_data.get('category_values') or {})
+        if stated:
+            return stated[0] if len(stated) == 1 else stated
         value = attr_data.get('properties', {}).get('hasCategoricalValue')
         if value:
             return str(value)

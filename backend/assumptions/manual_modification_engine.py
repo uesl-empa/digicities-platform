@@ -100,7 +100,7 @@ def create_manually_modified_component(component, modifications, modification_id
                 'original_uri': attr_data.get('uri'),
                 'is_modified': True,
                 'attr_class': attr_name,
-                'category_value': str(new_value),
+                'category_value': ([str(v) for v in new_value] if isinstance(new_value, (list, tuple)) else str(new_value)),
                 'type': attr_data.get('type', 'PhysicalAttribute'),
                 'value': str(new_value),
                 'unit': attr_data.get('unit', ''),

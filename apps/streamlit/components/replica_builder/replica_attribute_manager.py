@@ -925,7 +925,14 @@ def render_attribute_type_fields_for_edit(attr_name: str, current_data: Dict[str
         current_category = current_data.get('category_value', '')
         if constraints and ONTOLOGY_HELPERS_AVAILABLE:
             category_options = get_categorical_options(attr_name)
-            if category_options:
+            if category_options and isinstance(current_category, list):
+                # An attribute that holds several values (a CHP's two output
+                # carriers) keeps all of them: pick any number of declared values.
+                category_options = list(dict.fromkeys(list(current_category) + category_options))
+                data['category_value'] = st.multiselect(
+                    "Categories", options=category_options, default=list(current_category),
+                    format_func=lambda iri: category_option_label(attr_name, iri))
+            elif category_options:
                 # A value is its IRI; one saved by name before (`MFH`) is still
                 # offered as it was, so opening the editor never changes it.
                 if current_category and current_category not in category_options:

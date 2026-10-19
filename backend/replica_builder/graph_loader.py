@@ -249,9 +249,10 @@ def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT
         # The value is carried by its IRI (shown by its label, written back as
         # it is): a value declared under its attribute (``…#SubType/X``) has no
         # name of its own to carry.
-        stated = next(iter(graph.objects(attr_uri, DICI.hasCategoricalValue)), None)
-        if stated is not None:
-            attr_data['category_value'] = str(stated)
+        # Several values (a CHP's two output carriers) are carried as a list.
+        stated = sorted(str(v) for v in graph.objects(attr_uri, DICI.hasCategoricalValue))
+        if stated:
+            attr_data['category_value'] = stated[0] if len(stated) == 1 else stated
         else:
             candidates = [str(t) for t in graph.objects(attr_uri, RDF.type)
                           if dici_local_name(t) is not None
@@ -261,11 +262,12 @@ def parse_single_attribute(graph: Graph, attr_uri, QUDT_NS=QUDT_NS, UNIT_NS=UNIT
         # The code the value has in the data (its notation, else its label):
         # what a workbook cell states for it when the model is written back.
         if attr_data.get('category_value'):
-            value = URIRef(attr_data['category_value'])
-            code = next((c for g in (schema, graph) if g is not None
-                         for c in [category_code(g, value)] if c), None)
-            if code:
-                attr_data['category_code'] = code
+            values = attr_data['category_value']
+            codes = [next((c for g in (schema, graph) if g is not None
+                           for c in [category_code(g, URIRef(v))] if c), None)
+                     for v in (values if isinstance(values, list) else [values])]
+            if all(codes):
+                attr_data['category_code'] = codes if isinstance(values, list) else codes[0]
 
     elif kind is AttributeKind.EVENT:
         # Get temporal value and precision

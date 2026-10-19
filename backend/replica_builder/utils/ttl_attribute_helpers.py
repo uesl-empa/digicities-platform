@@ -136,7 +136,15 @@ def category_term(value: Any) -> str:
     what is carried (every value read from a graph; a value declared under its
     attribute, ``…#SubType/X``, has no other name), else a ``dici_onto:`` name
     (a draft saved before values were carried by IRI)."""
-    text = str(value).strip()
+    from backend.ontology_kinds import category_items
+    items = category_items(value)
+    # A list: a real one, or the JSON text of one (anything else is one value).
+    is_list = isinstance(value, (list, tuple)) or (isinstance(value, str) and items != [value])
+    if is_list or not items:
+        # Several values (or a list of one): one term per value node, as a
+        # Turtle object list (`<a> , <b>`).
+        return " , ".join(dict.fromkeys(category_term(i) for i in items))
+    text = str(items[0]).strip()
     if text.startswith(("http://", "https://")):
         return f"<{text}>"
     return dici_term(text)
