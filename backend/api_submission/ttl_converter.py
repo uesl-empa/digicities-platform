@@ -593,11 +593,14 @@ class RobustTTL2YAMLProcessor:
         neither an attribute class (by the hierarchy) nor the attribute class
         the template asked for (``attr_name``; needed when the caller passed no
         workspace schema, so the extension's attribute classes are unknown)."""
-        for value in self.g.objects(attr_uri, self.DICI.hasCategoricalValue):
-            # A declared value sends the code it has in the data (its
-            # skos:notation) or its label, which is what the model reads; a
-            # value written before values were declared sends its name.
-            return category_code(self.view, value) or self._extract_name(str(value))
+        # A declared value sends the code it has in the data (its skos:notation)
+        # or its label, which is what the model reads; a value written before
+        # values were declared sends its name. An attribute that holds several
+        # values (a CHP's two output carriers) sends the list of their codes.
+        codes = sorted({category_code(self.view, value) or self._extract_name(str(value))
+                        for value in self.g.objects(attr_uri, self.DICI.hasCategoricalValue)})
+        if codes:
+            return codes[0] if len(codes) == 1 else codes
         want = self._term(attr_name) if attr_name else None
         types = [t for t in self.g.objects(attr_uri, RDF.type)
                  if t != want and in_dici_namespace(t)]

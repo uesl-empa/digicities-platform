@@ -294,6 +294,29 @@ def category_code(g: Graph, individual: URIRef) -> Optional[str]:
     return None
 
 
+def category_items(value) -> list:
+    """The values one categorical cell states. A categorical attribute may hold
+    several declared values (Calliope's CHP: `carrier_out: [electricity, heat]`);
+    the graph then links the attribute node to each value node with its own
+    ``hasCategoricalValue``. A workbook cell carries such a list as its JSON text
+    (``["electricity", "heat"]``), only as transport between files. One plain
+    value is a list of one; an empty cell or list is no value."""
+    import json as _json
+    if isinstance(value, (list, tuple)):
+        items = list(value)
+    elif isinstance(value, str) and value.strip().startswith("["):
+        try:
+            parsed = _json.loads(value)
+        except ValueError:
+            parsed = None
+        items = parsed if isinstance(parsed, list) else [value]
+    elif value is None:
+        items = []
+    else:
+        items = [value]
+    return [i for i in items if i is not None and str(i).strip() != ""]
+
+
 def value_iri(attr_class, name: str) -> URIRef:
     """The IRI a NEW declared value of ``attr_class`` gets: a path under the
     attribute's own IRI (``…#SubType/DACSorbentBased``). Each attribute has its

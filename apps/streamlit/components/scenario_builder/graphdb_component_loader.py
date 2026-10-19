@@ -200,7 +200,7 @@ class GraphDBComponentLoader:
 
     def _build_component(self, instance_uri: str, label: str, component_type: str,
                          attr_rows, direct_rows, kind_map: Dict[str, AttributeKind],
-                         category_map: Optional[Dict[str, str]] = None) -> Dict:
+                         category_map: Optional[Dict[str, object]] = None) -> Dict:
         """Assemble one component dict from the pre-fetched bulk rows. Same shape
         the per-instance path used (uri/label/type/attributes/nested_properties),
         reusing _process_attribute_data / _extract_nested_properties for values."""
@@ -267,10 +267,13 @@ class GraphDBComponentLoader:
         if category_value:
             # The value is carried by its IRI (the emitter writes it back as it
             # is) and shown by its label.
-            attr_dict['category_value'] = str(category_value)
-            attr_dict['category_label'] = (getattr(self, '_category_labels', {})
-                                           .get(str(category_value))
-                                           or self._extract_fragment(str(category_value)))
+            values = category_value if isinstance(category_value, list) else [category_value]
+            attr_dict['category_value'] = ([str(v) for v in values]
+                                           if isinstance(category_value, list)
+                                           else str(category_value))
+            attr_dict['category_label'] = ", ".join(
+                getattr(self, '_category_labels', {}).get(str(v)) or self._extract_fragment(str(v))
+                for v in values)
 
         onto = core()
         # Extract attribute properties

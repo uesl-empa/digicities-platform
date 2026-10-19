@@ -192,3 +192,68 @@ def test_a_value_shows_its_label_not_its_iri(tmp_path):
     bare = rdflib.Graph()
     assert category_label(bare, SOUTH) == "OrientationSouth"
     assert category_label(bare, D.CCGT) == "CCGT"
+
+
+# ── several values on one attribute (Calliope's CHP, 2026-10-19) ──────────────
+
+def test_a_cell_with_several_values_links_each_value_node(tmp_path):
+    """`carrier_out: [electricity, heat]`: the attribute node links to each
+    declared value node; no string list reaches the graph."""
+    ext = _comfort_schema(tmp_path)
+    out = tmp_path / "out.ttl"
+    process_excel_to_ttl(PROJ, str(_workbook(tmp_path / "w.xlsx", ['["S", "N"]', "S"])), str(out),
+                         ontology=ext)
+    g = rdflib.Graph().parse(out, format="turtle")
+    first = URIRef(f"{PROJ}/Room/R7/Orientation")
+    assert set(g.objects(first, D.hasCategoricalValue)) == {SOUTH, NORTH}
+    assert not [o for o in g.objects(first, D.hasCategoricalValue) if isinstance(o, Literal)]
+    assert set(g.objects(URIRef(f"{PROJ}/Room/R8/Orientation"), D.hasCategoricalValue)) == {SOUTH}
+
+
+def test_an_undeclared_item_in_a_list_is_an_error(tmp_path):
+    ext = _comfort_schema(tmp_path)
+    with pytest.raises(ValueError, match=r"`W`.*not a declared value"):
+        process_excel_to_ttl(PROJ, str(_workbook(tmp_path / "w.xlsx", ['["S", "W"]'])),
+                             str(tmp_path / "out.ttl"), ontology=ext)
+
+
+def test_the_payload_sends_every_code(tmp_path):
+    from backend.api_submission.ttl_converter import RobustTTL2YAMLProcessor
+
+    ext = _comfort_schema(tmp_path)
+    proc = RobustTTL2YAMLProcessor(ontology_graph=ext)
+    attr = URIRef(f"{PROJ}/Room/R7/Orientation")
+    proc.g.add((attr, RDF.type, D.Orientation))
+    proc.g.add((attr, RDF.type, D.CategoricalAttribute))
+    proc.g.add((attr, D.hasCategoricalValue, SOUTH))
+    proc.g.add((attr, D.hasCategoricalValue, NORTH))
+    proc.view = with_core(rdflib.Graph() + proc.g + ext)
+    assert proc._category_value(attr, "Orientation") == ["N", "S"]
+
+
+def test_several_values_round_trip_through_the_model(tmp_path):
+    """Loaded back from the graph the attribute carries a list of value IRIs (and
+    codes), and is written back as one link per value."""
+    from backend.replica_builder import graph_loader
+    from backend.replica_builder.utils.ttl_attribute_helpers import category_term
+    ext = _comfort_schema(tmp_path)
+    data = rdflib.Graph()
+    node = URIRef(f"{PROJ}/Room/R7/Orientation")
+    data.add((node, RDF.type, D.Orientation))
+    data.add((node, RDF.type, D.CategoricalAttribute))
+    data.add((node, D.hasCategoricalValue, SOUTH))
+    data.add((node, D.hasCategoricalValue, NORTH))
+    got = graph_loader.parse_single_attribute(data, node, schema=graph_loader.schema_view(data, ext))
+    assert got["category_value"] == sorted([str(NORTH), str(SOUTH)])
+    assert got["category_code"] == ["N", "S"]
+    assert category_term(got["category_value"]) == f"<{NORTH}> , <{SOUTH}>"
+    assert category_term(str(SOUTH)) == f"<{SOUTH}>"
+    assert " , " not in category_term("[not json")      # an odd value stays one term
+
+
+def test_the_explorer_lists_every_value_by_its_label():
+    from backend.explorer.attributes import AttributeProcessor
+    p = AttributeProcessor()
+    data = {"properties": {}, "type_uris": set(),
+            "category_values": {str(SOUTH): "South-facing", str(NORTH): "North-facing"}}
+    assert p._process_categorical_attribute(data, "Orientation") == "North-facing, South-facing"

@@ -175,6 +175,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
         return link_cache[key]
 
     from backend.ontology_kinds import (categorical_individuals as _individuals,
+                                        category_items as _category_items,
                                         resolve_category as _resolve_category)
     category_cache = {}
 
@@ -949,7 +950,13 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         # Manager declared for this value (found by its data code
                         # or label), stated with hasCategoricalValue, never as an
                         # extra rdf:type.
-                        category = declared_category(sheet_name, attr_name, value)
+                        # A cell may state several values (a CHP's two output
+                        # carriers): one hasCategoricalValue per value node.
+                        category = " , ".join(dict.fromkeys(
+                            declared_category(sheet_name, attr_name, v)
+                            for v in _category_items(value)))
+                        if not category:                 # an empty list states nothing
+                            continue
                         attr_lines = [
                             f"{attr_uri} a dici_onto:{attr_name} ;",
                             f"\ta dici_onto:CategoricalAttribute ;",

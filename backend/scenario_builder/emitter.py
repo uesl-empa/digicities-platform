@@ -308,7 +308,7 @@ def generate_enhanced_attribute_declaration(ttl_lines, attr_uri, attr_name_clean
         # The value is the category IRI, stated with hasCategoricalValue, named
         # as the replica writer does (category_term: its IRI, or an older name).
         category_value = attr_data.get('category_value', attr_value)
-        if category_value and isinstance(category_value, str):
+        if category_value and isinstance(category_value, (str, list, tuple)):
             ttl_lines.append(f'    dici_onto:hasCategoricalValue {category_term(category_value)} ;')
 
     elif kind is AttributeKind.GEOSPATIAL:
@@ -717,7 +717,7 @@ def generate_enhanced_attribute_declaration_with_nested_properties(ttl_lines, at
     elif kind is AttributeKind.CATEGORICAL:
         ttl_lines.append(f"    a dici_onto:CategoricalAttribute ;")
         category_value = attr_data.get('category_value', attr_value)
-        if category_value and isinstance(category_value, str):
+        if category_value and isinstance(category_value, (str, list, tuple)):
             ttl_lines.append(f'    dici_onto:hasCategoricalValue {category_term(category_value)} ;')
     elif kind is AttributeKind.GEOSPATIAL:
         ttl_lines.append(f"    a dici_onto:GeospatialAttribute ;")

@@ -917,13 +917,25 @@ def show_attribute_editor(component_key, attr_name, attr_data, category):
             opts = _categorical_options_for(attr_name)
             if opts:
                 names = list(opts.keys())
+                if isinstance(current_value, list):
+                    # Several values (a CHP's two output carriers): keep them all.
+                    picked = [str(v) for v in current_value]
+                    new_value = st.multiselect(
+                        f"Values for {attr_name}",
+                        options=list(dict.fromkeys(picked + names)), default=picked,
+                        format_func=lambda n: opts.get(n) or n,
+                        key=f"edit_{component_key}_{attr_name}",
+                        label_visibility="collapsed",
+                        help="Ontology-defined values for this attribute",
+                    )
+                    names = None
                 current = str(current_value)
                 # A value saved by name before (`MFH`) is still offered as it
                 # was, so opening the editor never changes it.
-                if current and current not in names:
+                if names is not None and current and current not in names:
                     names = [current] + names
-                index = names.index(current) if current in names else 0
-                new_value = st.selectbox(
+                index = names.index(current) if names is not None and current in names else 0
+                new_value = new_value if names is None else st.selectbox(
                     f"Value for {attr_name}",
                     options=names,
                     index=index,
