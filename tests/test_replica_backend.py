@@ -89,14 +89,15 @@ def test_draft_workbook_ttl_roundtrip(tmp_path):
     assert hub["type"] == "Physical"
     assert float(hub["value"]) == 120.0
     assert hub["unit"] == "M"
-    # Categorical attribute: category value recovered.
-    assert t1.attributes["TurbineType"]["category_value"] == "Onshore"
+    # Categorical attribute: the declared value recovered (carried by its IRI).
+    from backend.ontology_kinds import value_iri
+    assert t1.attributes["TurbineType"]["category_value"] == str(value_iri(DICI.TurbineType, "Onshore"))
     # ClassObject link column: direct predicate to the sibling instance.
     assert t1.class_objects == {"partOf": f"{PROJ}/WindPark/ParkA"}
 
     t2 = by_id["T2"]
     assert float(t2.attributes["HubHeight"]["value"]) == 95.5
-    assert t2.attributes["TurbineType"]["category_value"] == "Offshore"
+    assert t2.attributes["TurbineType"]["category_value"] == str(value_iri(DICI.TurbineType, "Offshore"))
 
     # And back to a draft: the recovered model re-expresses the input schema.
     round_draft = ReplicaDraft.from_instances(instances, project_uri=PROJ)
@@ -408,10 +409,12 @@ def test_ttl_roundtrip_through_backend_graph_loader():
     assert set(by_id) == {"B1", "P1"}
     fa = by_id["B1"].attributes["FloorArea"]
     assert fa["type"] == "Physical" and float(fa["value"]) == 120.5 and fa["unit"] == "M2"
-    assert by_id["B1"].attributes["BuildingType"]["category_value"] == "MFH"
+    # A value saved by name (`MFH`) is written as dici_onto:MFH and read back
+    # as that IRI, the form every reader carries a value in.
+    assert by_id["B1"].attributes["BuildingType"]["category_value"] == str(DICI.MFH)
     # Without the schema the stated value still reads back (nothing is guessed).
     bare = {inst.id: inst for inst in parse_generated_ttl(classes_ttl)}
-    assert bare["B1"].attributes["BuildingType"]["category_value"] == "MFH"
+    assert bare["B1"].attributes["BuildingType"]["category_value"] == str(DICI.MFH)
 
     from backend.replica_builder.graph_loader import parse_links_from_graph
     sys_g = Graph()

@@ -77,7 +77,7 @@ def test_category_value_skips_extension_attribute_classes():
     schema = graph_loader.schema_view(data, onto)
     for _ in range(5):  # rdf:type iteration order must not matter
         got = graph_loader.parse_single_attribute(data, node, schema=schema)
-        assert got["category_value"] == "Vestas"
+        assert got["category_value"] == str(DICI.Vestas)
 
 
 def test_kind_map_uses_kind_iris_and_precedence():

@@ -23,7 +23,7 @@ from backend.ontology_kinds import (
     is_time_series_reference_predicate,
     kind_for_class,
 )
-from backend.scenario_builder.graph_lookups import categorical_values
+from backend.scenario_builder.graph_lookups import categorical_values, category_labels
 from backend.scenario_builder.semantics import core, names_subclass_of
 
 _QUDT = "http://qudt.org/schema/qudt/"
@@ -159,6 +159,7 @@ class GraphDBComponentLoader:
             direct_df = gdb_queries.get_all_instance_direct_properties(self.client)
             kind_map = self._get_attribute_kind_map()
             category_map = categorical_values(self.client)
+            self._category_labels = category_labels(self.client)
         except Exception as e:
             st.warning(f"Error loading components from the knowledge graph: {e}")
             self._index = index
@@ -199,7 +200,7 @@ class GraphDBComponentLoader:
 
     def _build_component(self, instance_uri: str, label: str, component_type: str,
                          attr_rows, direct_rows, kind_map: Dict[str, AttributeKind],
-                         category_map: Optional[Dict[str, str]] = None) -> Dict:
+                         category_map: Optional[Dict[str, object]] = None) -> Dict:
         """Assemble one component dict from the pre-fetched bulk rows. Same shape
         the per-instance path used (uri/label/type/attributes/nested_properties),
         reusing _process_attribute_data / _extract_nested_properties for values."""
@@ -264,7 +265,15 @@ class GraphDBComponentLoader:
             attr_dict['category'] = self._get_attribute_category(attr_kind)
 
         if category_value:
-            attr_dict['category_value'] = self._extract_fragment(category_value)
+            # The value is carried by its IRI (the emitter writes it back as it
+            # is) and shown by its label.
+            values = category_value if isinstance(category_value, list) else [category_value]
+            attr_dict['category_value'] = ([str(v) for v in values]
+                                           if isinstance(category_value, list)
+                                           else str(category_value))
+            attr_dict['category_label'] = ", ".join(
+                getattr(self, '_category_labels', {}).get(str(v)) or self._extract_fragment(str(v))
+                for v in values)
 
         onto = core()
         # Extract attribute properties

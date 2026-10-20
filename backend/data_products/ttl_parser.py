@@ -16,7 +16,7 @@ from rdflib import OWL, Graph, Namespace, URIRef, Literal
 from rdflib.namespace import RDF, RDFS
 
 from backend.ontology_kinds import (
-    DICI, AttributeKind, core_graph, dici_local_name, is_attribute_class,
+    DICI, AttributeKind, category_label, core_graph, dici_local_name, is_attribute_class,
     is_attribute_node, is_attribute_predicate, is_component_class, is_subclass_of,
     kind_for_class, kind_of_node, with_core,
 )
@@ -301,17 +301,21 @@ class TTLParser:
         attribute's own class is its type that is neither a kind class nor the
         category."""
         types = list(graph.objects(attr_uri, RDF.type))
-        category = next(iter(graph.objects(attr_uri, self.DICI.hasCategoricalValue)), None)
+        # Several stated values (a CHP's two output carriers) are all shown.
+        stated = sorted(graph.objects(attr_uri, self.DICI.hasCategoricalValue), key=str)
+        category = stated[0] if stated else None
         if category is None:
             candidates = [t for t in types if not is_attribute_class(view, t)]
             category = candidates[0] if len(candidates) == 1 else None
 
-        own_class = [t for t in types if kind_for_class(t) is None and t != category]
+        own_class = [t for t in types if kind_for_class(t) is None and t != category
+                     and t not in stated]
         if len(own_class) == 1:
             attr_data['specific_attribute_type'] = _local_name(own_class[0])
 
         if category is not None:
-            category_value = _local_name(category)
+            # Shown by its label (``…#SubType/X`` has no name of its own).
+            category_value = ", ".join(category_label(view, c) for c in (stated or [category]))
             attr_data['value'] = category_value
             attr_data['category_value'] = category_value
             attr_data['unit'] = 'category'

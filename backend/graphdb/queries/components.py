@@ -72,26 +72,72 @@ NOT_STRUCTURAL_PROPERTY = (
 # a categorical attribute class (one strictly below CategoricalAttribute), as
 # an individual of it (``Rooftop a owl:NamedIndividual, MountingType``) or, in
 # older extensions, as a subclass of it (``SFH rdfs:subClassOf
-# SIA2024BuildingType``). This UNION branch yields that value as the
-# ``hasCategoricalValue`` row the node would carry, so readers never have to
-# tell the value from the class by name. An individual counts only when it is
-# not also a class: a materialised OWL closure can type a CLASS as an instance
-# of an attribute class. Needs ``?attribute`` bound and the ontology graph in
-# the FROM clause.
+# SIA2024BuildingType``). These patterns yield that value for each attribute
+# node in ``VALUES ?attribute``, so readers never have to tell the value from
+# the class by name. An individual counts only when it is not also a class: a
+# materialised OWL closure can type a CLASS as an instance of an attribute
+# class. Needs the ontology graph in the FROM clause.
+#
+# Asked only for the attribute nodes that carry nothing but types (see
+# ``_legacy_categorical_rows``). As a UNION branch of the main query it paired
+# every type of every attribute with every other and walked the hierarchy for
+# each pair: 60 of the 62 seconds of the explorer query on 05's converters, and
+# over 10 minutes per class on the refuel build (2026-10-16).
 DERIVED_CATEGORICAL_VALUE = (
-    "      {\n"
-    "        ?attribute a ?value .\n"
-    "        ?attribute a ?attrClass .\n"
-    "        ?attrClass rdfs:subClassOf+ dici_onto:CategoricalAttribute .\n"
-    "        FILTER(?attrClass != dici_onto:CategoricalAttribute && ?value != ?attrClass)\n"
-    "        { ?value a owl:NamedIndividual , ?attrClass .\n"
-    "          FILTER NOT EXISTS { ?value a owl:Class . } }\n"
-    "        UNION\n"
-    "        { ?value rdfs:subClassOf+ ?attrClass . }\n"
-    "        FILTER NOT EXISTS { ?attribute dici_onto:hasCategoricalValue ?stated . }\n"
-    "        BIND(dici_onto:hasCategoricalValue AS ?property)\n"
-    "      }\n"
+    "  ?attribute a ?attrClass .\n"
+    "  ?attrClass rdfs:subClassOf+ dici_onto:CategoricalAttribute .\n"
+    "  FILTER(?attrClass != dici_onto:CategoricalAttribute)\n"
+    "  FILTER NOT EXISTS { ?attribute dici_onto:hasCategoricalValue ?stated . }\n"
+    "  ?attribute a ?value .\n"
+    "  FILTER(?value != ?attrClass)\n"
+    "  { ?value a owl:NamedIndividual , ?attrClass .\n"
+    "    FILTER NOT EXISTS { ?value a owl:Class . } }\n"
+    "  UNION\n"
+    "  { ?value rdfs:subClassOf+ ?attrClass . }\n"
 )
+
+# What an attribute node carries besides its value: a node with only these
+# states its category (if any) as a type.
+_NOT_A_VALUE = {
+    "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+    "http://www.w3.org/2000/01/rdf-schema#label",
+    "http://www.w3.org/2000/01/rdf-schema#comment",
+}
+
+
+def _legacy_categorical_rows(client, df: pd.DataFrame) -> pd.DataFrame:
+    """``hasCategoricalValue`` rows for attribute nodes written before that
+    property was stated: those whose rows are types (and labels) only. Asked
+    for those nodes alone, 200 at a time; a workspace built since has none, so
+    no query runs at all."""
+    if df is None or df.empty:
+        return df
+    props = df.groupby("attribute")["property"].agg(lambda col: set(map(str, col)))
+    legacy = [a for a, ps in props.items() if ps <= _NOT_A_VALUE]
+    if not legacy:
+        return df
+    owner = dict(zip(df["attribute"], df["instance"]))
+    found = []
+    for i in range(0, len(legacy), 200):
+        values = " ".join(f"<{a}>" for a in legacy[i:i + 200])
+        query = (f"{_PREFIXES}\nSELECT DISTINCT ?attribute ?value\n"
+                 f"{from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{\n"
+                 f"  VALUES ?attribute {{ {values} }}\n{DERIVED_CATEGORICAL_VALUE}}}\n")
+        got = _run(client, query, "legacy categorical")
+        if got is not None and not got.empty:
+            found.append(got)
+    if not found:
+        return df
+    extra = pd.concat(found, ignore_index=True)
+    extra["instance"] = extra["attribute"].map(owner)
+    extra["property"] = "https://digicities.info/ontology#hasCategoricalValue"
+    for col in df.columns:
+        if col not in extra:
+            extra[col] = None
+    out = pd.concat([df, extra[list(df.columns)]], ignore_index=True)
+    return out.sort_values(["instance", "attribute", "property"], kind="stable",
+                           ignore_index=True)
+
 
 # List an instance only under its MOST SPECIFIC class. Provisioning
 # materializes the RDFS closure, so every RoadSegment is also typed Network
@@ -117,6 +163,8 @@ _EMPTY_COLS = {
     "instances": ["instance", "instanceLabel"],
     "catalogue instances": ["instance"],
     "comprehensive": ["instance", "attribute", "property", "value"],
+    "value labels": ["value", "valueLabel"],
+    "legacy categorical": ["attribute", "value"],
     "basic": ["instance", "property", "value"],
     "classes": ["class", "label"],
     "subclasses": ["component"],
@@ -368,28 +416,60 @@ def get_catalogue_instances(client, component_type_label: str) -> pd.DataFrame:
     return _run(client, query, "catalogue instances")
 
 
+
+def _with_value_labels(client, df: pd.DataFrame) -> pd.DataFrame:
+    """A ``valueLabel`` column: each categorical value's rdfs:label (what a
+    person reads for it; the value itself stays its IRI). Asked once for the
+    values present, 200 at a time: as an OPTIONAL on every row of the main
+    query it added 23 of 85 seconds on 05's converters (2026-10-16)."""
+    if df is None or df.empty:
+        return df
+    stated = df["property"].astype(str) == "https://digicities.info/ontology#hasCategoricalValue"
+    values = sorted({str(v) for v in df.loc[stated, "value"] if str(v).startswith("http")})
+    labels: dict = {}
+    for i in range(0, len(values), 200):
+        chunk = " ".join(f"<{v}>" for v in values[i:i + 200])
+        query = (f"{_PREFIXES}\nSELECT ?value (SAMPLE(?l) AS ?valueLabel)\n"
+                 f"{from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{\n"
+                 f"  VALUES ?value {{ {chunk} }}\n  ?value rdfs:label ?l .\n}} GROUP BY ?value\n")
+        got = _run(client, query, "value labels")
+        if got is not None and not got.empty:
+            labels.update(zip(got["value"].astype(str), got["valueLabel"]))
+    out = df.copy()
+    out["valueLabel"] = [labels.get(str(v)) if s else None
+                         for v, s in zip(out["value"], stated)]
+    return out
+
+
 def get_component_attributes_comprehensive(client, component_type_label: str) -> pd.DataFrame:
     """Attribute values for every instance of a component type (by label).
 
-    Uses a ``rdfs:subPropertyOf* dici_onto:hasAttribute`` property path so typed
-    attribute predicates (e.g. ``hasWindTurbineHubHeightAttribute``) are picked
-    up alongside direct ``hasAttribute`` uses, without relying on backend
-    subproperty inference. Columns: instance, attribute, property, value.
+    Typed attribute predicates (``hasWindTurbineHubHeightAttribute``) count as
+    ``hasAttribute``. The provisioning closure asserts that super-edge, so the
+    query matches it directly; the ``rdfs:subPropertyOf*`` path form, a path per
+    triple, took over two minutes for 158 ehubX technologies (2026-10-13) and is
+    kept as the fallback for a workspace built before the closure.
+    Columns: instance, attribute, property, value, valueLabel (a categorical
+    value's rdfs:label: what a person reads for it; the value stays its IRI).
     """
-    query = f"""
+    def query(edge: str) -> str:
+        return f"""
     {_PREFIXES}
     SELECT DISTINCT ?instance ?attribute ?property ?value
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
       ?componentType rdfs:label "{component_type_label}" .
       ?instance a ?componentType .
-      ?instance ?attrPredicate ?attribute .
-      ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute .
-      {{ ?attribute ?property ?value . }}
-      UNION
-{DERIVED_CATEGORICAL_VALUE}    }}
+{edge}
+      ?attribute ?property ?value .
+    }}
     ORDER BY ?instance ?attribute ?property
     """
-    return _run(client, query, "comprehensive")
+    df = _run(client, query("      ?instance dici_onto:hasAttribute ?attribute ."), "comprehensive")
+    if df is None or df.empty:
+        df = _run(client, query("      ?instance ?attrPredicate ?attribute .\n"
+                                "      ?attrPredicate rdfs:subPropertyOf* dici_onto:hasAttribute ."),
+                  "comprehensive")
+    return _with_value_labels(client, _legacy_categorical_rows(client, df))
 
 
 def get_component_sources(client, component_type_label: str) -> pd.DataFrame:

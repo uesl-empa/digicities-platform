@@ -125,7 +125,8 @@ def test_component_loader_reads_properties_by_iri():
     ])
     out = loader._process_attribute_data(rows, None, str(DICI.Detached))
     assert out["attribute_type"] is AttributeKind.CATEGORICAL
-    assert out["category_value"] == "Detached"
+    assert out["category_value"] == str(DICI.Detached)      # carried by its IRI
+    assert out["category_label"] == "Detached"             # shown by its name
     assert out["time_series_type"] == "live"
     assert loader._extract_nested_properties(rows) == {"hasLiveTimeSeries": "https://x.org/ts"}
 

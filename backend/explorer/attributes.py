@@ -31,7 +31,8 @@ from backend.explorer.uris import (
     extract_uri_fragment,
 )
 from backend.ontology_kinds import (
-    AttributeKind, attribute_kind, core_graph, in_dici_namespace, is_attribute_class,
+    DICI, AttributeKind, attribute_kind, core_graph, in_dici_namespace, is_attribute_class,
+    namespace_of,
 )
 
 # Hidden column prefix carrying a curve's parsed points + units next to its
@@ -198,6 +199,12 @@ class AttributeProcessor:
             prop_uri = prop.get('property', {}).get('value', '')
             prop_value = prop.get('value', {}).get('value', '')
             prop_name = extract_property_name(prop_uri)
+            # A categorical attribute may state several values (a CHP's two
+            # output carriers): every value and its label (what a person reads).
+            if prop_uri == str(DICI.hasCategoricalValue) and prop_value:
+                label = prop.get('valueLabel', {}).get('value', '')
+                values = consolidated.setdefault('category_values', {})
+                values[str(prop_value)] = label if isinstance(label, str) and label else None
 
             if prop_name:
                 if prop_uri == str(RDF.type):
@@ -299,17 +306,31 @@ class AttributeProcessor:
         unknown to the core, the two cannot be told apart from the rows and no
         value is guessed.
         """
+        value = self._categorical_value_iri(attr_data)
+        if value is None:
+            return 'Unknown Category'
+        # Shown by its label; a value with none shows the last segment of its
+        # IRI (``…#SubType/X`` and ``…#X`` alike show ``X``). Several values are
+        # listed, comma-separated.
+        labels = attr_data.get('category_values') or {}
+        return ", ".join(labels.get(v) or v[len(namespace_of(v) or ''):]
+                         for v in (value if isinstance(value, list) else [value]))
+
+    def _categorical_value_iri(self, attr_data: Dict):
+        """The value (its IRI) a categorical attribute node states: its
+        ``hasCategoricalValue`` (a sorted list of IRIs when it states several),
+        else the one rdf:type older data typed it with (see
+        ``_process_categorical_attribute``). None when there is none."""
+        stated = sorted(attr_data.get('category_values') or {})
+        if stated:
+            return stated[0] if len(stated) == 1 else stated
         value = attr_data.get('properties', {}).get('hasCategoricalValue')
         if value:
-            return extract_uri_fragment(value)
-
+            return str(value)
         candidates = [t for t in attr_data.get('type_uris', set())
                       if in_dici_namespace(t)
                       and not is_attribute_class(core_graph(), URIRef(t))]
-        if len(candidates) == 1:
-            return extract_uri_fragment(candidates[0])
-
-        return 'Unknown Category'
+        return str(candidates[0]) if len(candidates) == 1 else None
 
     def _process_curve_attribute(self, attr_data: Dict, attr_name: str) -> Optional[str]:
         """Summarise a CurveAttribute for the table, and stash the real points.
@@ -531,9 +552,12 @@ def structured_instance_attributes(component_attributes: List[Dict]) -> Dict[str
                     entry.setdefault('value', props['hasTemporalValue'])
             elif kind is AttributeKind.CATEGORICAL:
                 entry['attribute_type'] = attr_type
-                category = processor._process_categorical_attribute(data, name)
-                if category and category != 'Unknown Category':
+                # The value travels as its IRI (the emitter writes it back as it
+                # is); its label is what is shown.
+                category = processor._categorical_value_iri(data)
+                if category:
                     entry['category_value'] = category
+                    entry['category_label'] = processor._process_categorical_attribute(data, name)
                     entry.setdefault('value', category)
             elif attr_type != 'unknown':
                 entry['attribute_type'] = attr_type

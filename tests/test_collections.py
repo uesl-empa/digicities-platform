@@ -751,3 +751,60 @@ def test_core_ontology_declares_collections_tbox():
     assert (D.GroupedSet, rdflib.RDFS.subClassOf, D.Collection) in g
     assert (D.aggregatedIn, rdflib.RDFS.range, D.Set) in g
     assert (D.hasMember, rdflib.OWL.inverseOf, D.aggregatedIn) in g
+
+
+def _member_router(closure_rows, fail=False):
+    schema_target = pd.DataFrame({"base": [
+        "https://digicities.info/ontology#HubHeight",
+        "https://digicities.info/ontology#PhysicalAttribute",
+        "https://digicities.info/ontology#Attribute"]})
+
+    class Router(FakeClient):
+        queries: list = []
+
+        def sparql_api_query(self, query, out_format="df", **kw):
+            if "rdfs:subClassOf* dici_onto:Component" in query:
+                return pd.DataFrame({"n": [1]})
+            if "rdfs:subClassOf* ?base" in query:
+                return schema_target
+            self.queries.append(query)
+            if fail:
+                raise TimeoutError("Read timed out. (read timeout=30)")
+            if "?edge rdfs:subPropertyOf* dici_onto:hasAttribute" in query:
+                return pd.DataFrame()                    # the path form: not reached
+            return closure_rows
+    return Router({})
+
+
+def test_member_values_read_the_closure_edges_not_property_paths():
+    """ehubX (2026-10-13): the path-per-triple member query timed out on a few
+    thousand instances and every population read "nothing to group". The
+    closure-asserted edges answer it in one plain match."""
+    from backend.collections import queries
+    rows = pd.DataFrame({"attr": ["https://p/T1/HubHeight", "https://p/T2/HubHeight"],
+                         "numValue": ["80", "100"], "container": ["https://p/WindPark/A"] * 2,
+                         "containerLabel": ["A", "A"]})
+    client = _member_router(rows)
+    df = queries.component_grouped_member_values(
+        client, "https://digicities.info/ontology#HubHeight",
+        "https://digicities.info/ontology#WindPark")
+    assert len(df) == 2 and len(client.queries) == 1
+    assert "subPropertyOf*" not in client.queries[0]
+    assert "?owner dici_onto:hasAttribute ?attr" in client.queries[0]
+
+
+def test_member_values_fall_back_to_paths_without_a_closure():
+    from backend.collections import queries
+    client = _member_router(pd.DataFrame())
+    queries.component_grouped_member_values(
+        client, "https://digicities.info/ontology#HubHeight",
+        "https://digicities.info/ontology#WindPark")
+    assert len(client.queries) == 2 and "subPropertyOf*" in client.queries[1]
+
+
+def test_a_query_that_does_not_answer_is_not_nothing_to_group():
+    client = _member_router(pd.DataFrame(), fail=True)
+    with pytest.raises(CollectionError, match="could not be read: .*timed out"):
+        materializer.materialize_component_grouped_set(
+            client, "ws", "https://digicities.info/ontology#HubHeight",
+            "https://digicities.info/ontology#WindPark")

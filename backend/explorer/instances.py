@@ -77,7 +77,8 @@ def get_component_attributes_comprehensive(client, component_type_label: str) ->
             'instance': {'value': row.get('instance', '')},
             'attribute': {'value': row.get('attribute', '')},
             'property': {'value': row.get('property', '')},
-            'value': {'value': row.get('value', '')}
+            'value': {'value': row.get('value', '')},
+            'valueLabel': {'value': row.get('valueLabel', '')},
         })
     return attributes
 
