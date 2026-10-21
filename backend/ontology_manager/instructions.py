@@ -127,7 +127,7 @@ from typing import Any, Dict, List, Optional, Union
 import rdflib
 from rdflib import Literal, Namespace, OWL, RDF, RDFS, URIRef
 
-from backend.ontology_kinds import AttributeKind, dici_local_name
+from backend.ontology_kinds import AttributeKind, dici_local_name, value_iri
 
 from . import hierarchy
 from .functions import create_ontology_functions, OntologyFunctions
@@ -545,31 +545,35 @@ class _Executor:
     def add_named_individual(self, op: Dict[str, Any]) -> None:
         from .naming import class_name
         # The Ontology Manager names the individual from its label
-        # (``class_name``: `steel_316L` becomes `Steel316L`); everything below
-        # addresses that IRI, so the label and data codes land on the value
-        # that is declared.
+        # (``class_name``: `steel_316L` becomes `Steel316L`) under the
+        # attribute's own IRI (``value_iri``); everything below addresses that
+        # IRI, so the label and data codes land on the value that is declared.
         name = class_name(_label_for(op["name"])) or op["name"]
-        g = self._graph()
-        if (dici_onto[name], RDF.type, OWL.NamedIndividual) in g:
-            # The same value can belong to more than one categorical attribute
-            # (OilHeated for both HeatingSupply and DHWSupply): it is a declared
-            # value of each one that lists it. Its label and data codes follow
-            # the op, so a replay that learned a new code updates the value.
-            attribute = _uri(op["attribute"])
-            added = (dici_onto[name], RDF.type, attribute) not in g
-            if added:
-                g.add((dici_onto[name], RDF.type, attribute))
-                self._save(g)
-            self._annotate(name, op.get("annotations"))
-            self._record(op, "applied" if added else "skipped",
-                         f"existing value also declared for `{op['attribute']}`" if added
-                         else "individual already in extension")
+        attribute = _uri(op["attribute"])
+        uri = self._declared_value(attribute, name)
+        if uri is not None:
+            # Already a value of this attribute (declared by an earlier run, or
+            # before values had their own IRIs): its label and data codes
+            # follow the op, so a replay that learned a new code updates it.
+            self._annotate(str(uri), op.get("annotations"))
+            self._record(op, "skipped", "individual already declared for the attribute")
             return
-        ok, msg = self.funcs.add_named_individual(
-            self.ext, _label_for(name), str(_uri(op["attribute"])))
+        ok, msg = self.funcs.add_named_individual(self.ext, _label_for(name), str(attribute))
         if ok:
-            self._annotate(name, op.get("annotations"))
+            self._annotate(str(value_iri(attribute, name)), op.get("annotations"))
         self._record(op, "applied" if ok else "error", msg)
+
+    def _declared_value(self, attribute: URIRef, name: str) -> Optional[URIRef]:
+        """The value ``name`` of ``attribute`` when it is already declared: at
+        its own IRI under the attribute, or, written before values had one, at
+        ``dici_onto:<name>`` typed with this attribute (in this extension or
+        the core). None when the attribute has no such value yet."""
+        for uri in (value_iri(attribute, name), dici_onto[name]):
+            for g in (self._graph(), self.checker.core):
+                if ((uri, RDF.type, OWL.NamedIndividual) in g
+                        and (uri, RDF.type, attribute) in g):
+                    return uri
+        return None
 
     def add_object_property(self, op: Dict[str, Any]) -> None:
         name = op["name"]
@@ -773,15 +777,17 @@ def apply_extension_instructions(
             raise IOError(msg)
 
     ex = _Executor(funcs, ext)
-    for op in instructions.get("instructions", []):
-        kind = op.get("op")
-        if kind not in _OPS:
-            ex._record(op, "error", f"unknown op '{kind}'")
-            continue
-        try:
-            ex.run(op)
-        except Exception as e:                       # keep replaying; report it
-            ex._record(op, "error", str(e))
+    # One batch: the extension is written once at the end, not after every op.
+    with funcs.batch():
+        for op in instructions.get("instructions", []):
+            kind = op.get("op")
+            if kind not in _OPS:
+                ex._record(op, "error", f"unknown op '{kind}'")
+                continue
+            try:
+                ex.run(op)
+            except Exception as e:                       # keep replaying; report it
+                ex._record(op, "error", str(e))
 
     export = (funcs.update_temp_and_export_core_mod() if ext == funcs.CORE_TARGET
               else funcs.update_temp_and_export(ext))

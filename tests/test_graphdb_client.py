@@ -401,3 +401,73 @@ def test_upload_ttl_requires_exactly_one_source(backend_env):
         client.upload_ttl()
     with pytest.raises(ValueError, match="One and only one"):
         client.upload_ttl(ttl_str="x", ttl_file_path="y.ttl")
+
+
+def test_a_query_that_times_out_is_not_resent(backend_env, monkeypatch, caplog):
+    """2026-10-16: a 200-second query hit the 30-second client timeout and was
+    sent four times; the triple store ran every copy to the end."""
+    import requests
+    backend_env("fuseki")
+    client = _no_auth_client(base_url="http://ts:7200", max_retries=3)
+    client.retry_delay = 0
+    calls = []
+
+    def fake_request(*a, **k):
+        calls.append(k.get("timeout"))
+        raise requests.exceptions.ReadTimeout("read timed out")
+
+    monkeypatch.setattr("backend.graphdb.client.requests.request", fake_request)
+    with caplog.at_level("ERROR", logger="digicities.queries"):
+        assert client.sparql_api_query("SELECT * WHERE { ?s ?p ?o }") is None
+    assert len(calls) == 1
+    assert calls[0][1] > 30                                   # the read timeout is the query's
+    assert "not resent" in caplog.text and "SELECT * WHERE" in caplog.text
+
+
+def test_a_query_the_store_cancelled_is_not_resent(backend_env, monkeypatch):
+    backend_env("fuseki")
+    client = _no_auth_client(base_url="http://ts:7200", max_retries=3)
+    client.retry_delay = 0
+    calls = []
+
+    def fake_request(*a, **k):
+        calls.append(1)
+        return FakeResponse(503, text="Query cancelled: Timeout")
+
+    monkeypatch.setattr("backend.graphdb.client.requests.request", fake_request)
+    assert client.sparql_api_query("q") is None
+    assert len(calls) == 1
+
+
+def test_a_plain_503_after_the_store_timeout_is_not_resent(backend_env, monkeypatch):
+    """Fuseki 5 cancels at 110 s with a bare "503 Service Unavailable"."""
+    backend_env("fuseki")
+    client = _no_auth_client(base_url="http://ts:7200", max_retries=3)
+    client.retry_delay = 0
+    calls = []
+    clock = iter(range(0, 1000, 110))
+    monkeypatch.setattr("backend.graphdb.client.time.monotonic", lambda: next(clock))
+
+    def fake_request(*a, **k):
+        calls.append(1)
+        return FakeResponse(503, text="Service Unavailable")
+
+    monkeypatch.setattr("backend.graphdb.client.requests.request", fake_request)
+    assert client.sparql_api_query("q") is None
+    assert len(calls) == 1
+
+
+def test_a_connection_error_is_still_retried(backend_env, monkeypatch):
+    import requests
+    backend_env("fuseki")
+    client = _no_auth_client(base_url="http://ts:7200", max_retries=2)
+    client.retry_delay = 0
+    calls = []
+
+    def fake_request(*a, **k):
+        calls.append(1)
+        raise requests.exceptions.ConnectionError("refused")
+
+    monkeypatch.setattr("backend.graphdb.client.requests.request", fake_request)
+    assert client.sparql_api_query("q") is None
+    assert len(calls) == 3

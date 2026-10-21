@@ -14,7 +14,7 @@ from backend.graphdb.graphs import (
 )
 
 
-def categorical_values(client) -> Dict[str, str]:
+def categorical_values(client) -> Dict[str, object]:
     """``{attribute IRI: category value IRI}`` for every categorical attribute.
 
     The value is the attribute's ``dici_onto:hasCategoricalValue`` (an IRI: a
@@ -41,7 +41,37 @@ def categorical_values(client) -> Dict[str, str]:
     df = client.sparql_api_query(query, out_format="df")
     if df is None or df.empty:
         return {}
-    return {str(row["attribute"]): str(row["value"]) for _, row in df.iterrows()}
+    # An attribute that states several values (a CHP's two output carriers)
+    # maps to the sorted list of them.
+    out: Dict[str, object] = {}
+    for _, row in df.iterrows():
+        a, v = str(row["attribute"]), str(row["value"])
+        have = out.get(a)
+        if have is None:
+            out[a] = v
+        else:
+            out[a] = sorted(set(have if isinstance(have, list) else [have]) | {v})
+    return out
+
+
+def category_labels(client) -> Dict[str, str]:
+    """``{value IRI: label}`` for every declared categorical value: what a person
+    reads for a value (its rdfs:label, else the last segment of its IRI). The
+    value itself stays its IRI wherever it is carried."""
+    from backend.graphdb.queries.ontology import get_named_individuals
+    from backend.ontology_kinds import namespace_of
+
+    df = get_named_individuals(client)
+    out: Dict[str, str] = {}
+    if df is None or df.empty:
+        return out
+    for _, row in df.iterrows():
+        iri, label = str(row["individual"]), row.get("label")
+        if label is not None and str(label) not in ("", "nan"):
+            out[iri] = str(label)
+        else:
+            out.setdefault(iri, iri[len(namespace_of(iri) or ""):])
+    return out
 
 
 def instance_types(client) -> Dict[str, str]:

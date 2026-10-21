@@ -12,7 +12,7 @@ import rdflib
 from rdflib import Namespace, RDF, RDFS, Literal, URIRef, OWL, BNode
 from typing import List, Dict, Tuple
 
-from backend.ontology_kinds import AttributeKind, is_attribute_class
+from backend.ontology_kinds import AttributeKind, category_label, is_attribute_class, value_iri
 from backend.ontology_scaffold import (
     attributes_of, categories as scaffold_categories, ensure_scaffold, link_predicates,
     local_name, own_category, own_general_predicate, specific_predicates_of,
@@ -627,7 +627,7 @@ class AttributeMixin:
             for row in results:
                 individuals.append({
                     "uri": str(row.individual),
-                    "label": str(row.label) if row.label else str(row.individual).split('#')[-1]
+                    "label": str(row.label) if row.label else category_label(g, row.individual)
                 })
             return individuals
         except Exception as e:
@@ -651,7 +651,8 @@ class AttributeMixin:
                 ext_graph = self.load_extension(extension_filename)
 
             attribute_ref = URIRef(attribute_uri)
-            individual_uri = dici_onto[individual_id]
+            # A path under the attribute: each attribute has its own values.
+            individual_uri = value_iri(attribute_ref, individual_id)
 
             ext_graph.add((individual_uri, RDF.type, OWL.NamedIndividual))
             ext_graph.add((individual_uri, RDF.type, attribute_ref))

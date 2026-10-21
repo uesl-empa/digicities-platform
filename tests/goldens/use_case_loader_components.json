@@ -16,12 +16,13 @@
         "ChemistryType": {
           "attribute_type": "Categorical",
           "category": "categorical",
-          "category_value": "LithiumIon",
+          "category_label": "LithiumIon",
+          "category_value": "https://digicities.info/ontology#LithiumIon",
           "data_type": "categorical",
           "specific_attribute_type": "ChemistryType",
           "unit": "category",
           "uri": "https://digicities.info/proj/test-ws/Battery/HomeBattery1/ChemistryType",
-          "value": "LithiumIon"
+          "value": "https://digicities.info/ontology#LithiumIon"
         },
         "InvestmentCost": {
           "attribute_type": "UnitBasedCost",

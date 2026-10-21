@@ -202,7 +202,9 @@ def _attribute_cells(name: str, data: Mapping[str, Any]) -> Dict[str, Any]:
                 data.get("reference"), type=data["time_series_type"],
                 unit=data.get("unit"))
     elif kind is AttributeKind.CATEGORICAL:
-        put(name, data.get("category_value"), type=kind.value)
+        # A cell states the value's data code when the model knows it (a
+        # replica read from a graph); else the value as the model carries it.
+        put(name, data.get("category_code") or data.get("category_value"), type=kind.value)
     elif kind is AttributeKind.EVENT:
         put(name, data.get("temporal_value"), type=kind.value)
     elif kind is AttributeKind.SIMPLE_COST:

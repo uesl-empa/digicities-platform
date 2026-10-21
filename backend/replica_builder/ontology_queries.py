@@ -148,28 +148,25 @@ def query_component_attribute_mappings(client) -> Dict[str, List[str]]:
     return component_attributes
 
 
-def query_named_individuals(client) -> Dict[str, List[str]]:
-    """Query named individuals for categorical attributes
-    (via backend.graphdb.queries.ontology)."""
+def query_named_individuals(client) -> Dict[str, Dict[str, str]]:
+    """The declared values of each categorical attribute (via
+    backend.graphdb.queries.ontology): ``{attribute: {value IRI: label}}``.
+    A value is carried by its IRI and shown by its label; its IRI is never cut
+    up into a name (a value declared under its attribute, ``…#SubType/X``, and
+    one declared before, ``…#X``, are handled the same way)."""
     result = gq_ont.get_named_individuals(client)
     if result is None or result.empty:
         return {}
 
-    # Group individuals by their categorical class
-    individuals_by_class = {}
+    from backend.ontology_kinds import namespace_of
+    individuals_by_class: Dict[str, Dict[str, str]] = {}
     for _, row in result.iterrows():
-        class_uri = row['class']
-        class_name = extract_local_name(class_uri)
-
-        individual_uri = row['individual']
-        individual_name = extract_local_name(individual_uri)
-
-        if class_name not in individuals_by_class:
-            individuals_by_class[class_name] = []
-
-        if individual_name not in individuals_by_class[class_name]:
-            individuals_by_class[class_name].append(individual_name)
-
+        values = individuals_by_class.setdefault(extract_local_name(row['class']), {})
+        iri = str(row['individual'])
+        label = row.get('label')
+        if iri not in values or not values[iri]:
+            values[iri] = (str(label) if label is not None and str(label) not in ("", "nan")
+                           else iri[len(namespace_of(iri) or ""):])
     return individuals_by_class
 
 

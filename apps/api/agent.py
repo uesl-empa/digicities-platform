@@ -362,7 +362,7 @@ def _working_folder(sess) -> str | None:
 def upload(
     session_id: str = Form(...),
     file: UploadFile = File(...),
-    propose: bool = Form(True),
+    propose: str = Form("true"),
     ctx: WorkspaceContext = Depends(get_ctx),
 ) -> dict[str, Any]:
     """Upload a working folder as a .zip, OR a single file. When a working folder already exists
@@ -375,6 +375,10 @@ def upload(
     in a worker thread. The proposal takes minutes; as ``async def`` it ran on
     the event loop and froze EVERY request meanwhile — the health probe timed
     out, Kubernetes restarted the container, and every chat session was lost."""
+    # Text, read as yes/no here: FastAPI 0.150 turns a MISSING boolean form field
+    # into False whatever its default, so an upload without `propose` (the
+    # frontend sends it only as "false") was filed and never mapped.
+    propose = str(propose).strip().lower() not in ("false", "0", "no", "off")  # debt-ok: a form flag's spelling, not ontology
     sess = _get(session_id, ctx)
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file was uploaded")

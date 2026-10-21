@@ -1,0 +1,24 @@
+# Licensed under the terms of http://www.apache.org/licenses/LICENSE-2.0
+
+## Fuseki server configuration (mounted over /fuseki/config.ttl by docker-compose.yml).
+##
+## The datasets themselves are created per workspace at runtime and live in
+## /fuseki/configuration/; this file only sets server-wide behaviour.
+##
+## Query timeout. Fuseki does not stop a query when the client gives up: before
+## this, a 200-second query abandoned by a 30-second client timeout kept running,
+## the client sent it again (three retries), and four copies of it ran to the end.
+## A refuel build left Fuseki at 500% CPU for half an hour after it finished.
+## Now any query is cancelled after 110 s: the client (backend/graphdb/client.py,
+## GRAPHDB_QUERY_TIMEOUT, default 120 s) waits slightly longer, gets the
+## cancellation as an error, logs it and does not resend it.
+
+@prefix :        <#> .
+@prefix fuseki:  <http://jena.apache.org/fuseki#> .
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ja:      <http://jena.hpl.hp.com/2005/11/Assembler#> .
+
+[] rdf:type fuseki:Server ;
+   ja:context [ ja:cxtName "arq:queryTimeout" ;  ja:cxtValue "110000" ] ;
+   .

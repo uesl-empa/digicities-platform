@@ -22,6 +22,8 @@ services:
       - "3030:3030"
     volumes:
       - fuseki_data:/fuseki
+      # Server-wide query timeout (110 s); see the file for why.
+      - ./services/fuseki/config.ttl:/fuseki/config.ttl:ro
     environment:
       ADMIN_PASSWORD: "${FUSEKI_ADMIN_PASSWORD:-admin}"
       # Persist on TDB2 disk-backed storage. Datasets are created lazily by

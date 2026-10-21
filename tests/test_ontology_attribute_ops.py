@@ -220,7 +220,9 @@ def test_named_individual_roundtrip(funcs):
     assert ok, msg
 
     g = _ext_graph(funcs)
-    ind = DICI.DistrictHeating  # label whitespace collapses into the id
+    from backend.ontology_kinds import value_iri
+    # label whitespace collapses into the id; the value sits under its attribute
+    ind = value_iri(DICI.HeatingSupply, "DistrictHeating")
     assert (ind, RDF.type, OWL.NamedIndividual) in g
     assert (ind, RDF.type, DICI.HeatingSupply) in g
     assert [str(o) for o in g.objects(ind, RDFS.label)] == ["District Heating"]

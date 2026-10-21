@@ -837,6 +837,7 @@ def _load_categorical_options(client):
     """
     if client is None:
         return {}
+    from backend.ontology_kinds import namespace_of
     try:
         from backend.graphdb.queries.ontology import get_categorical_value_options
         df = get_categorical_value_options(client)
@@ -847,13 +848,15 @@ def _load_categorical_options(client):
     options = {}
     for _, row in df.iterrows():
         attr_cls = str(row["attrClass"]).split("#")[-1].split("/")[-1]
-        value = str(row["value"]).split("#")[-1].split("/")[-1]
+        # A value is carried by its IRI (written back as it is) and shown by
+        # its label; a value declared under its attribute has no other name.
+        value = str(row["value"])
         raw_label = row.get("label")
         label = str(raw_label).strip()
         if label.lower() in ("", "nan", "none"):
             label = ""
         options.setdefault(attr_cls, {})
-        options[attr_cls].setdefault(value, label or value)
+        options[attr_cls].setdefault(value, label or value[len(namespace_of(value) or ""):])
     return options
 
 
@@ -914,9 +917,25 @@ def show_attribute_editor(component_key, attr_name, attr_data, category):
             opts = _categorical_options_for(attr_name)
             if opts:
                 names = list(opts.keys())
+                if isinstance(current_value, list):
+                    # Several values (a CHP's two output carriers): keep them all.
+                    picked = [str(v) for v in current_value]
+                    new_value = st.multiselect(
+                        f"Values for {attr_name}",
+                        options=list(dict.fromkeys(picked + names)), default=picked,
+                        format_func=lambda n: opts.get(n) or n,
+                        key=f"edit_{component_key}_{attr_name}",
+                        label_visibility="collapsed",
+                        help="Ontology-defined values for this attribute",
+                    )
+                    names = None
                 current = str(current_value)
-                index = names.index(current) if current in names else 0
-                new_value = st.selectbox(
+                # A value saved by name before (`MFH`) is still offered as it
+                # was, so opening the editor never changes it.
+                if names is not None and current and current not in names:
+                    names = [current] + names
+                index = names.index(current) if names is not None and current in names else 0
+                new_value = new_value if names is None else st.selectbox(
                     f"Value for {attr_name}",
                     options=names,
                     index=index,
