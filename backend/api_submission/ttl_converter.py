@@ -16,6 +16,7 @@ CLI:
     python -m backend.api_submission.ttl_converter <template.yaml> <scenario.ttl>
 """
 import json
+import math
 import re
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional
@@ -679,9 +680,15 @@ class RobustTTL2YAMLProcessor:
             datatype = str(literal.datatype) if literal.datatype else None
             if datatype and any(t in datatype for t in ['decimal', 'float', 'double']):
                 try:
-                    return float(str(literal))
+                    number = float(str(literal))
                 except:
                     pass
+                else:
+                    # Infinity ("INF"^^xsd:double, a tool's "no limit") has no
+                    # JSON form: strict JSON (the API's responses, a service
+                    # submission) refuses it. Left out of the payload, as before
+                    # the replica could hold it, until its payload form is decided.
+                    return number if math.isfinite(number) else None
             elif datatype and 'int' in datatype:
                 try:
                     return int(str(literal))
