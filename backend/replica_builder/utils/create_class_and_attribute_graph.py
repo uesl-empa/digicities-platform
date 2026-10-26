@@ -108,6 +108,14 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
         else:
             return f"{num}"
 
+    def number_literal(num):
+        """A number as a Turtle literal. Infinity (Calliope `.inf`, a
+        tool's "no limit") has no xsd:decimal form: written as one it was
+        the invalid `"inf"^^xsd:decimal`. xsd:double spells it INF / -INF."""
+        if math.isinf(num):
+            return f'"{"INF" if num > 0 else "-INF"}"^^xsd:double'
+        return f'"{format_decimal(num)}"^^xsd:decimal'
+
     def generate_instance_uri(project_uri, sheet_name, row_id, uri_mode):
         """Generate instance URI based on the specified URI mode.
 
@@ -502,6 +510,17 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                   f"stamped ontology default unit:{qudt_unit}")
                             stamped_default_logged.add(attr_name)
 
+                    # A series of prices (an export price per hour) states its
+                    # currency in row 5 like any cost; only the unit used to be read.
+                    ts_currency = get_clean_header_value(first_col, 4, is_nonempty)
+
+                    def with_currency(lines):
+                        if not ts_currency:
+                            return lines
+                        return lines[:-1] + [lines[-1][:-2] + " ;",
+                                             f"\tdici_onto:currency "  # debt-ok: same hand-built TimeSeries block as above
+                                             f"{prefixed_or_iri('cur', _CURRENCY_NS, ts_currency)} ."]
+
                     # Build the single attribute declaration with all time series references
                     attr_properties = [
                         f"a dici_onto:{attr_name}",
@@ -542,7 +561,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                     f'\tdici_onto:hasFileName "{_lit(value)}"^^xsd:string .'
                                 ]
 
-                            ts_declarations.extend(ts_lines)
+                            ts_declarations.extend(with_currency(ts_lines))
                             ts_declarations.append("")
 
                         elif time_type == "Future":
@@ -566,7 +585,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                     f'\tdici_onto:hasFileName "{_lit(value)}"^^xsd:string .'
                                 ]
 
-                            ts_declarations.extend(ts_lines)
+                            ts_declarations.extend(with_currency(ts_lines))
                             ts_declarations.append("")
 
                         elif time_type == "Live":
@@ -588,7 +607,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                     f'\tdici_onto:realTimeSource "{_lit(value)}"^^xsd:string .'
                                 ]
 
-                            ts_declarations.extend(ts_lines)
+                            ts_declarations.extend(with_currency(ts_lines))
                             ts_declarations.append("")
 
                     # Build the final attribute declaration
@@ -769,8 +788,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         try:
                             numeric_val = float(value)
                             if not math.isnan(numeric_val):
-                                decimal_str = format_decimal(numeric_val)
-                                attr_lines.append(f'dici_onto:hasAttributeValue "{decimal_str}"^^xsd:decimal')
+                                attr_lines.append(f'dici_onto:hasAttributeValue {number_literal(numeric_val)}')
                             else:
                                 attr_lines.append(f'dici_onto:hasAttributeValue "{_lit(value)}"^^xsd:string')
                         except:
@@ -809,8 +827,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         try:
                             numeric_val = float(value)
                             if not math.isnan(numeric_val):
-                                decimal_str = format_decimal(numeric_val)
-                                attr_lines.append(f'\tqudt:value "{decimal_str}"^^xsd:decimal ;')
+                                attr_lines.append(f'\tqudt:value {number_literal(numeric_val)} ;')
                             else:
                                 attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
                         except:
@@ -1027,8 +1044,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         try:
                             numeric_val = float(value)
                             if not math.isnan(numeric_val):
-                                decimal_str = format_decimal(numeric_val)
-                                attr_lines.append(f'\tqudt:value "{decimal_str}"^^xsd:decimal ;')
+                                attr_lines.append(f'\tqudt:value {number_literal(numeric_val)} ;')
                             else:
                                 attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
                         except:
@@ -1075,8 +1091,7 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                         try:
                             numeric_val = float(value)
                             if not math.isnan(numeric_val):
-                                decimal_str = format_decimal(numeric_val)
-                                attr_lines.append(f'\tqudt:value "{decimal_str}"^^xsd:decimal ;')
+                                attr_lines.append(f'\tqudt:value {number_literal(numeric_val)} ;')
                             else:
                                 attr_lines.append(f'\tqudt:value "{_lit(value)}"^^xsd:string ;')
                         except:
