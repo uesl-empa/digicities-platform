@@ -528,10 +528,27 @@ class RobustTTL2YAMLProcessor:
                 labels = list(self.g.objects(context, RDFS.label))
                 return str(labels[0]) if labels else self._extract_name(str(context))
             if len(ref.members) == 1:
+                ends = self._flow_end(context, ref.members[0])
+                if ends is not None:
+                    return ends
                 return self._get_attribute_value(context, ref.owner, ref.members[0])
             return self._get_nested_attribute(context, ref.owner, list(ref.members))
 
         return value
+
+    def _flow_end(self, context: URIRef, member: str) -> Optional[List[str]]:
+        """``<Flow>.hasSource`` / ``<Flow>.hasDestination``: the components at
+        that end of the flow, by URI, or None when ``member`` names neither.
+
+        A flow leaves one component and enters another; which is which is in
+        the data (the core's hasSource / hasDestination, or a property under
+        them). A component link only says the two are joined, so the service
+        is given both ends and decides what in and out mean for it."""
+        prop = self._term(member)
+        if prop not in (self.DICI.hasSource, self.DICI.hasDestination):
+            return None
+        return sorted(str(o) for p, o in self.g.predicate_objects(context)
+                      if isinstance(o, URIRef) and is_subproperty_of(self.view, p, prop))
 
     def _find_attribute(self, component: URIRef, comp_type: str, attr_name: str) -> Optional[URIRef]:
         """The component's attribute node for ``attr_name``, or None.
@@ -667,6 +684,9 @@ class RobustTTL2YAMLProcessor:
             return self._convert_literal(val)
         for val in self.g.objects(attr_uri, self.DICI.hasAttributeValue):
             return self._convert_literal(val)
+        # An identifier is text, kept as written (``007`` stays ``007``).
+        for val in self.g.objects(attr_uri, self.DICI.identifierValue):
+            return str(val)
 
         # Handle regular values
         for val in self.g.objects(attr_uri, self.QUDT.value):
@@ -685,9 +705,13 @@ class RobustTTL2YAMLProcessor:
                     pass
                 else:
                     # Infinity ("INF"^^xsd:double, a tool's "no limit") has no
-                    # JSON form: strict JSON (the API's responses, a service
-                    # submission) refuses it. Left out of the payload, as before
-                    # the replica could hold it, until its payload form is decided.
+                    # number form in strict JSON (the API's responses, a service
+                    # submission refuse it), so a payload says it as text:
+                    # "inf" / "-inf", as the tools themselves write it (decided
+                    # 2026-10-26). Leaving it out told a service the limit
+                    # before it held: ehubX read "1 GW, then no limit" as 1 GW.
+                    if math.isinf(number):
+                        return "inf" if number > 0 else "-inf"
                     return number if math.isfinite(number) else None
             elif datatype and 'int' in datatype:
                 try:
