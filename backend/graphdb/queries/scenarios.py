@@ -269,6 +269,12 @@ def materialize_scenario_graphs(scenario_graph: Graph, replica_graph: Graph,
                 if p == USED and o != suri:
                     continue  # an ancestor's tag: re-tagged below
                 out.add((a, p, o))
+                # A series node (rdfs:subPropertyOf* hasTimeSeries) holds the
+                # series' unit and currency: without it a contract field that
+                # names a unit could not check the series it is sent.
+                if isinstance(o, URIRef) and is_subproperty_of(view, p, DICI.hasTimeSeries):
+                    for sp, so in _po_union(o):
+                        out.add((o, sp, so))
             if a in inherited:
                 out.add((a, USED, suri))
 

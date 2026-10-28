@@ -39,8 +39,10 @@ from backend.service_requirements.contract import (
     is_link_block,
     is_reference,
     is_required,
-    parse_reference,
+    is_template_leaf,
+    leaf_reference,
     payload_template,
+    refusal_reason,
 )
 
 
@@ -85,6 +87,10 @@ def validate_payload(payload: Any, template: Any) -> ValidationResult:
             "required unless listed under optional_attributes or derived_attributes.")
 
     def walk(t: Any, p: Any, path: str) -> None:
+        # A value spec ({ref: T.A, unit: KiloW}) is one field, like a string.
+        if is_template_leaf(t):
+            leaf(t, p, path)
+            return
         if isinstance(t, dict):
             # A link node: the converter expands it into a list of components.
             if is_link_block(t):
@@ -116,17 +122,24 @@ def validate_payload(payload: Any, template: Any) -> ValidationResult:
                 walk(sub, child, f"{path}.{k}" if path else k)
             return
 
+    def leaf(t: Any, p: Any, path: str) -> None:
         # A leaf. Only references need resolving; literals are constants.
-        ref = parse_reference(t)
+        ref = leaf_reference(t)
         if ref is not None:
             required = is_required(ref, exempt)
-            if p is None:
+            reason = refusal_reason(p)
+            if reason is not None:
                 result.missing_fields.append(path)
-                msg = f"{path} ({t}) did not resolve to a value"
+                (result.errors if required else result.warnings).append(
+                    f"{'Required' if required else 'Optional'} value not in the unit asked for: "
+                    f"{path}: {reason}")
+            elif p is None:
+                result.missing_fields.append(path)
+                msg = f"{path} ({ref.text}) did not resolve to a value"
                 (result.errors if required else result.warnings).append(
                     ("Required attribute missing: " if required else "Optional attribute missing: ") + msg
                 )
-            elif _is_unresolved(p, t):
+            elif _is_unresolved(p, ref.text):
                 result.unresolved_fields.append(path)
                 result.placeholder_count += 1
                 msg = f"{path} still holds the unresolved reference '{p}'"

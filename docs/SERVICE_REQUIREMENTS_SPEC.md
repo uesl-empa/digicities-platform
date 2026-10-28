@@ -117,7 +117,10 @@ top-level-key   = "service_name"          (* MUST, a non-empty string *)
                 | "required_attributes" ; (* deprecated, ignored: see section 6 *)
 
 block           = mapping of field-name to value ;
-value           = reference | literal | block | link-block | list of value ;
+value           = reference | value-spec | literal | block | link-block | list of value ;
+value-spec      = mapping with "ref" : reference ,
+                  and "unit" : qudt-code and/or "currency" : currency-code ,
+                  and no other key ;                       (* section 4.6 *)
 link-block      = mapping with "link" : link-ref , "template" : block ,
                   and any number of further field-name : link-block ;
 
@@ -131,6 +134,8 @@ class-token     = local-name ;                (* a dici_onto: class *)
 attribute-token = local-name ;                (* a dici_onto: attribute class *)
 property-token  = local-name ;                (* a dici_onto: property *)
 local-name      = letter-or-underscore , { letter | digit | "_" | "-" } ;
+qudt-code       = a QUDT unit code (KiloW, MegaW-HR, UNITLESS) ;
+currency-code   = a QUDT currency code (CHF, EUR) ;
 field-name      = any YAML mapping key ;
 literal         = any YAML scalar that is not a reference in its context ;
 ```
@@ -141,7 +146,7 @@ with one implementation, so the shape above is the only one. A string inside a Y
 list is a literal.
 
 **Source:** `backend/service_requirements/contract.py` (`parse_reference`,
-`parse_link`).
+`parse_link`, `parse_value_spec`).
 
 **Source:** `backend/api_submission/ttl_converter.py` (`RobustTTL2YAMLProcessor._term`,
 `_process_value`, `_process_link`, `_resolve_string_value`),
@@ -194,7 +199,8 @@ The value depends on the attribute's kind, read from the hierarchy:
 | Curve | `{"points": [[x, y], ...], "x_unit": ..., "y_unit": ...}` from `dici_onto:hasDataPoints` |
 | Event | the temporal value, rewritten as `01-01-<year>` when it holds a year (see issue 7) |
 
-Units are not sent, except a curve's axis units.
+Units are not sent, except a curve's axis units. A field that needs its value in a
+given unit says so (section 4.6); the platform then converts.
 
 **Source:** `ttl_converter.py` `_find_attribute`, `_extract_attribute_value`,
 `_category_value`, `_convert_literal`; `backend/ontology_kinds.py` (`kind_of_node`).
@@ -222,6 +228,53 @@ The clean step removes a string only when it equals the contract's reference at 
 same position; any other string is data, whatever it contains.
 
 **Source:** `ttl_converter.py` `_resolve_string_value`, `clean_placeholder_values`.
+
+### 4.6 Fields that name their unit
+
+A field MAY name the unit its value must be in:
+
+```yaml
+# example: fragment
+CapMax: {ref: EnergyConverter.CapMax, unit: KiloW}
+Efficiency: {ref: EnergyCarrierFlow.OutputEfficiency, unit: UNITLESS}
+Price: {ref: EnergyCarrierFlow.Price, unit: KiloW-HR, currency: CHF}
+Demand: {ref: EnergyCarrierFlow.Demand.hasHistoricTimeSeriesReference, unit: KiloW}
+```
+
+`ref` is a reference (sections 4.3, 4.4) and is required or optional like any other
+(section 6). `unit` is a QUDT unit code; for a cost it is the unit the cost is per
+(CHF per kWh is `unit: KiloW-HR, currency: CHF`). `currency` is a QUDT currency code.
+
+Every value in a replica carries its own `qudt:unit` (a cost also `dici_onto:currency`),
+so the platform converts it. Factors come from QUDT (`data/ontology/imports/
+qudt_conversions.json`, built by `scripts/build_qudt_conversions.py` from a pinned QUDT
+release): SI value = (value + offset) × multiplier. A cost converts inversely by the
+unit it is per (0.1 CHF/kWh is 100 CHF/MWh).
+
+The value is **refused**, with the reason, when:
+
+- its unit is a different kind of quantity (a different QUDT dimension vector):
+  energy where power is asked;
+- either unit is not one QUDT can convert;
+- it states no unit, unless the field asks for a plain number (`UNITLESS`,
+  `FRACTION`, `NUM`);
+- its currency differs from the one asked for (the platform has no exchange rates);
+- a currency is asked for something that is not a cost;
+- it is a time series in another unit: a series is sent as its file, which the
+  platform does not rewrite;
+- it is not a number (a category, free text). No limit (`"inf"`, `"-inf"`) is sent
+  as written when the unit is one the field accepts.
+
+A refused value is never sent. Payload validation reports it as an error, or a
+warning for an optional field (section 10.3). A field without `unit` sends the value
+as held, in whatever unit that is.
+
+**Source:** `contract.py` `parse_value_spec`, `refused`; `ttl_converter.py`
+`_value_in_unit`, `_converted`, `_check_series_unit`; `backend/unit_conversion.py`.
+
+**Not covered:** the Service Requirements Builder UI reads a value spec's attribute
+but writes plain references back, so saving a contract from the builder drops its
+units.
 
 ## 5. Blocks and links
 
@@ -522,12 +575,15 @@ Validation runs on the converted payload before placeholders are removed.
 - For every required field (section 6): an error when its reference did not
   resolve or came back unchanged.
 - A warning for every optional or derived field whose reference did not resolve.
+- For a field that names its unit (section 4.6): an error when its value could not
+  be given in that unit (a warning when the field is optional), with the reason.
 
 The result is `is_valid` (no errors), the errors and warnings, and a data quality of
 `good`, `needs_review` or `poor`.
 
 **Does not catch:**
-- Wrong values: units, ranges, datatypes, plausibility.
+- Wrong values: ranges, datatypes, plausibility; units only for fields that name
+  them (section 4.6).
 - A reference to a class or attribute that does not exist in the ontology. It just
   does not resolve, which is an error unless the field is listed optional.
 - Why a link-block found nothing: a malformed link-ref (section 10.1), a class with
@@ -590,7 +646,8 @@ SHACL validator could check a scenario without the converter. The mapping would 
 
 What SHACL would add that the language cannot state today:
 
-- units and datatypes (`sh:datatype`, `qudt:unit` with `sh:in`);
+- datatypes (`sh:datatype`); units are stated today by value specs (section 4.6),
+  which SHACL would state as `qudt:unit` with `sh:in`;
 - cardinality (exactly one hub height per turbine, at least one turbine per park);
 - value ranges (`sh:minInclusive`, `sh:maxInclusive`);
 - a standard validation report, published with the service in the services graph.

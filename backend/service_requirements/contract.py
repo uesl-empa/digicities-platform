@@ -14,6 +14,11 @@ so they cannot disagree about what a contract asks for.
 * The **control lists** (``optional_attributes``, ``derived_attributes``,
   ``required_attributes``) and ``connection`` describe the contract; they are
   never part of the payload sent to the service.
+* A **value spec** is a field that also names the unit its value must be in:
+  ``{ref: T.A, unit: KiloW}``, and for a cost ``{ref: T.A, unit: KiloW-HR,
+  currency: CHF}`` (the unit is what the cost is per). Units are QUDT codes. The
+  converter sends the value in that unit (``backend.unit_conversion``); its
+  ``ref`` is a reference like any other.
 * **Required unless listed optional** (James, 2026-10-10): every reference in
   ``scenario_data`` is required unless it, or the attribute it reads
   (``T.A`` for ``T.A.p``), is listed under ``optional_attributes`` or
@@ -112,6 +117,65 @@ def is_link_block(node: Any) -> bool:
     return isinstance(node, dict) and LINK_KEY in node and TEMPLATE_KEY in node
 
 
+REF_KEY = "ref"
+UNIT_KEY = "unit"
+CURRENCY_KEY = "currency"
+_VALUE_SPEC_KEYS = {REF_KEY, UNIT_KEY, CURRENCY_KEY}
+
+
+@dataclass(frozen=True)
+class ValueSpec:
+    """A field that names the unit (and, for a cost, the currency) its value
+    must be in: ``{ref: T.A, unit: KiloW}``."""
+    ref: Reference
+    unit: Optional[str] = None
+    currency: Optional[str] = None
+
+
+def parse_value_spec(node: Any) -> Optional[ValueSpec]:
+    """The value spec a template node states, or None.
+
+    A mapping whose keys are ``ref`` with ``unit`` and/or ``currency`` and
+    nothing else, its ``ref`` a reference."""
+    if not isinstance(node, dict) or REF_KEY not in node or not set(node) <= _VALUE_SPEC_KEYS:
+        return None
+    if UNIT_KEY not in node and CURRENCY_KEY not in node:
+        return None
+    ref = parse_reference(node[REF_KEY])
+    if ref is None:
+        return None
+    text = lambda k: str(node[k]).strip() if node.get(k) not in (None, "") else None
+    return ValueSpec(ref, text(UNIT_KEY), text(CURRENCY_KEY))
+
+
+def leaf_reference(node: Any) -> Optional[Reference]:
+    """The reference a template leaf reads: a plain reference, or a value spec's."""
+    spec = parse_value_spec(node)
+    return spec.ref if spec is not None else parse_reference(node)
+
+
+# A value the converter could not give in the unit asked for travels in the raw
+# payload as {"unit_refused": "<why>"}: validation reports it, the clean step
+# drops it, the service never receives a wrong number.
+REFUSED_KEY = "unit_refused"
+
+
+def refused(reason: str) -> dict:
+    return {REFUSED_KEY: reason}
+
+
+def refusal_reason(value: Any) -> Optional[str]:
+    """Why the converter refused this value, or None for a value it sent."""
+    if isinstance(value, dict) and set(value) == {REFUSED_KEY}:
+        return str(value[REFUSED_KEY])
+    return None
+
+
+def is_template_leaf(node: Any) -> bool:
+    """A string, or a value spec: what a template walk reads as one field."""
+    return not isinstance(node, (dict, list)) or parse_value_spec(node) is not None
+
+
 def payload_template(contract: Any) -> Any:
     """The contract without the keys that describe it (connection, control lists)."""
     if not isinstance(contract, dict):
@@ -133,10 +197,10 @@ def iter_references(block: Any) -> Iterator[Reference]:
         for key, value in block.items():
             if key == LINK_KEY:
                 continue
-            if isinstance(value, (dict, list)):
+            if not is_template_leaf(value):
                 yield from iter_references(value)
             else:
-                ref = parse_reference(value)
+                ref = leaf_reference(value)
                 if ref is not None:
                     yield ref
 
