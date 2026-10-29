@@ -75,7 +75,10 @@ def test_infinity_is_a_valid_double(tmp_path):
     assert float(values["P2.MaxFlow"]) == 40.0
 
 
-def test_infinity_is_left_out_of_the_payload_not_sent_as_invalid_json(tmp_path):
+def test_infinity_reaches_the_payload_as_text_not_invalid_json(tmp_path):
+    """A workbook's "inf" (no limit) reaches the payload as the text "inf":
+    strict JSON has no number for it, and leaving it out told a service the
+    last finite limit held (decided 2026-10-26)."""
     import json
 
     from backend.api_submission.ttl_converter import convert_scenario
@@ -96,7 +99,7 @@ def test_infinity_is_left_out_of_the_payload_not_sent_as_invalid_json(tmp_path):
     payload = convert_scenario(template, out.read_text(encoding="utf-8") + "\n" + scenario)
     json.dumps(payload, allow_nan=False)          # strict JSON, as the API and submit use
     by_uri = {p["uri"].rsplit("/", 1)[-1]: p.get("max") for p in payload["scenario_data"]["pump"]}
-    assert by_uri == {"P1": None, "P2": 40.0}
+    assert by_uri == {"P1": "inf", "P2": 40.0}
 
 
 def test_a_price_series_keeps_its_currency(tmp_path):
