@@ -38,6 +38,9 @@ LINK_KEY = "link"
 TEMPLATE_KEY = "template"
 LINK_NAMESPACE = "CL"
 IDENTITY_MEMBERS = ("uri", "label")  # grammar: matched without regard to case
+# A flow's two ends (``EnergyCarrierFlow.hasSource``): the components it links,
+# read by the converter as URIs. Links, not attributes: never required as one.
+FLOW_END_MEMBERS = ("hassource", "hasdestination")
 
 _LOCAL_NAME = r"[A-Za-z_][A-Za-z0-9_\-]*"
 _DOTTED = re.compile(rf"^{_LOCAL_NAME}(?:\.{_LOCAL_NAME})+$")
@@ -61,14 +64,22 @@ class Reference:
         return None
 
     @property
+    def flow_end(self) -> Optional[str]:
+        """``"hassource"`` / ``"hasdestination"`` for a flow's end, else None."""
+        if len(self.members) == 1 and self.members[0].lower() in FLOW_END_MEMBERS:
+            return self.members[0].lower()
+        return None
+
+    @property
     def attribute(self) -> Optional[str]:
-        """The attribute class the reference reads, None for an identity field."""
-        return None if self.identity else self.members[0]
+        """The attribute class the reference reads; None for an identity field
+        or a flow's end."""
+        return None if self.identity or self.flow_end else self.members[0]
 
     @property
     def attribute_ref(self) -> Optional[str]:
-        """``T.A`` for ``T.A`` and ``T.A.p``; None for an identity field."""
-        return None if self.identity else f"{self.owner}.{self.members[0]}"
+        """``T.A`` for ``T.A`` and ``T.A.p``; None for an identity field or a flow's end."""
+        return None if self.identity or self.flow_end else f"{self.owner}.{self.members[0]}"
 
 
 def _split(leaf: Any) -> Optional[list]:
@@ -167,6 +178,8 @@ def required_references(contract: Any) -> list:
     exempt = exempt_references(contract)
     seen: dict = {}
     for ref in iter_references(contract.get("scenario_data") or {}):
+        if ref.flow_end:
+            continue                     # a link of the flow, not an attribute it must hold
         if is_required(ref, exempt):
             seen.setdefault(ref.text, ref)
     return list(seen.values())
