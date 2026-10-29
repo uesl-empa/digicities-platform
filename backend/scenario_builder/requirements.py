@@ -26,6 +26,7 @@ from backend.service_requirements.contract import (
     TEMPLATE_KEY,
     exempt_references,
     parse_link,
+    leaf_reference,
     parse_reference,
     required_references,
 )
@@ -65,7 +66,7 @@ def extract_component_types_from_templates(yaml_content: dict) -> set[str]:
                         component_types.add(comp_type)
                 elif key == TEMPLATE_KEY and isinstance(value, dict):
                     for template_value in value.values():
-                        ref = parse_reference(template_value)
+                        ref = leaf_reference(template_value)
                         if ref is not None:
                             component_types.add(ref.owner)
                 elif isinstance(value, (dict, list)):

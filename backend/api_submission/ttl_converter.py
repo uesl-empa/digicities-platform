@@ -24,8 +24,10 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from backend.service_requirements.contract import (
-    NON_PAYLOAD_KEYS, is_reference, parse_link, parse_reference,
+    NON_PAYLOAD_KEYS, ValueSpec, leaf_reference, parse_link, parse_reference,
+    parse_value_spec, refusal_reason, refused,
 )
+from backend.unit_conversion import UnitRefused, convert, convert_cost, same_unit
 
 try:
     import rdflib
@@ -284,6 +286,11 @@ class RobustTTL2YAMLProcessor:
                 print(f"Dict keys: {list(value.keys())}")
 
         if isinstance(value, dict):
+            # A field that names its unit: the value, in that unit.
+            spec = parse_value_spec(value)
+            if spec is not None:
+                return self._value_in_unit(spec, context_component)
+
             # FIRST: Check for link specifications - this is a complete link structure
             if 'link' in value and 'template' in value:
                 if self.debug:
@@ -362,7 +369,7 @@ class RobustTTL2YAMLProcessor:
             return None
 
         for key, value in template_dict.items():
-            ref = parse_reference(value)
+            ref = leaf_reference(value)
             if ref is not None and self._instances_of(ref.owner):
                 return ref.owner
         return None
@@ -549,6 +556,67 @@ class RobustTTL2YAMLProcessor:
             return None
         return sorted(str(o) for p, o in self.g.predicate_objects(context)
                       if isinstance(o, URIRef) and is_subproperty_of(self.view, p, prop))
+
+    def _value_in_unit(self, spec: ValueSpec, context: Optional[URIRef]) -> Any:
+        """The value ``spec.ref`` reads, in the unit (and currency) the field
+        names. A value the platform cannot give in it is refused (``refused``),
+        never sent as a wrong number; an unresolved reference comes back as the
+        reference, like a plain field."""
+        ref = spec.ref
+        value = self._resolve_string_value(ref.text, context)
+        if value is None or value == ref.text or ref.identity or ref.flow_end:
+            return value
+        attr = self._find_attribute(context, ref.owner, ref.members[0])
+        if attr is None:
+            return value
+        try:
+            if len(ref.members) > 1:
+                self._check_series_unit(attr, spec)
+                return value
+            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+                raise UnitRefused("the value is not a number")
+            if isinstance(value, str):
+                if value in ("inf", "-inf"):
+                    self._converted(attr, spec, 1.0)   # no limit stays no limit, if the unit fits
+                    return value
+                raise UnitRefused("the value is not a number")
+            return self._converted(attr, spec, float(value))
+        except UnitRefused as exc:
+            return refused(f"{ref.text} of {self._extract_name(str(context))}: {exc}")
+
+    def _converted(self, attr: URIRef, spec: ValueSpec, value: float) -> float:
+        """``value`` of the attribute node ``attr`` in the field's unit."""
+        unit = self.g.value(attr, self.QUDT.unit)
+        kind = kind_of_node(self.view, attr)
+        if kind in (AttributeKind.UNIT_BASED_COST, AttributeKind.SIMPLE_COST):
+            out = convert_cost(value, str(unit) if unit is not None else None,
+                               self._currency(attr), spec.unit, spec.currency)
+        else:
+            if spec.currency:
+                raise UnitRefused(f"it is not a cost, so it has no currency to give in {spec.currency}")
+            out = convert(value, str(unit) if unit is not None else None, spec.unit)
+        return value if out == value else float(f"{out:.15g}")
+
+    def _currency(self, node: URIRef) -> Optional[str]:
+        cur = self.g.value(node, self.DICI.currency)
+        return str(cur) if cur is not None else None
+
+    def _check_series_unit(self, attr: URIRef, spec: ValueSpec) -> None:
+        """A series is sent as its file, which the platform does not rewrite:
+        it must already be in the field's unit."""
+        nodes = [attr] + [o for o in self.g.objects(attr, None)
+                          if isinstance(o, URIRef) and self._is_a(o, "TimeSeries")]
+        units = {str(u) for n in nodes for u in self.g.objects(n, self.QUDT.unit)}
+        if len(units) > 1:
+            raise UnitRefused(f"the series states more than one unit ({', '.join(sorted(units))})")
+        unit = next(iter(units), None)
+        if spec.unit and not same_unit(unit, spec.unit):
+            convert(1.0, unit, spec.unit)        # refuses a different kind of quantity first
+            raise UnitRefused(f"the series file is in {unit.rsplit('/', 1)[-1] if unit else 'no stated unit'}; "
+                              f"the platform does not rewrite files, so store it in {spec.unit}")
+        if spec.currency:
+            currencies = {c for n in nodes if (c := self._currency(n))}
+            convert_cost(1.0, None, next(iter(currencies), None), None, spec.currency)
 
     def _find_attribute(self, component: URIRef, comp_type: str, attr_name: str) -> Optional[URIRef]:
         """The component's attribute node for ``attr_name``, or None.
@@ -767,8 +835,10 @@ def _element_template(t: Any) -> Any:
 
 def _is_unresolved_placeholder(value: str, t: Any) -> bool:
     """True when ``value`` is the template's reference at the same position,
-    handed back unresolved (a resolved value never equals its reference)."""
-    return isinstance(t, str) and value == t and is_reference(t)
+    handed back unresolved (a resolved value never equals its reference).
+    ``t`` is a plain reference or a value spec (``{ref: T.A, unit: ...}``)."""
+    ref = leaf_reference(t)
+    return isinstance(value, str) and ref is not None and value == ref.text
 
 
 def clean_placeholder_values(data: Any, template: Any) -> Any:
@@ -779,7 +849,11 @@ def clean_placeholder_values(data: Any, template: Any) -> Any:
     component has no such value. Any other string is data and is kept, whatever
     it contains (free text with ``.URI`` in it, a dotted product name, ...).
     The template is required: without it nothing tells a reference from data.
+    A value the converter refused for its unit is removed too (validation has
+    reported it by then).
     """
+    if refusal_reason(data) is not None:
+        return None
     if isinstance(data, dict):
         cleaned = {}
         for key, value in data.items():
@@ -827,8 +901,20 @@ def convert_scenario(template: Dict, ttl_text: str, *, clean: bool = True,
     processor = RobustTTL2YAMLProcessor(ontology_graph=ontology_graph)
     payload = processor.process(template, ttl_text, is_ttl_file=False, debug=debug)
     if clean:
+        # Cleaning drops a value refused for its unit; say so, it is not sent.
+        for reason in unit_refusals(payload):
+            print(f"[ttl_converter] not sent, unit: {reason}")
         payload = clean_placeholder_values(payload, template) or {}
     return payload
+
+
+def unit_refusals(data: Any) -> List[str]:
+    """Why each value in a raw payload was refused for its unit."""
+    reason = refusal_reason(data)
+    if reason is not None:
+        return [reason]
+    items = data.values() if isinstance(data, dict) else data if isinstance(data, list) else ()
+    return [r for item in items for r in unit_refusals(item)]
 
 
 def _main(argv=None) -> int:
