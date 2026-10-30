@@ -42,25 +42,35 @@ def _rows_to_links(result) -> list[dict[str, Any]]:
 
 
 def discover_component_links(client) -> list[dict[str, Any]]:
-    """Physical component links from the graph, best query first.
+    """Component links from the graph, every kind at once.
 
-    Same fallback chain as the Streamlit loader: direct place links (located
-    in / at, ``LOCATION_PREDICATES``), then ``linksComponent`` subproperty
-    reasoning, then the broad relationship sweep. Each step is tried only when
-    the previous found nothing. Every link carries the predicate it was found by."""
-    for query in (
-        gq_sysdesc.query_direct_located_in,
-        gq_sysdesc.query_links_with_subproperty,
-        gq_sysdesc.query_all_component_relationships,
+    The place links (located in / at, ``LOCATION_PREDICATES``) and every other
+    ``linksComponent`` subproperty (a flow's ``hasSource`` / ``hasDestination``,
+    its carrier) are read together: a workspace with sites nearly always has
+    place links, and stopping at them hid every other link. The broad
+    relationship sweep is the fallback when neither finds anything. Every link
+    carries the predicate it was found by."""
+    links: list[dict[str, Any]] = []
+    seen: set[tuple] = set()
+    for queries in (
+        (gq_sysdesc.query_direct_located_in, gq_sysdesc.query_links_with_subproperty),
+        (gq_sysdesc.query_all_component_relationships,),
     ):
-        try:
-            result = query(client)
-        except Exception:
-            continue
-        if result is not None and not result.empty:
-            links = _rows_to_links(result)
-            if links:
-                return links
+        for query in queries:
+            try:
+                result = query(client)
+            except Exception:
+                continue
+            if result is None or result.empty:
+                continue
+            for link in _rows_to_links(result):
+                key = (link["source_uri"], link["source_type"], link["link_property"],
+                       link["target_uri"], link["target_type"])
+                if key not in seen:
+                    seen.add(key)
+                    links.append(link)
+        if links:
+            return links
     return []
 
 
@@ -70,8 +80,8 @@ def match_links_to_requirements(
     """Discovered links per ``CL.Source.Target`` requirement they can fulfil.
 
     Each match is oriented to the requirement (``suggested_source`` /
-    ``suggested_target``): place links run child→parent, so the reversed
-    direction is checked first, exactly like the Streamlit loader."""
+    ``suggested_target``): a link is offered whichever way it is stored (place
+    links run child→parent, a ``CL.Parent.Child`` requirement the other way)."""
     matched: dict[str, list[dict[str, Any]]] = {}
     for pattern in requirements:
         parts = pattern.split(".")
@@ -79,17 +89,34 @@ def match_links_to_requirements(
             continue
         source_type, target_type = parts[1], parts[2]
 
-        matches = [
+        forward = [
+            {**link, "suggested_source": link["source_uri"], "suggested_target": link["target_uri"]}
+            for link in discovered_links
+            if link["source_type"] == source_type and link["target_type"] == target_type
+        ]
+        reversed_ = [
             {**link, "suggested_source": link["target_uri"], "suggested_target": link["source_uri"]}
             for link in discovered_links
             if link["source_type"] == target_type and link["target_type"] == source_type
         ]
-        if not matches:
-            matches = [
-                {**link, "suggested_source": link["source_uri"], "suggested_target": link["target_uri"]}
-                for link in discovered_links
-                if link["source_type"] == source_type and link["target_type"] == target_type
-            ]
+        matches = _one_per_pair(forward + reversed_, len(forward))
         if matches:
             matched[pattern] = matches
     return matched
+
+
+def _one_per_pair(matches: list[dict[str, Any]], n_forward: int) -> list[dict[str, Any]]:
+    """One suggestion per source and target. A pair is often found by its own
+    predicate, by its inverse and by ``linksComponent`` above both: a named
+    predicate wins over ``linksComponent``, then the one running the
+    requirement's way (the first ``n_forward``) over its inverse."""
+    def rank(i: int, m: dict[str, Any]) -> tuple[int, int]:
+        return (m["link_property"] == "linksComponent", i >= n_forward)
+
+    best: dict[tuple[str, str], tuple[tuple[int, int], dict[str, Any]]] = {}
+    for i, m in enumerate(matches):
+        pair = (m["suggested_source"], m["suggested_target"])
+        r = rank(i, m)
+        if pair not in best or r < best[pair][0]:
+            best[pair] = (r, m)
+    return [m for _, m in best.values()]
