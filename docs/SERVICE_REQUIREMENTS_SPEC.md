@@ -199,8 +199,9 @@ The value depends on the attribute's kind, read from the hierarchy:
 | Curve | `{"points": [[x, y], ...], "x_unit": ..., "y_unit": ...}` from `dici_onto:hasDataPoints` |
 | Event | the temporal value, rewritten as `01-01-<year>` when it holds a year (see issue 7) |
 
-Units are not sent, except a curve's axis units. A field that needs its value in a
-given unit says so (section 4.6); the platform then converts.
+Each value's unit is sent beside it, in the payload's `units` block (section 4.7); a
+curve's axis units are in the curve. A field that needs its value in a given unit says
+so (section 4.6); the platform then converts.
 
 **Source:** `ttl_converter.py` `_find_attribute`, `_extract_attribute_value`,
 `_category_value`, `_convert_literal`; `backend/ontology_kinds.py` (`kind_of_node`).
@@ -267,7 +268,7 @@ The value is **refused**, with the reason, when:
 
 A refused value is never sent. Payload validation reports it as an error, or a
 warning for an optional field (section 10.3). A field without `unit` sends the value
-as held, in whatever unit that is.
+as held, in whatever unit that is; the `units` block says which (section 4.7).
 
 **Source:** `contract.py` `parse_value_spec`, `refused`; `ttl_converter.py`
 `_value_in_unit`, `_converted`, `_check_series_unit`; `backend/unit_conversion.py`.
@@ -275,6 +276,52 @@ as held, in whatever unit that is.
 **Not covered:** the Service Requirements Builder UI reads a value spec's attribute
 but writes plain references back, so saving a contract from the builder drops its
 units.
+
+### 4.7 Units in the payload
+
+The payload carries the unit of every value the data states one for. The values keep
+the contract's shape and stay plain numbers and strings; a top-level `units` block of
+the same shape gives each value's unit. What the service does with them is up to the
+service.
+
+```json
+{
+  "service_name": "ehubx",
+  "scenario_data": {
+    "flows": [
+      {"uri": "...", "Price": 0.12, "Demand": "resources/heat.csv"},
+      {"uri": "...", "Efficiency": 0.9}
+    ]
+  },
+  "units": {
+    "scenario_data": {
+      "flows": [
+        {"Price": {"per": "KiloW-HR", "currency": "CHF"}, "Demand": "KiloW"},
+        {"Efficiency": "UNITLESS"}
+      ]
+    }
+  }
+}
+```
+
+- A unit is a QUDT code (`KiloW`). A cost, or anything with a currency, is
+  `{"per": <QUDT code>, "currency": <QUDT currency code>}`, each part only when the
+  data states it.
+- A field that names its unit (section 4.6) gives the unit the value was sent in.
+- A series reference (section 4.4) gives the unit of its series: its series node's
+  `qudt:unit`, else the attribute's.
+- A dict in `units` holds only the keys with a unit below them. A list keeps every
+  position of the list it mirrors, `null` where an element has no unit.
+- A value whose data states no unit, or more than one, has none. An identity, a
+  link end, a category, a date and a curve have none.
+- No value has a unit: there is no `units` block.
+
+A contract with `units_in_payload: false` is sent no `units` block. A contract whose
+own payload has a top-level `units` key keeps it, and is sent no block either.
+
+**Source:** `ttl_converter.py` `_get_attribute_value`, `_get_nested_attribute`,
+`_stated_unit`, `_unit_sent`, `split_units`, `finish_payload`; `contract.py`
+`UNITS_KEY`, `UNITS_IN_PAYLOAD_KEY`.
 
 ## 5. Blocks and links
 
@@ -502,11 +549,12 @@ a child's `label` field.
 A field whose reference does not resolve is left out of the payload. A block that
 ends up empty is left out. Lists stay, possibly empty.
 
-`service_name` and `description` are copied into the payload. `connection` and the
-control lists (`optional_attributes`, `derived_attributes`, `required_attributes`)
-describe the contract and are never sent.
+`service_name` and `description` are copied into the payload. `connection`,
+`units_in_payload` and the control lists (`optional_attributes`, `derived_attributes`,
+`required_attributes`) describe the contract and are never sent. A value left out has
+no unit in the `units` block (section 4.7).
 
-**Source:** `ttl_converter.py` (`process`, `clean_placeholder_values`).
+**Source:** `ttl_converter.py` (`process`, `clean_placeholder_values`, `finish_payload`).
 
 ## 10. Checks: what they guarantee, and what they do not
 

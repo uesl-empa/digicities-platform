@@ -19,6 +19,10 @@ so they cannot disagree about what a contract asks for.
   currency: CHF}`` (the unit is what the cost is per). Units are QUDT codes. The
   converter sends the value in that unit (``backend.unit_conversion``); its
   ``ref`` is a reference like any other.
+* **Units in the payload**: the payload carries the unit of every value the
+  data states one for, in a top-level ``units`` block that mirrors it; what the
+  service does with them is up to the service. ``units_in_payload: false``
+  leaves the block out.
 * **Required unless listed optional** (James, 2026-10-10): every reference in
   ``scenario_data`` is required unless it, or the attribute it reads
   (``T.A`` for ``T.A.p``), is listed under ``optional_attributes`` or
@@ -36,8 +40,13 @@ OPTIONAL_KEY = "optional_attributes"
 DERIVED_KEY = "derived_attributes"
 REQUIRED_KEY = "required_attributes"  # deprecated, see module docstring
 CONTROL_KEYS = (OPTIONAL_KEY, DERIVED_KEY, REQUIRED_KEY)
+# A registration that says ``units_in_payload: false`` is sent its values
+# without the ``units`` block (docs/SERVICE_REQUIREMENTS_SPEC.md section 4.7).
+UNITS_IN_PAYLOAD_KEY = "units_in_payload"
+# The payload's top-level key that gives the unit of every value it holds.
+UNITS_KEY = "units"
 # Top-level keys that describe the contract and never reach the payload.
-NON_PAYLOAD_KEYS = ("connection",) + CONTROL_KEYS
+NON_PAYLOAD_KEYS = ("connection", UNITS_IN_PAYLOAD_KEY) + CONTROL_KEYS
 
 LINK_KEY = "link"
 TEMPLATE_KEY = "template"

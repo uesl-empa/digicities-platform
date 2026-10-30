@@ -24,10 +24,11 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from backend.service_requirements.contract import (
-    NON_PAYLOAD_KEYS, ValueSpec, leaf_reference, parse_link, parse_reference,
-    parse_value_spec, refusal_reason, refused,
+    NON_PAYLOAD_KEYS, UNITS_IN_PAYLOAD_KEY, UNITS_KEY, ValueSpec, leaf_reference,
+    parse_link, parse_reference, parse_value_spec, refusal_reason, refused,
 )
 from backend.unit_conversion import UnitRefused, convert, convert_cost, same_unit
+from backend.units import unit_local_name
 
 try:
     import rdflib
@@ -49,6 +50,50 @@ yaml.add_representer(
     OrderedDict,
     lambda dumper, data: dumper.represent_mapping("tag:yaml.org,2002:map", data.items()),
 )
+
+
+# A value read from the data carries the unit it is in until the payload is
+# finished (``finish_payload``), which moves every unit into the ``units`` block.
+# The value is still a number or a string, so validation, cleaning and JSON see
+# it as one.
+class _FloatWithUnit(float):
+    unit: Any = None
+
+
+class _IntWithUnit(int):
+    unit: Any = None
+
+
+class _StrWithUnit(str):
+    unit: Any = None
+
+
+_WITH_UNIT = (_FloatWithUnit, _IntWithUnit, _StrWithUnit)
+_PLAIN = {_FloatWithUnit: float, _IntWithUnit: int, _StrWithUnit: str}
+
+for _cls, _plain in _PLAIN.items():
+    for _dumper in (yaml.Dumper, yaml.SafeDumper):
+        yaml.add_representer(_cls, lambda d, v, p=_plain: d.represent_data(p(v)), Dumper=_dumper)
+
+
+def _with_unit(value: Any, unit: Any) -> Any:
+    """``value`` carrying ``unit`` (a QUDT code, or for a cost
+    ``{"per": ..., "currency": ...}``). A value with no unit, a flag or a list
+    is returned as it is."""
+    if not unit or isinstance(value, bool):
+        return value
+    for base, cls in ((float, _FloatWithUnit), (int, _IntWithUnit), (str, _StrWithUnit)):
+        if isinstance(value, base):
+            out = cls(_PLAIN.get(type(value), base)(value))
+            out.unit = unit
+            return out
+    return value
+
+
+def _code(iri: Any) -> str:
+    """The code of a QUDT unit or currency IRI (``KiloW``, ``CHF``), '' for none.
+    A legacy ``iso4217:CHF`` currency gives ``CHF`` too."""
+    return unit_local_name(str(iri)).rsplit(":", 1)[-1] if iri is not None else ""
 
 
 def preprocess_ttl_content(ttl_content: str) -> str:
@@ -572,17 +617,53 @@ class RobustTTL2YAMLProcessor:
         try:
             if len(ref.members) > 1:
                 self._check_series_unit(attr, spec)
-                return value
+                return _with_unit(value, self._unit_sent(spec, value))
             if isinstance(value, bool) or not isinstance(value, (int, float, str)):
                 raise UnitRefused("the value is not a number")
             if isinstance(value, str):
                 if value in ("inf", "-inf"):
                     self._converted(attr, spec, 1.0)   # no limit stays no limit, if the unit fits
-                    return value
+                    return _with_unit(value, self._unit_sent(spec, value))
                 raise UnitRefused("the value is not a number")
-            return self._converted(attr, spec, float(value))
+            return _with_unit(self._converted(attr, spec, float(value)), self._unit_sent(spec, value))
         except UnitRefused as exc:
             return refused(f"{ref.text} of {self._extract_name(str(context))}: {exc}")
+
+    @staticmethod
+    def _unit_sent(spec: ValueSpec, value: Any) -> Any:
+        """The unit a value is sent in when its field names one: the field's
+        unit and currency, the rest as the data states it."""
+        held = getattr(value, "unit", None)
+        if isinstance(held, dict) or spec.currency:
+            out = dict(held) if isinstance(held, dict) else {}
+            if spec.unit:
+                out["per"] = unit_local_name(spec.unit)
+            if spec.currency:
+                out["currency"] = spec.currency
+            return out
+        return unit_local_name(spec.unit) if spec.unit else held
+
+    def _stated_unit(self, nodes: List[URIRef], cost: bool) -> Any:
+        """The unit the data states for a value held on ``nodes`` (an attribute
+        node, and a series' own nodes): a QUDT code (``KiloW``); for a cost, or
+        anything with a currency, ``{"per": KiloW-HR, "currency": CHF}``. None
+        when the data states none, or more than one."""
+        units = {_code(u) for n in nodes for u in self.g.objects(n, self.QUDT.unit)} - {""}
+        currencies = {c for n in nodes if (c := _code(self._currency(n)))}
+        unit = next(iter(units)) if len(units) == 1 else None
+        if cost or currencies:
+            out = {}
+            if unit:
+                out["per"] = unit
+            if len(currencies) == 1:
+                out["currency"] = next(iter(currencies))
+            return out or None
+        return unit
+
+    def _series_nodes(self, attr: URIRef) -> List[URIRef]:
+        """The attribute node and the series nodes it holds its series on."""
+        return [attr] + [o for o in self.g.objects(attr, None)
+                         if isinstance(o, URIRef) and self._is_a(o, "TimeSeries")]
 
     def _converted(self, attr: URIRef, spec: ValueSpec, value: float) -> float:
         """``value`` of the attribute node ``attr`` in the field's unit."""
@@ -604,8 +685,7 @@ class RobustTTL2YAMLProcessor:
     def _check_series_unit(self, attr: URIRef, spec: ValueSpec) -> None:
         """A series is sent as its file, which the platform does not rewrite:
         it must already be in the field's unit."""
-        nodes = [attr] + [o for o in self.g.objects(attr, None)
-                          if isinstance(o, URIRef) and self._is_a(o, "TimeSeries")]
+        nodes = self._series_nodes(attr)
         units = {str(u) for n in nodes for u in self.g.objects(n, self.QUDT.unit)}
         if len(units) > 1:
             raise UnitRefused(f"the series states more than one unit ({', '.join(sorted(units))})")
@@ -650,7 +730,13 @@ class RobustTTL2YAMLProcessor:
         attr = self._find_attribute(component, comp_type, attr_name)
         if attr is None:
             return None
-        return self._extract_attribute_value(attr, attr_name)
+        value = self._extract_attribute_value(attr, attr_name)
+        # A category, a date or a curve (its axis units are in it) has no unit of its own.
+        kind = kind_of_node(self.view, attr)
+        if kind in (AttributeKind.CATEGORICAL, AttributeKind.EVENT, AttributeKind.CURVE):
+            return value
+        return _with_unit(value, self._stated_unit(
+            [attr], kind in (AttributeKind.UNIT_BASED_COST, AttributeKind.SIMPLE_COST)))
 
     def _get_nested_attribute(self, component: URIRef, comp_type: str, attr_path: List[str]) -> Any:
         """Get nested attribute value."""
@@ -670,7 +756,11 @@ class RobustTTL2YAMLProcessor:
             return None
         for pred, ref in self.g.predicate_objects(attr_uri):
             if is_subproperty_of(self.view, pred, prop):
-                return str(ref)
+                # The series' unit: on its series node, or on the attribute.
+                kind = kind_of_node(self.view, attr_uri)
+                return _with_unit(str(ref), self._stated_unit(
+                    self._series_nodes(attr_uri),
+                    kind in (AttributeKind.UNIT_BASED_COST, AttributeKind.SIMPLE_COST)))
         return None
 
     def _category_value(self, attr_uri: URIRef, attr_name: Optional[str]) -> Optional[str]:
@@ -884,6 +974,49 @@ def clean_placeholder_values(data: Any, template: Any) -> Any:
         return data
 
 
+def split_units(data: Any) -> tuple:
+    """``(values, units)``: the payload with plain values, and a tree of the
+    same shape holding the unit of every value that has one. A dict keeps only
+    the keys that have a unit below them; a list keeps every position, ``None``
+    where an element has none. ``units`` is None when nothing has a unit."""
+    if isinstance(data, dict):
+        values, units = type(data)(), OrderedDict()
+        for key, value in data.items():
+            values[key], unit = split_units(value)
+            if unit is not None:
+                units[key] = unit
+        return values, (units or None)
+    if isinstance(data, list):
+        pairs = [split_units(item) for item in data]
+        units = [unit for _, unit in pairs]
+        return [value for value, _ in pairs], (units if any(u is not None for u in units) else None)
+    if isinstance(data, _WITH_UNIT):
+        return _PLAIN[type(data)](data), data.unit
+    return data, None
+
+
+def finish_payload(raw: Any, template: Any) -> Dict:
+    """The payload a service is sent, from the converter's raw output.
+
+    Unresolved references and values refused for their unit are removed
+    (``clean_placeholder_values``). Every value keeps the tool's own shape and is
+    a plain number or string; the unit the data states for it is given beside
+    it, in a top-level ``units`` block of the same shape (spec section 4.7).
+    What the service does with the units is up to the service. A registration
+    with ``units_in_payload: false`` is sent no ``units`` block; nor is one whose
+    own payload has a top-level ``units`` key, which is the tool's."""
+    values, units = split_units(clean_placeholder_values(raw, template) or {})
+    if not isinstance(values, dict):
+        return values
+    wanted = not (isinstance(template, dict) and template.get(UNITS_IN_PAYLOAD_KEY) is False)
+    if units and wanted:
+        if UNITS_KEY in values:
+            print(f"[ttl_converter] no '{UNITS_KEY}' block: the payload has a '{UNITS_KEY}' key of its own")
+        else:
+            values[UNITS_KEY] = units
+    return values
+
+
 # --------------------------------------------------------------------------- #
 # Convenience API + CLI
 # --------------------------------------------------------------------------- #
@@ -893,8 +1026,11 @@ def convert_scenario(template: Dict, ttl_text: str, *, clean: bool = True,
     """Convert a scenario TTL string to a service payload dict.
 
     ``template`` is the full service template (service_name / description /
-    scenario_data), the same dict the Convert tab feeds the processor. Set
-    ``clean=False`` to keep unresolved placeholders instead of dropping them.
+    scenario_data), the same dict the Convert tab feeds the processor. With
+    ``clean`` (the default) the result is the payload a service is sent
+    (``finish_payload``: references dropped, the ``units`` block added). Set
+    ``clean=False`` for the raw output, unresolved placeholders kept, which is
+    what validation reads; pass it to ``finish_payload`` afterwards.
     ``ontology_graph`` is the workspace schema (core + extension), when the
     caller has it; the vendored core is always used.
     """
@@ -904,7 +1040,7 @@ def convert_scenario(template: Dict, ttl_text: str, *, clean: bool = True,
         # Cleaning drops a value refused for its unit; say so, it is not sent.
         for reason in unit_refusals(payload):
             print(f"[ttl_converter] not sent, unit: {reason}")
-        payload = clean_placeholder_values(payload, template) or {}
+        payload = finish_payload(payload, template)
     return payload
 
 
