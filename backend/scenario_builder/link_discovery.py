@@ -111,7 +111,7 @@ def _one_per_pair(matches: list[dict[str, Any]], n_forward: int) -> list[dict[st
     predicate wins over ``linksComponent``, then the one running the
     requirement's way (the first ``n_forward``) over its inverse."""
     def rank(i: int, m: dict[str, Any]) -> tuple[int, int]:
-        return (m["link_property"] == "linksComponent", i >= n_forward)
+        return (m["link_property"] == "linksComponent", i >= n_forward)  # debt-ok: ranks one known predicate by its identity; nothing about what it is comes from the name
 
     best: dict[tuple[str, str], tuple[tuple[int, int], dict[str, Any]]] = {}
     for i, m in enumerate(matches):
