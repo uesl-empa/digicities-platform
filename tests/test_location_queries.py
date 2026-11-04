@@ -70,3 +70,46 @@ def test_the_link_property_offer_is_the_cores_link_tree():
     from backend.replica_builder.model import DEFAULT_LINK_PROPERTIES
     assert {"locatedIn", "locationContains", "hasLocation", "partOf"} <= set(DEFAULT_LINK_PROPERTIES)
     assert "connectedTo" not in DEFAULT_LINK_PROPERTIES       # not a core term
+
+
+FLOWS = f"""
+@prefix d: <https://digicities.info/ontology#> .
+<{P}Location/H1> a d:Location .
+<{P}Junction/H1_gas> a d:Junction ; d:locatedAt <{P}Location/H1> .
+<{P}EnergyCarrier/gas> a d:EnergyCarrier .
+<{P}Network/supply> a d:Network .
+<{P}EnergyCarrierFlow/buy> a d:EnergyCarrierFlow ;
+    d:hasSource <{P}Network/supply> ; d:hasDestination <{P}Junction/H1_gas> ;
+    d:linksComponent <{P}EnergyCarrier/gas> .
+"""
+
+
+def _flow_store():
+    store = _Store()
+    ca = store.ds.graph(rdflib.URIRef(CLASSES_AND_ATTRIBUTES_GRAPH))
+    ca.remove((None, None, None))
+    ca.parse(data=FLOWS, format="turtle")
+    return store
+
+
+def test_place_links_do_not_hide_a_flows_ends_and_carrier():
+    """A workspace with sites has place links; the flows' own links used to be
+    read only when there were none, so the Scenario Builder never offered them."""
+    found = {(lk["source_label"], lk["link_property"], lk["target_label"])
+             for lk in discover_component_links(_flow_store())}
+    assert {("H1_gas", "locatedAt", "H1"), ("buy", "hasSource", "supply"),
+            ("buy", "hasDestination", "H1_gas"), ("buy", "linksComponent", "gas")} <= found
+
+
+def test_a_flow_requirement_is_offered_once_per_pair():
+    from backend.scenario_builder.link_discovery import match_links_to_requirements
+    matched = match_links_to_requirements(
+        discover_component_links(_flow_store()),
+        ["CL.EnergyCarrierFlow.Network", "CL.EnergyCarrierFlow.Junction",
+         "CL.EnergyCarrierFlow.EnergyCarrier", "CL.Junction.Location"])
+    pairs = {pat: [(m["suggested_source"].rsplit("/", 1)[-1], m["suggested_target"].rsplit("/", 1)[-1],
+                    m["link_property"]) for m in ms] for pat, ms in matched.items()}
+    assert pairs["CL.EnergyCarrierFlow.Network"] == [("buy", "supply", "hasSource")]
+    assert pairs["CL.EnergyCarrierFlow.Junction"] == [("buy", "H1_gas", "hasDestination")]
+    assert pairs["CL.EnergyCarrierFlow.EnergyCarrier"] == [("buy", "gas", "linksComponent")]
+    assert [p[:2] for p in pairs["CL.Junction.Location"]] == [("H1_gas", "H1")]
