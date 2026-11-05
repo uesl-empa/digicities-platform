@@ -173,19 +173,13 @@ It runs on open-source solvers, with no commercial licence needed. The flexibili
 4. The result view shows what the service returned. With the flexibility app it also links
    to **Open dashboard**, **Download results (JSON)** and **Results (JSON API)**.
 
-**Live weather (optional).** A scenario can point a location at a live weather feed. In
-the graph, the stream address (e.g. `forecasts.met-no.VIENNA`) is the live time-series
-reference of the location's weather attribute (`Location.WeatherEPW.hasLiveTimeSeriesReference`);
-the optimiser's payload receives it as `weather_stream`. If that Redis stream (published by the
-weather-feed stack's data-crawler) has data, the optimiser uses live temperatures; otherwise it
-falls back to static archetype weather. The response tells you which via `weather_source`
-(`live`/`static`) and a `weather_detail` note. To try it without the crawler, seed the
-stream once:
-
-```bash
-docker exec -i <weather-redis> redis-cli XADD forecasts.met-no.VIENNA "*" \
-  air_temperature_2m "[1,0,-1,-1,0,2,4,6,8,10,11,12,12,11,10,8,6,4,3,2,1,1,0,0]"
-```
+**Live weather.** A scenario can point a location at a live weather feed. In the graph, the
+stream address (e.g. `weather.forecasts.openmeteo.Alkmaar`) is the live time-series reference
+of the location's weather attribute (`Location.WeatherEPW.hasLiveTimeSeriesReference`); the
+optimiser's payload receives it as `weather_stream`. If that Redis stream (published by the
+service's data crawler) has a forecast, the optimiser plans the coming 24 hours from it, by its
+timestamps; otherwise it plans a representative day from static archetype weather. The response
+tells you which via `weather_source` (`live`/`static`) and a `weather_detail` note.
 
 ## 7. How the repositories fit together
 

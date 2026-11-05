@@ -32,7 +32,7 @@ scenario_data:
     uri: Location.URI
     weather_location: Location.WeatherEPW
     # Optional address of a live weather feed (a Redis stream the RDP
-    # data-crawler publishes, e.g. forecasts.met-no.VIENNA). When present the
+    # data-crawler publishes, e.g. weather.forecasts.openmeteo.Alkmaar). When present the
     # optimizer reads live temperature from it; weather_location still selects
     # the static file used for solar irradiance.
     weather_stream: Location.WeatherEPW.hasLiveTimeSeriesReference
