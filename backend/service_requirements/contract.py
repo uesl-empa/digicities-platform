@@ -19,6 +19,10 @@ so they cannot disagree about what a contract asks for.
   currency: CHF}`` (the unit is what the cost is per). Units are QUDT codes. The
   converter sends the value in that unit (``backend.unit_conversion``); its
   ``ref`` is a reference like any other.
+* **Outputs** (``outputs``, optional): what the service returns, and which input
+  component each result belongs to. Describes the contract and is never sent.
+  A contract without the block means the same as before: what comes back is
+  undeclared. See :func:`parse_outputs`.
 * **Required unless listed optional** (James, 2026-10-10): every reference in
   ``scenario_data`` is required unless it, or the attribute it reads
   (``T.A`` for ``T.A.p``), is listed under ``optional_attributes`` or
@@ -37,7 +41,10 @@ DERIVED_KEY = "derived_attributes"
 REQUIRED_KEY = "required_attributes"  # deprecated, see module docstring
 CONTROL_KEYS = (OPTIONAL_KEY, DERIVED_KEY, REQUIRED_KEY)
 # Top-level keys that describe the contract and never reach the payload.
-NON_PAYLOAD_KEYS = ("connection",) + CONTROL_KEYS
+OUTPUTS_KEY = "outputs"
+NON_PAYLOAD_KEYS = ("connection", OUTPUTS_KEY) + CONTROL_KEYS
+# An output of the whole run, not of one component in it.
+SCENARIO_CLASS = "Scenario"
 
 LINK_KEY = "link"
 TEMPLATE_KEY = "template"
@@ -247,3 +254,96 @@ def required_references(contract: Any) -> list:
         if is_required(ref, exempt):
             seen.setdefault(ref.text, ref)
     return list(seen.values())
+
+
+@dataclass(frozen=True)
+class OutputAttribute:
+    """One thing a service returns: its attribute class, the name the service gives
+    it, and the unit (a QUDT code) and currency it comes back in."""
+    attribute: str
+    field: Optional[str] = None
+    unit: Optional[str] = None
+    currency: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class OutputBlock:
+    """What a service returns for one input component: one value per instance of
+    ``component`` (``Building``, or ``Location`` for a whole region), or for the
+    whole run (``Scenario``). ``stream`` is where it is published, absent when it
+    comes back in the response. ``identified_by`` is the result field that names
+    the instance."""
+    component: str
+    attributes: tuple = ()
+    stream: Optional[str] = None
+    identified_by: Optional[str] = None
+
+
+def parse_outputs(contract: Any) -> list:
+    """The contract's ``outputs`` block as :class:`OutputBlock` s. A contract without
+    one has none. ``attributes`` has the grammar of the request: the service's field
+    on the left, and on the right a reference or a value spec. What cannot be read
+    is left out, and named by :func:`output_problems`."""
+    blocks = contract.get(OUTPUTS_KEY) if isinstance(contract, dict) else None
+    out = []
+    for block in blocks if isinstance(blocks, list) else []:
+        if not isinstance(block, dict) or not isinstance(block.get("component"), str):
+            continue
+        fields = block.get("attributes")
+        attrs = []
+        for field, node in fields.items() if isinstance(fields, dict) else ():
+            ref = leaf_reference(node)
+            if ref is None:
+                continue
+            spec = parse_value_spec(node)
+            attrs.append(OutputAttribute(ref.members[0], str(field), spec.unit if spec else None,
+                                         spec.currency if spec else None))
+        out.append(OutputBlock(block["component"], tuple(attrs), block.get("stream"),
+                               block.get("identified_by")))
+    return out
+
+
+def request_classes(contract: Any) -> set:
+    """The classes a contract's request reads, whose results it can therefore link
+    to. The scenario always counts: it is the run itself."""
+    data = contract.get("scenario_data") if isinstance(contract, dict) else None
+    return {ref.owner for ref in iter_references(data)} | {SCENARIO_CLASS}
+
+
+def output_problems(contract: Any) -> list:
+    """What is wrong with a contract's ``outputs`` block, in words. Empty when it is
+    fine or absent. A result must belong to an input component of the request:
+    otherwise nothing can say which thing it describes."""
+    if not isinstance(contract, dict) or OUTPUTS_KEY not in contract:
+        return []
+    blocks = contract[OUTPUTS_KEY]
+    if not isinstance(blocks, list):
+        return [f"`{OUTPUTS_KEY}` must be a list of blocks"]
+    known = request_classes(contract)
+    problems = []
+    for i, block in enumerate(blocks, start=1):
+        if not isinstance(block, dict):
+            problems.append(f"{OUTPUTS_KEY} block {i} is not a block")
+            continue
+        component = block.get("component")
+        if not isinstance(component, str) or not component:
+            problems.append(f"{OUTPUTS_KEY} block {i} does not say which input component "
+                            "its results belong to (`component`)")
+        elif component not in known:
+            problems.append(f"{OUTPUTS_KEY} block {i}: `{component}` is not an input of this "
+                            f"service, so its results link to nothing. The inputs are: "
+                            f"{', '.join(sorted(known))}")
+        fields = block.get("attributes")
+        if not isinstance(fields, dict) or not fields:
+            problems.append(f"{OUTPUTS_KEY} block {i} does not say what comes back: `attributes` "
+                            "maps each result field to a reference, as in the request")
+            continue
+        for field, node in fields.items():
+            ref = leaf_reference(node)
+            if ref is None:
+                problems.append(f"{OUTPUTS_KEY} block {i}: `{field}` names no reference "
+                                f"(`T.A`, or `{{ref: T.A, unit: ...}}`): {node!r}")
+            elif ref.owner != component:
+                problems.append(f"{OUTPUTS_KEY} block {i}: `{field}` reads `{ref.text}`, but the block's "
+                                f"results belong to `{component}`")
+    return problems

@@ -146,31 +146,32 @@ That's the whole shape of the platform: replica → scenario → convert → sub
 ## 6. Pipeline 2 - Flexibility optimiser (with a dashboard + live weather)
 
 This shows the same flow against a richer external service: a battery/flexibility
-optimiser that returns an interactive **dashboard**, a downloadable results JSON, and can
-run on **live weather**. The optimiser is a separate app (the flexibility-prototype),
-optionally fed live weather from an external weather-feed stack.
+optimiser that can run on **live weather**. It runs as a service on the RDP stack, which
+also plans its buildings on a timer and shows the schedules in Grafana.
 
-**Start the flexibility app** (in a sibling checkout):
+**Start the runtime service** (in a sibling checkout of the RDP repository):
 
 ```bash
-git clone <flexibility-prototype-repo> flexibility-prototype
-cd flexibility-prototype
-docker compose up -d --build      # serves on http://localhost:8001
+cd flexibility-service
+cp .env.example .env            # and set your own values
+touch flexibility-optimizer/model.env
+docker compose --env-file .env -f docker-compose.yml -f docker-compose.local.yml up -d --build
 ```
 
-It runs on an open-source solver (SCIP) - no commercial licence needed.
+It runs on open-source solvers, with no commercial licence needed. The flexibility app
+(the flexibility-prototype, on `:8001`) is the alternative when you want its dashboard.
 
 **In Digicities:**
 
 1. **Open a flexibility workspace** (one mounted via `USECASES_HOST_PATH`, or copy a
    flexibility `services/` + `scenarios/` set into any workspace).
 2. **API Configuration** - the **`FlexibilityOptimizer`** service auto-registers, pointing
-   at the flexibility app (`http://host.docker.internal:8001/api/digicities/run`). To use
-   a pure Redis-stream optimiser instead, set `FLEX_SERVICE_URL=http://host.docker.internal:8090/run`.
+   at the runtime service's adapter (`http://host.docker.internal:8090/run`). To use the
+   flexibility app and its dashboard instead, set
+   `FLEX_SERVICE_URL=http://host.docker.internal:8001/api/digicities/run`.
 3. **Convert** a flexibility scenario, then **Submit**.
-4. The result view shows links for whatever the service returned - **Open dashboard**,
-   **Download results (JSON)**, **Results (JSON API)**. Open the dashboard to explore the
-   optimised battery/PV/EV behaviour.
+4. The result view shows what the service returned. With the flexibility app it also links
+   to **Open dashboard**, **Download results (JSON)** and **Results (JSON API)**.
 
 **Live weather (optional).** A scenario can point a location at a live weather feed. In
 the graph, the stream address (e.g. `forecasts.met-no.VIENNA`) is the live time-series
@@ -193,7 +194,7 @@ docker exec -i <weather-redis> redis-cli XADD forecasts.met-no.VIENNA "*" \
 | **digicities-platform** (this repo) | The UI + backend: build replicas/scenarios, convert, submit. The hub. |
 | **digicities-ontology** | The shared vocabulary (classes/attributes). Vendored here; edited upstream. |
 | **digicities-usecase-template** | Scaffold for creating your own workspace. |
-| **flexibility-prototype** | The flexibility optimiser + results dashboard (Pipeline 2). Digicities reaches it at `:8001`. |
+| **flexibility-prototype** | The flexibility optimiser's web application and results dashboard, an alternative to the runtime service (Pipeline 2). On `:8001`. |
 
 A service is just "an HTTP (or Redis) endpoint + a template describing its payload". Both
 pipelines above are the same pattern with a different service behind them.
@@ -205,7 +206,8 @@ pipelines above are the same pattern with a different service behind them.
 - **Fuseki** runs on `:3030` (the default triplestore). GraphDB is an optional overlay; the
   older notebook tutorial (`tutorial/`) still assumes GraphDB and is being updated - use this
   guide and the UI pipelines instead.
-- **Flexibility submit fails** - the flexibility-prototype must be running on `:8001`
-  (`docker compose up` in that repo). Digicities reaches it via `host.docker.internal`.
+- **Flexibility submit fails** - the runtime service must be running, with its adapter on
+  `:8090` (`flexibility-service/` in the RDP repository). Digicities reaches it via
+  `host.docker.internal`.
 - **`weather_source: static`** despite a live scenario - the weather stream is empty; run the
   RDP crawler or seed the stream (§6).

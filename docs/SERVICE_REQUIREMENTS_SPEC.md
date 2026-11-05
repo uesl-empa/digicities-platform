@@ -477,6 +477,45 @@ component it describes, through that component's live time series attribute
 `expand_env`, `submit_via_connection`); `backend/api_submission/transports.py`
 (`submit_redis`); `ttl_converter.py` `process` (removes `connection`).
 
+## 7A. What comes back: the outputs block
+
+A contract can say what the service returns, and which input component each result
+belongs to. The block is optional, and is never sent. A contract without it means
+what it always did: what comes back is undeclared.
+
+```yaml
+# example: fragment
+outputs:
+  - component: Building            # one result per Building of the request
+    stream: flexibility.schedules  # where it is published; absent = in the response
+    identified_by: uri             # the result field naming the instance
+    attributes:
+      power_g2b: {ref: Building.GridImportPower, unit: KiloW}
+      ElectricityCost: {ref: Building.ElectricityCost, currency: CHF}
+      IndoorTemperature: Building.IndoorTemperature
+  - component: Location            # one result per Location: for the whole region
+    attributes:
+      peak_kw: {ref: Location.PeakLoad, unit: KiloW}
+```
+
+`attributes` has the grammar of the request: the service's field on the left, and on
+the right a reference (section 4.3), or a value spec naming its unit and currency
+(section 4.6). The fields of a nested result are written with dots, for example
+`months.summary.grid_import_kwh`.
+
+`component` is the point of the block: a result for a building and a result for the
+region it belongs to are different things, and only this says which one a service
+returns. It must be a class the request reads, or `Scenario` for a result of the
+whole run. Every reference in the block must read that class. Saving a contract that
+breaks either rule is refused, because the results would link to nothing.
+
+The attribute is a class, declared in the core or an extension like any other.
+
+The platform records each output in the service's Turtle as a
+`ComponentAttributeOutput` (section 11): `providesOutputEntity` is the component,
+`providesOutputAttribute` the class, `atStreamAddress` the stream, `hasResultField`
+the field and `hasUnitLabel` the unit.
+
 ## 8. Field names
 
 The left side of a field is the name the model reads, and the contract's author MAY
