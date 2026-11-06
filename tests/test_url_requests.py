@@ -206,6 +206,15 @@ def test_each_file_is_kept_with_its_instance_before_the_next_run_overwrites_it(s
     assert b"fraction 0.2" in kept["1_profile_A.csv"] and b"fraction 0.9" in later["1_profile_A.csv"]
 
 
+def test_without_identified_by_a_file_belongs_to_the_uri_the_call_sent(service):
+    contract = _contract(service)
+    del contract["outputs"][0]["identified_by"]
+    tr = submit_via_connection({"area_block": [{"area": "A", "uri": "https://x/Area/A"}]}, contract["connection"])
+    assert fetch_result_files(contract, tr.response_data, tr.success, _saver({}))[0]["instance"] == "https://x/Area/A"
+    contract["outputs"][0]["component"] = "Scenario"
+    assert "instance" not in fetch_result_files(contract, tr.response_data, tr.success, _saver({}))[0]
+
+
 def test_columns_the_contract_declares_and_the_file_lacks_are_named(service):
     contract = _contract(service)
     contract["outputs"][0]["attributes"]["wind_kwh"] = "Area.Wind"

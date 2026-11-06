@@ -561,7 +561,8 @@ The platform fetches each file straight after its call and keeps it under
 `results/<service>/<run>_files/`, because the service may overwrite it on its next run. A
 relative link is read against the URL that was called, or `file_base_url` where another
 host serves the files. The run's record gets one `result_files` entry per block and call:
-the `component`, the `instance` (`identified_by`, from the response or else the request),
+the `component`, the `instance` (`identified_by`, from the response or else the request;
+without one, the `uri` the call sent),
 the `source`, where it was `saved`, and for a csv or tsv file its `columns`, `rows` and the
 declared `missing_columns`. A file that cannot be had is an `error` in its entry, up to
 200 MB. Credentials go only to the service's own host. A block has `stream` or

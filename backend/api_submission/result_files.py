@@ -19,7 +19,7 @@ from urllib.parse import urljoin, urlsplit
 
 from backend.api_submission.connection import auth_headers, expand_env, resolve_connection
 from backend.api_submission.transports import safe_get
-from backend.service_requirements.contract import parse_outputs
+from backend.service_requirements.contract import SCENARIO_CLASS, parse_outputs
 
 MAX_FILE_BYTES = 200 * 1024 * 1024
 
@@ -29,6 +29,18 @@ def _read_field(node: Any, dotted: str) -> Any:
     for part in dotted.split("."):
         node = node.get(part) if isinstance(node, dict) else None
     return node
+
+
+def _instance_of(block: Any, call: Dict[str, Any]) -> Any:
+    """Which component the result belongs to: the block's ``identified_by``, from the
+    response or else the request. Without one, the uri of the component this call asked
+    about. A result of the whole run belongs to no component."""
+    if block.component == SCENARIO_CLASS:
+        return None
+    request = call.get("request")
+    if block.identified_by:
+        return _read_field(call["response"], block.identified_by) or _read_field(request, block.identified_by)
+    return _read_field(request, "uri")
 
 
 def _answered_calls(response_data: Any, success: bool) -> List[Dict[str, Any]]:
@@ -106,9 +118,9 @@ def fetch_result_files(template: Dict[str, Any], response_data: Any, success: bo
     for number, call in enumerate(_answered_calls(response_data, success), start=1):
         for block in blocks:
             entry: Dict[str, Any] = {"component": block.component}
-            if block.identified_by:
-                entry["instance"] = (_read_field(call["response"], block.identified_by)
-                                     or _read_field(call.get("request"), block.identified_by))
+            instance = _instance_of(block, call)
+            if instance:
+                entry["instance"] = instance
             entries.append(entry)
             link = _read_field(call["response"], block.file_field)
             if not isinstance(link, str) or not link:
