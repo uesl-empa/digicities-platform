@@ -53,6 +53,8 @@ def save_submission_result_to_nextcloud(
             "response": submission_result.response_data or {},
             "submitted_data": submitted_data
         }
+        if getattr(submission_result, "result_files", None):
+            result_data["result_files"] = submission_result.result_files
 
         # Create filename
         timestamp_str = timestamp.strftime("%Y%m%d_%H%M%S")

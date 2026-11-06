@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.workspace import WorkspaceContext
@@ -208,6 +209,7 @@ def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
         resolve_connection,
         submit_via_connection,
     )
+    from backend.api_submission.result_files import fetch_result_files
 
     template = _load_template(ctx, req.template_file)
     conn = template.get("connection") or {}
@@ -258,6 +260,19 @@ def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
         scen = (req.scenario_file or "payload").rsplit(".", 1)[0]
         d = ws_root(ctx) / "results" / re.sub(r"[^A-Za-z0-9_.\-]", "_", service_name)
         d.mkdir(parents=True, exist_ok=True)
+        f = d / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', scen)}_{stamp}.json"
+
+        # Files the response links to are fetched now and kept with this run: the
+        # service may overwrite them on its next one.
+        def save_file(name: str, data: bytes) -> str:
+            kept = d / f"{f.stem}_files" / name
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            kept.write_bytes(data)
+            return str(kept.relative_to(ws_root(ctx))).replace("\\", "/")
+
+        files = fetch_result_files(template, tr.response_data, tr.success, save_file)
+        if files:
+            out["result_files"] = files
         record = {
             "metadata": {"service_name": service_name, "scenario_name": scen,
                          "timestamp": stamp, "success": tr.success,
@@ -267,7 +282,8 @@ def submit(req: SubmitReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str
             "response": tr.response_data,
             "error": tr.error_message or None,
         }
-        f = d / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', scen)}_{stamp}.json"
+        if files:
+            record["result_files"] = files
         f.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
         out["saved"] = str(f.relative_to(ws_root(ctx))).replace("\\", "/")
     return out
@@ -311,6 +327,17 @@ def result_content(file: str, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         raise HTTPException(status_code=400, detail="result file is not valid JSON")
+
+
+@router.get("/results/file")
+def result_file(file: str, ctx: WorkspaceContext = Depends(get_ctx)) -> FileResponse:
+    """A result file kept with a run, as the service wrote it."""
+    root = (ws_root(ctx) / "results").resolve()
+    p = (ws_root(ctx) / file).resolve()
+    # The file param must stay inside results/ — no path traversal.
+    if root not in p.parents or not p.is_file():
+        raise HTTPException(status_code=404, detail="result file not found")
+    return FileResponse(p, filename=p.name)
 
 
 class TestReq(BaseModel):

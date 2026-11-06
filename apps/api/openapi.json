@@ -221,9 +221,9 @@
             "type": "string"
           },
           "propose": {
-            "default": true,
+            "default": "true",
             "title": "Propose",
-            "type": "boolean"
+            "type": "string"
           },
           "session_id": {
             "title": "Session Id",
@@ -1129,6 +1129,21 @@
             "title": "Links",
             "type": "array"
           },
+          "outputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outputs"
+          },
           "requirements": {
             "default": [],
             "items": {
@@ -1364,6 +1379,21 @@
             },
             "title": "Entries",
             "type": "array"
+          },
+          "outputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outputs"
           },
           "save": {
             "default": true,
@@ -7448,6 +7478,58 @@
           }
         },
         "summary": "Result Content",
+        "tags": [
+          "submission"
+        ]
+      }
+    },
+    "/api/workspaces/{workspace_id}/submission/results/file": {
+      "get": {
+        "description": "A result file kept with a run, as the service wrote it.",
+        "operationId": "result_file_api_workspaces__workspace_id__submission_results_file_get",
+        "parameters": [
+          {
+            "description": "workspace id",
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "description": "workspace id",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "title": "File",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Result File",
         "tags": [
           "submission"
         ]
