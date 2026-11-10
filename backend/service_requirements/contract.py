@@ -19,6 +19,10 @@ so they cannot disagree about what a contract asks for.
   currency: CHF}`` (the unit is what the cost is per). Units are QUDT codes. The
   converter sends the value in that unit (``backend.unit_conversion``); its
   ``ref`` is a reference like any other.
+* **Units in the payload**: the payload carries the unit of every value the
+  data states one for, in a top-level ``units`` block that mirrors it; what the
+  service does with them is up to the service. ``units_in_payload: false``
+  leaves the block out.
 * **Outputs** (``outputs``, optional): what the service returns, and which input
   component each result belongs to. Describes the contract and is never sent.
   A contract without the block means the same as before: what comes back is
@@ -40,9 +44,14 @@ OPTIONAL_KEY = "optional_attributes"
 DERIVED_KEY = "derived_attributes"
 REQUIRED_KEY = "required_attributes"  # deprecated, see module docstring
 CONTROL_KEYS = (OPTIONAL_KEY, DERIVED_KEY, REQUIRED_KEY)
+# A registration that says ``units_in_payload: false`` is sent its values
+# without the ``units`` block (docs/SERVICE_REQUIREMENTS_SPEC.md section 4.7).
+UNITS_IN_PAYLOAD_KEY = "units_in_payload"
+# The payload's top-level key that gives the unit of every value it holds.
+UNITS_KEY = "units"
 # Top-level keys that describe the contract and never reach the payload.
 OUTPUTS_KEY = "outputs"
-NON_PAYLOAD_KEYS = ("connection", OUTPUTS_KEY) + CONTROL_KEYS
+NON_PAYLOAD_KEYS = ("connection", UNITS_IN_PAYLOAD_KEY, OUTPUTS_KEY) + CONTROL_KEYS
 # An output of the whole run, not of one component in it.
 SCENARIO_CLASS = "Scenario"
 
