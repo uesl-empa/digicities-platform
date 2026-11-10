@@ -79,7 +79,7 @@ dici_onto:WeatherEPW a owl:Class ;
     rdfs:label "Weather EPW file" ;
     rdfs:comment "Reference to the EnergyPlus weather file (.epw) the simulation runs against"@en ;
     skos:altLabel "Weather File"@en, "Climate File"@en ;
-    rdfs:subClassOf dici_onto:ResourceAttribute .
+    rdfs:subClassOf dici_onto:DataPathAttribute .
 
 dici_onto:SIA2024BuildingType a owl:Class ;
     rdfs:label "SIA 2024 Building Type" ;
@@ -108,4 +108,51 @@ dici_onto:HeatingSupply a owl:Class ;
 dici_onto:BuildingAttribute a owl:Class ;
     rdfs:label "Building Attribute" ;
     rdfs:comment "Typing marker grouping attributes that apply to a Building"@en ;
-    rdfs:subClassOf dici_onto:Attribute .
+    rdfs:subClassOf dici_onto:ComponentAttribute .
+
+@prefix dici_onto: <https://digicities.info/ontology#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+dici_onto:hasBuildingBuildingAgeAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:BuildingAge ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingDHWSupplyAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:DHWSupply ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingGroundFloorAreaAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:GroundFloorArea ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingHeatingSupplyAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:HeatingSupply ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingNumberOfFloorsAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:NumberOfFloors ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasBuildingSIA2024BuildingTypeAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:SIA2024BuildingType ;
+    rdfs:subPropertyOf dici_onto:hasBuildingAttribute .
+
+dici_onto:hasLocationWeatherEPWAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Location ;
+    rdfs:range dici_onto:WeatherEPW ;
+    rdfs:subPropertyOf dici_onto:hasLocationAttribute .
+
+dici_onto:WeatherEPW rdfs:subClassOf dici_onto:LocationAttribute .
+
+dici_onto:hasBuildingAttribute a owl:ObjectProperty ;
+    rdfs:domain dici_onto:Building ;
+    rdfs:range dici_onto:BuildingAttribute ;
+    rdfs:subPropertyOf dici_onto:hasComponentAttribute .
+

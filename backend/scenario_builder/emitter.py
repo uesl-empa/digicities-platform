@@ -45,7 +45,8 @@ Two seam changes, both behavior-neutral for the characterized paths:
 from __future__ import annotations
 
 from backend.scenario_builder import scenario_uri_for
-from backend.ontology_kinds import DICI, AttributeKind
+from backend.ontology_kinds import DICI, AttributeKind, with_core
+from backend.ontology_scaffold import ScaffoldError, link_predicate, local_name
 from backend.replica_builder.utils.ttl_attribute_helpers import category_term
 from backend.scenario_builder.draft import ScenarioDraft
 from backend.scenario_builder.semantics import (
@@ -501,6 +502,21 @@ def generate_time_series_resources(ttl_lines, components, scenario_uri):
             ])
 
 
+def _attribute_predicate(view, component_type, attr_name) -> str:
+    """The predicate linking a ``component_type`` to ``attr_name``: the one the
+    ontology declares (its own or its nearest ancestor's). Without a declared
+    one it takes the scaffold's name, which the workspace's next load declares
+    (:func:`backend.workspace.attribute_links.declare_attribute_links`)."""
+    if view is not None:
+        try:
+            found = link_predicate(view, DICI[component_type], DICI[attr_name])
+        except ScaffoldError:
+            found = None
+        if found is not None and DICI[local_name(found)] == found:
+            return local_name(found)
+    return f"has{component_type}{attr_name}Attribute"
+
+
 def generate_full_ttl(draft: ScenarioDraft, schema=None) -> str:
     """Generate complete TTL with enhanced workspace context and FIXED nested attribute handling.
 
@@ -515,6 +531,7 @@ def generate_full_ttl(draft: ScenarioDraft, schema=None) -> str:
     links = get_filtered_links_for_ttl(draft.links, components)
 
     required_attributes = draft.required_attributes or {}
+    view = with_core(schema) if schema is not None else None
 
     # Create safe scenario URI with enhanced workspace context
     workspace_id = draft.workspace_id or 'default_workspace'
@@ -623,7 +640,7 @@ def generate_full_ttl(draft: ScenarioDraft, schema=None) -> str:
                     elif specificity == 'Medium':
                         property_name = f"has{attr_name_clean}Attribute"
                     else:  # High specificity
-                        property_name = f"has{component_type}{attr_name_clean}Attribute"
+                        property_name = _attribute_predicate(view, component_type, attr_name_clean)
 
                     ttl_lines.append(f"    dici_onto:{property_name} <{attr_uri}> ;")
 
