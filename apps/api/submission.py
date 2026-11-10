@@ -95,7 +95,7 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
     from backend.api_submission.materialize import (
         materialize_against_workspace, workspace_schema,
     )
-    from backend.api_submission.ttl_converter import clean_placeholder_values, convert_scenario
+    from backend.api_submission.ttl_converter import convert_scenario, finish_payload
     from backend.api_submission.validation import validate_payload
 
     template = _load_template(ctx, req.template_file)
@@ -153,7 +153,7 @@ def convert(req: ConvertReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[s
             f"components and attributes are missing from this payload ({s['error']})")
     if skipped_files and validation.data_quality == "good":
         validation.data_quality = "needs_review"
-    payload = clean_placeholder_values(raw, template) or {}
+    payload = finish_payload(raw, template)
     return {"payload": payload, "validation": asdict(validation)}
 
 
