@@ -66,6 +66,12 @@ class _Service(BaseHTTPRequestHandler):
             return self._send(302, b"", headers=[("Location", "http://169.254.169.254/latest")])
         return self._send(404, b"{}")
 
+    def do_POST(self):
+        """Refuses every request, in its own words: the body's `why`."""
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        return self._send(200, json.dumps({"success": False, "incomplete": {"b": ["x"] * 200},
+                                           "error": body["why"]}).encode())
+
 
 @pytest.fixture()
 def service():
@@ -235,6 +241,12 @@ def test_a_lost_file_or_link_is_an_error_in_its_entry_and_failed_calls_have_none
 
     failed = {"calls": [{"request": {"area": "A"}, "response": {}, "error": "status 500"}]}
     assert fetch_result_files(contract, failed, False, _saver({})) == []
+
+
+def test_a_refusal_is_reported_in_the_services_own_words_and_in_full(service):
+    why = "6 of 6 buildings are incomplete, so nothing was run.\n" + "Building/1: FootprintArea is missing\n" * 30
+    got = submit_http({"why": why}, url=f"{service}/run", timeout=5)
+    assert got.success is False and got.error_message == why
 
 
 def test_a_post_response_can_link_a_file_too_and_a_base_url_can_serve_it(service):

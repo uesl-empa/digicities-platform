@@ -168,7 +168,10 @@ def _call_http(
     else:
         out.success = False
     if not out.success and not out.error_message:
-        out.error_message = f"Endpoint returned status {resp.status_code}: {resp.text[:500]}"
+        # A service's own error says what to fix, in full; the raw body is the fallback.
+        own = body.get("error")
+        out.error_message = (own if isinstance(own, str) and own.strip()
+                             else f"Endpoint returned status {resp.status_code}: {resp.text[:500]}")
     return out
 
 
