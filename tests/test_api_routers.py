@@ -543,6 +543,37 @@ def test_service_template_parse_round_trip_with_flavors(client, ws):
     assert by_type["GlobalWindAtlasSite"]["attributes"]["Roughness"] == ["Static"]
 
 
+def test_service_template_save_keeps_what_the_builder_does_not_model(client, ws):
+    """Load a saved template, save it back as the builder does: its own field
+    names, a field's unit, and its top-level settings are still there."""
+    (ws / "services").mkdir()
+    (ws / "services" / "Tool.yaml").write_text(
+        "service_name: Tool\n"
+        "scenario_data:\n"
+        "  uri: Scenario.URI\n"
+        "  label: Scenario.label\n"
+        "  site:\n"
+        "    name: Site.label\n"
+        "    uri: Site.URI\n"
+        "    capacity: {ref: Site.Capacity, unit: KiloW}\n"
+        "optional_attributes: [Site.Capacity]\n"
+        "units_in_payload: false\n", encoding="utf-8")
+    got = client.post(f"{B}/service/parse", json={"file": "Tool.yaml"}).json()
+    assert got["custom_field_names"] == {"site|Capacity|Static": "capacity"}
+
+    r = client.post(f"{B}/service/template", json={
+        "service_name": got["service_name"],
+        "entries": [{k: e[k] for k in ("component_type", "path", "parent_path", "attributes")}
+                    for e in got["entries"]],
+        "custom_field_names": got["custom_field_names"],
+    })
+    assert r.status_code == 200, r.text
+    import yaml as _yaml
+    saved = _yaml.safe_load((ws / "services" / "Tool.yaml").read_text(encoding="utf-8"))
+    assert saved["scenario_data"]["site"]["capacity"] == {"ref": "Site.Capacity", "unit": "KiloW"}
+    assert saved["optional_attributes"] == ["Site.Capacity"] and saved["units_in_payload"] is False
+
+
 def test_service_template_path_keyed_multi_instance(client, ws):
     """Two entries of the same type under different paths — the Streamlit
     builder's path-keyed model — both land in the YAML and round-trip."""
