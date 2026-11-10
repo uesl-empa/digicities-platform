@@ -37,3 +37,11 @@ scenario_data:
         NumberOfFloors: Building.NumberOfFloors
         HeatingSupply: Building.HeatingSupply
         DHWSupply: Building.DHWSupply
+
+# What comes back, and which input component it belongs to. The response gives
+# totals for the whole run; the per-building results are at the returned api_url.
+outputs:
+  - component: Scenario
+    attributes:
+      summary.total_annual_consumption_kWh: {ref: Scenario.TotalAnnualConsumption, unit: KiloW-HR}
+      summary.number_of_buildings: Scenario.NumberOfBuildings

@@ -12,13 +12,13 @@ service_name: FlexibilityOptimizer
 description: Single-building flexibility optimization (REFORMERS RDP). Returns cost, energy and temperature results per building.
 # Where the service listens. Read by the Digicities API Configuration tab to
 # register the service automatically when this workspace is opened. Defaults to
-# the flexibility-prototype app (POST /api/digicities/run): it runs the optimizer
-# on live RDP weather (falling back to static) and returns a results dashboard URL.
-# Override FLEX_SERVICE_URL to point at the RDP flexibility-adapter
-# (http://host.docker.internal:8090/run) for the pure Redis-stream path instead.
+# the runtime service on the RDP stack, through its flexibility-adapter (POST /run).
+# Override FLEX_SERVICE_URL to use the flexibility-prototype app instead
+# (http://host.docker.internal:8001/api/digicities/run), which adds a results
+# dashboard but returns a different response from the one `outputs` describes.
 connection:
   transport: http
-  url: ${FLEX_SERVICE_URL:-http://host.docker.internal:8001/api/digicities/run}
+  url: ${FLEX_SERVICE_URL:-http://host.docker.internal:8090/run}
   method: POST
   auth_type: none
   timeout: 300
@@ -32,7 +32,7 @@ scenario_data:
     uri: Location.URI
     weather_location: Location.WeatherEPW
     # Optional address of a live weather feed (a Redis stream the RDP
-    # data-crawler publishes, e.g. forecasts.met-no.VIENNA). When present the
+    # data-crawler publishes, e.g. weather.forecasts.openmeteo.Alkmaar). When present the
     # optimizer reads live temperature from it; weather_location still selects
     # the static file used for solar irradiance.
     weather_stream: Location.WeatherEPW.hasLiveTimeSeriesReference
@@ -49,3 +49,38 @@ scenario_data:
         EVCount: Building.EVCount
         ElectricityTariff: Building.ElectricityTariff
         Months: Building.OptimizationMonths
+
+# What comes back, and which input component it belongs to: one result per Building.
+# Same grammar as the request: the service's field, then the graph term.
+outputs:
+  # In the response to a submitted scenario.
+  - component: Building
+    identified_by: uri
+    attributes:
+      months.summary.grid_import_kwh: {ref: Building.GridImportEnergy, unit: KiloW-HR}
+      months.summary.grid_export_kwh: {ref: Building.GridExportEnergy, unit: KiloW-HR}
+      months.summary.pv_generation_kwh: {ref: Building.PVGenerationEnergy, unit: KiloW-HR}
+      months.costs.power_transfers: {ref: Building.ElectricityCost, currency: CHF}
+  # On the stream of the operational runs: series at 15-minute steps, on observation_time.
+  - component: Building
+    stream: flexibility.schedules
+    identified_by: uri
+    attributes:
+      power_g2b: {ref: Building.GridImportPower, unit: KiloW}
+      power_b2g: {ref: Building.GridExportPower, unit: KiloW}
+      power_ebat_charge: {ref: Building.BatteryChargePower, unit: KiloW}
+      power_ebat_discharge: {ref: Building.BatteryDischargePower, unit: KiloW}
+      power_ev_charge: {ref: Building.EVChargePower, unit: KiloW}
+      power_ev_discharge: {ref: Building.EVDischargePower, unit: KiloW}
+      power_sh: {ref: Building.SpaceHeatingPower, unit: KiloW}
+      power_dhw: {ref: Building.HotWaterPower, unit: KiloW}
+      power_pv: {ref: Building.PVPower, unit: KiloW}
+      plug_load: {ref: Building.PlugLoadPower, unit: KiloW}
+      building_temp: {ref: Building.IndoorTemperature, unit: DEG_C}
+      water_temp: {ref: Building.HotWaterTemperature, unit: DEG_C}
+      temp_outside: {ref: Building.OutdoorTemperature, unit: DEG_C}
+      ebat_soc: {ref: Building.BatteryStateOfCharge, unit: FRACTION}
+      ev_soc: {ref: Building.EVStateOfCharge, unit: FRACTION}
+      el_tariff: {ref: Building.ElectricityPrice, unit: KiloW-HR, currency: CHF}
+      feed_in_tariff: {ref: Building.FeedInPrice, unit: KiloW-HR, currency: CHF}
+      electricity_cost: {ref: Building.ElectricityCost, currency: CHF}

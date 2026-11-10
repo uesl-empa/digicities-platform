@@ -20,6 +20,7 @@ from typing import Iterable, Optional, Sequence, Tuple
 from rdflib import Graph, Literal, Namespace, URIRef
 from rdflib.namespace import OWL, RDF, RDFS
 
+from backend.service_requirements.contract import OutputAttribute, OutputBlock
 from backend.service_requirements.template import pascal_case
 
 DICI = Namespace("https://digicities.info/ontology#")
@@ -39,7 +40,7 @@ def requirements_ttl(
     requirements: Iterable[Tuple[str, Sequence[str]]],
     links: Iterable[Tuple[str, str]],
     base: str,
-    outputs: Iterable[Tuple[str, Sequence[str], Optional[str]]] = (),
+    outputs: Iterable = (),
 ) -> str:
     """Serialize a service's requirements as Turtle.
 
@@ -51,15 +52,15 @@ def requirements_ttl(
     nodes are numbered ``req_1..req_n`` across both kinds, attribute
     requirements first.
 
-    ``outputs`` yields (component, attribute names, stream address) triples —
-    what the service PRODUCES (e.g. the forecast it writes to its result
-    stream), one ``ComponentAttributeOutput`` per attribute. Before this the
-    TTL marked everything ``hasInputEntity``: a reader could not tell the
-    model's products from its inputs. The output vocabulary
-    (``ComponentAttributeOutput``, ``isProvidedBy``, ``providesOutputEntity``,
-    ``providesOutputAttribute``, ``atStreamAddress``) is not yet in the core
-    ontology, so it is declared inline per the workspace-extension model —
-    promotion to core follows the usual 2+ workpackage rule.
+    ``outputs`` yields what the service PRODUCES, one
+    ``ComponentAttributeOutput`` per attribute: either (component, attribute
+    names, stream address) triples, or the ``OutputBlock`` s of a contract's
+    ``outputs`` block, which add the result field, its unit and the field naming
+    the instance. ``providesOutputEntity`` is the input component a result
+    belongs to. Before this the TTL marked everything ``hasInputEntity``: a
+    reader could not tell the model's products from its inputs. The vocabulary
+    is core since v0.8.0, and stays declared here too so that a graph on an
+    older vendored core can still read the file.
 
     What the service READS from a live stream needs nothing extra here: the
     stream's component is an input like any other (a requirement on its
@@ -106,12 +107,22 @@ def requirements_ttl(
         for prop, kind in ((DICI.isProvidedBy, OWL.ObjectProperty),
                            (DICI.providesOutputEntity, OWL.ObjectProperty),
                            (DICI.providesOutputAttribute, OWL.ObjectProperty),
-                           (DICI.atStreamAddress, OWL.DatatypeProperty)):
+                           (DICI.atStreamAddress, OWL.DatatypeProperty),
+                           (DICI.hasResultField, OWL.DatatypeProperty),
+                           (DICI.identifiedByField, OWL.DatatypeProperty)):
             g.add((prop, RDF.type, kind))
     m = 0
-    for component, attributes, address in outputs:
+    for item in outputs:
+        if isinstance(item, OutputBlock):
+            component, address, identified_by = item.component, item.stream, item.identified_by
+            produced = list(item.attributes)
+        else:
+            component, attributes, address = item
+            identified_by = None
+            produced = [OutputAttribute(a) for a in attributes]
         comp = pascal_case(component)
-        for attr in attributes or [""]:
+        for output in produced or [OutputAttribute("")]:
+            attr = output.attribute
             m += 1
             out = URIRef(f"{base}out_{m}")
             g.add((out, RDF.type, DICI.ComponentAttributeOutput))
@@ -121,6 +132,12 @@ def requirements_ttl(
                 g.add((out, DICI.providesOutputAttribute, DICI[pascal_case(attr)]))
             if address:
                 g.add((out, DICI.atStreamAddress, Literal(address)))
+            if output.field:
+                g.add((out, DICI.hasResultField, Literal(output.field)))
+            if output.unit:
+                g.add((out, DICI.hasUnitLabel, Literal(output.unit)))
+            if identified_by:
+                g.add((out, DICI.identifiedByField, Literal(identified_by)))
             g.add((out, RDFS.label,
                    Literal(f"{comp}.{attr} provided" if attr else f"{comp} provided", lang="en")))
 

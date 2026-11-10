@@ -1778,3 +1778,41 @@ def test_scenario_validate_applies_a_requirement_to_subclass_instances(client, w
     assert by_uri["https://x/PV1"]["requirement_distance"] == {"EnergyConverter": 1}
     assert by_uri["https://x/B1"]["requirement_distance"] == {}
     assert got["warnings"] == []
+
+
+# ── what comes back: the outputs block ───────────────────────────────────────
+_OUTPUTS_SPEC = {"service_name": "Harbour Planner", "entries": [
+    {"component_type": "Harbour", "attributes": ["Depth"]},
+    {"component_type": "Kiosk", "parent": "Harbour", "attributes": ["Floors"]}]}
+
+
+def test_a_template_saves_what_comes_back_and_keeps_it_through_an_edit(client, ws):
+    outputs = [{"component": "Kiosk", "attributes": {"roof": {"ref": "Kiosk.RoofLoad", "unit": "KiloW"}}}]
+    r = client.post(f"{B}/service/template", json={**_OUTPUTS_SPEC, "outputs": outputs})
+    assert r.status_code == 200, r.text
+    assert yaml.safe_load(r.json()["yaml"])["outputs"] == outputs
+    # The builder edits the request and sends no outputs: they survive.
+    r = client.post(f"{B}/service/template", json=_OUTPUTS_SPEC)
+    assert yaml.safe_load(r.json()["yaml"])["outputs"] == outputs
+    # Unless the edit removes the component they belong to.
+    r = client.post(f"{B}/service/template", json={**_OUTPUTS_SPEC, "entries": _OUTPUTS_SPEC["entries"][:1]})
+    assert "outputs" not in yaml.safe_load(r.json()["yaml"])
+
+
+def test_a_template_refuses_a_result_for_a_component_it_does_not_read(client, ws):
+    outputs = [{"component": "Ferry", "attributes": {"speed": "Ferry.Speed"}}]
+    r = client.post(f"{B}/service/template", json={**_OUTPUTS_SPEC, "outputs": outputs})
+    assert r.status_code == 400 and "`Ferry` is not an input" in r.json()["detail"]
+
+
+def test_a_template_without_outputs_is_as_it_was(client, ws):
+    r = client.post(f"{B}/service/template", json=_OUTPUTS_SPEC)
+    assert "outputs" not in yaml.safe_load(r.json()["yaml"])
+
+
+def test_the_service_description_records_what_comes_back(client, ws):
+    r = client.post(f"{B}/service/requirements", json={
+        "service_name": "Harbour Planner", "requirements": [{"component": "Kiosk", "attributes": ["Floors"]}],
+        "outputs": [{"component": "Kiosk", "stream": "plans", "attributes": {"RoofLoad": "Kiosk.RoofLoad"}}]})
+    assert r.status_code == 200, r.text
+    assert "providesOutputEntity" in r.json()["ttl"] and '"plans"' in r.json()["ttl"]

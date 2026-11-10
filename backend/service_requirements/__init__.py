@@ -63,12 +63,24 @@ from backend.service_requirements.validation import (
     get_validation_suggestions,
     validate_component_attributes,
 )
+from backend.service_requirements.contract import (
+    OUTPUTS_KEY,
+    OutputAttribute,
+    OutputBlock,
+    output_problems,
+    parse_outputs,
+)
 from backend.service_requirements.requirements import (
     requirements_ttl,
     service_file_id,
 )
 
 __all__ = [
+    "OUTPUTS_KEY",
+    "OutputAttribute",
+    "OutputBlock",
+    "output_problems",
+    "parse_outputs",
     "AttributeClass",
     "ComponentClass",
     "ComponentEntry",

@@ -18,6 +18,9 @@ from backend.service_requirements import (
     entries_from_path_tree,
     entries_from_type_tree,
     list_template_fields,
+    OUTPUTS_KEY,
+    output_problems,
+    parse_outputs,
     requirements_ttl,
     service_file_id,
 )
@@ -87,6 +90,7 @@ class ServiceSpec(BaseModel):
     label: str = ""
     requirements: list[Requirement] = []
     links: list[Link] = []
+    outputs: list[dict[str, Any]] | None = None
     save: bool = True
 
 
@@ -133,6 +137,10 @@ class TemplateSpec(BaseModel):
     entries: list[SvcEntry]
     # "<path>|<attr>|<flavor>" -> user-chosen YAML field name.
     custom_field_names: dict[str, str] | None = None
+    # What the service returns and which input component it belongs to
+    # (docs/SERVICE_REQUIREMENTS_SPEC.md section 7A). None keeps what a saved
+    # template already says.
+    outputs: list[dict[str, Any]] | None = None
     save: bool = True
 
 
@@ -155,11 +163,21 @@ def template(spec: TemplateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
         connection=spec.connection,
         custom_field_names=spec.custom_field_names,
     )
+    sid = service_file_id(spec.service_name)
+    sdir = ws_root(ctx) / "services"
+    if spec.outputs is not None:
+        doc[OUTPUTS_KEY] = spec.outputs
+    elif (sdir / f"{sid}.yaml").exists():
+        # The builder edits the request: what comes back survives the edit.
+        previous = yaml.safe_load((sdir / f"{sid}.yaml").read_text(encoding="utf-8")) or {}
+        if previous.get(OUTPUTS_KEY) and not output_problems({**doc, OUTPUTS_KEY: previous[OUTPUTS_KEY]}):
+            doc[OUTPUTS_KEY] = previous[OUTPUTS_KEY]
+    problems = output_problems(doc)
+    if problems:
+        raise HTTPException(status_code=400, detail="; ".join(problems))
     text = yaml.safe_dump(doc, sort_keys=False, default_flow_style=False)
     saved = None
     if spec.save:
-        sid = service_file_id(spec.service_name)
-        sdir = ws_root(ctx) / "services"
         sdir.mkdir(parents=True, exist_ok=True)
         (sdir / f"{sid}.yaml").write_text(text, encoding="utf-8")
         saved = f"{sid}.yaml"
@@ -292,6 +310,7 @@ def requirements(spec: ServiceSpec, ctx: WorkspaceContext = Depends(get_ctx)) ->
         [(r.component, r.attributes) for r in spec.requirements],
         [(l.domain, l.range) for l in spec.links],
         base=f"{_PREFIX}/{ctx.id}/services/",
+        outputs=parse_outputs({OUTPUTS_KEY: spec.outputs}),
     )
     saved = None
     if spec.save:
