@@ -44,7 +44,7 @@ from backend.api_submission.ttl_converter import (
     preprocess_ttl_content,
     fix_multiline_string_value,
     RobustTTL2YAMLProcessor,
-    clean_placeholder_values,
+    finish_payload,
 )
 
 
@@ -296,7 +296,7 @@ def render_scenario_selection_tab():
                             validation = validate_payload(converted, template_content)
 
                             if clean_missing:
-                                converted = clean_placeholder_values(converted, template_content)
+                                converted = finish_payload(converted, template_content)
 
                             results[filename] = {
                                 'success': True,

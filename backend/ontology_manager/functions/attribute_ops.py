@@ -14,7 +14,8 @@ from typing import List, Dict, Tuple
 
 from backend.ontology_kinds import AttributeKind, category_label, is_attribute_class, value_iri
 from backend.ontology_scaffold import (
-    attributes_of, categories as scaffold_categories, ensure_scaffold, link_predicates,
+    attributes_of, categories as scaffold_categories, declare_link, ensure_scaffold,
+    link_predicates,
     local_name, own_category, own_general_predicate, specific_predicates_of,
 )
 
@@ -415,21 +416,18 @@ class AttributeMixin:
             if not is_attribute_class(view, attribute_ref):
                 return False, f"`{local_name(attribute_ref)}` is not an attribute class"
 
-            general, category = ensure_scaffold(view, ext_graph, component_ref)
-            if (attribute_ref, RDFS.subClassOf, category) not in view:
-                ext_graph.add((attribute_ref, RDFS.subClassOf, category))
-
-            if not link_predicates(view, component_ref, attribute_ref):
+            if link_predicates(view, component_ref, attribute_ref):
+                _, category = ensure_scaffold(view, ext_graph, component_ref)
+                if (attribute_ref, RDFS.subClassOf, category) not in view:
+                    ext_graph.add((attribute_ref, RDFS.subClassOf, category))
+            else:
                 specific = dici_onto[f"has{local_name(component_ref)}"
                                      f"{local_name(attribute_ref)}Attribute"]
                 if (specific, None, None) in view:
                     return False, (f"`{local_name(specific)}` already exists and does not "
                                    f"link `{local_name(component_ref)}` to "
                                    f"`{local_name(attribute_ref)}`")
-                ext_graph.add((specific, RDF.type, OWL.ObjectProperty))
-                ext_graph.add((specific, RDFS.subPropertyOf, general))
-                ext_graph.add((specific, RDFS.domain, component_ref))
-                ext_graph.add((specific, RDFS.range, attribute_ref))
+                declare_link(view, ext_graph, component_ref, attribute_ref, specific)
 
             self._persist(extension_filename, ext_graph)
             return True, "Attribute linked to component successfully"

@@ -337,6 +337,116 @@ def ensure_scaffold(view: Graph, write: Graph, x: URIRef) -> Tuple[URIRef, URIRe
     return general, category
 
 
+def declare_link(view: Graph, write: Graph, x: URIRef, attribute: URIRef,
+                 predicate: URIRef) -> None:
+    """State that ``predicate`` links an ``x`` to ``attribute``: ``x`` gets its
+    scaffold, the attribute goes under ``x``'s category, and the predicate goes
+    under ``x``'s general predicate with ``x`` as domain and ``attribute`` as
+    range."""
+    general, category = ensure_scaffold(view, write, x)
+    if (attribute, RDFS.subClassOf, category) not in view:
+        write.add((attribute, RDFS.subClassOf, category))
+    write.add((predicate, RDF.type, OWL.ObjectProperty))
+    write.add((predicate, RDFS.subPropertyOf, general))
+    write.add((predicate, RDFS.domain, x))
+    write.add((predicate, RDFS.range, attribute))
+
+
+def _declared_property(g: Graph, p: URIRef) -> bool:
+    return any((p, RDF.type, t) in g for t in _PROPERTY_TYPES)
+
+
+def _nearest_common_class(g: Graph, classes: Iterable[URIRef]) -> URIRef:
+    orders = [_ancestor_order(g, c) for c in sorted(classes)]
+    return next((c for c in orders[0] if all(c in o for o in orders)), ROOT_COMPONENT)
+
+
+def _not_an_attribute(g: Graph) -> Set[URIRef]:
+    """Classes an attribute node is typed with that are not its attribute: the
+    roots, the value kinds and the components' categories."""
+    try:
+        return _not_category(g) | set(categories(g))
+    except ScaffoldError:            # the ontology's own fault, reported by check_pattern
+        return _not_category(g)
+
+
+def _attribute_classes(g: Graph, types: Iterable[URIRef], skip: Set[URIRef]) -> List[URIRef]:
+    """The attribute classes among an attribute node's types, without ``skip``
+    and without a value class whose own attribute is there too (``Flat`` under
+    ``ElectricityTariff``)."""
+    found = {t for t in types if t not in skip and is_attribute_class(g, t)}
+    return sorted(t for t in found
+                  if not any(o != t and is_subclass_of(g, t, o) for o in found))
+
+
+def undeclared_links(view: Graph, data: Graph) -> Dict[URIRef, Tuple[Set[URIRef], Set[URIRef]]]:
+    """``{predicate: (component classes, attribute classes)}`` for each predicate
+    ``data`` uses from a component instance to an attribute node that the
+    ontology does not declare. Read from the types of what it links, never from
+    its name."""
+    found: Dict[URIRef, Tuple[Set[URIRef], Set[URIRef]]] = {}
+    skip = _not_an_attribute(view)
+    attributes: Dict[frozenset, List[URIRef]] = {}
+    components: Dict[frozenset, Set[URIRef]] = {}
+    for p in set(data.predicates()):
+        if p == RDF.type or not isinstance(p, URIRef) or _declared_property(view, p):
+            continue
+        for s, o in data.subject_objects(p):
+            if not isinstance(o, URIRef):
+                continue
+            key = frozenset(data.objects(o, RDF.type))
+            if not key:
+                continue
+            if key not in attributes:
+                attributes[key] = _attribute_classes(view, key, skip)
+            attrs = attributes[key]
+            if not attrs:
+                continue
+            key = frozenset(data.objects(s, RDF.type))
+            if key not in components:
+                components[key] = {t for t in key if is_component_class(view, t)}
+            comps = components[key]
+            if comps:
+                seen = found.setdefault(p, (set(), set()))
+                seen[0].update(comps)
+                seen[1].update(attrs)
+    return found
+
+
+def declare_used_links(view: Graph, write: Graph, data: Graph) -> Tuple[List[URIRef], List[str]]:
+    """Declare in ``write`` every attribute link ``data`` uses and the ontology
+    does not (:func:`undeclared_links`), under the name the data already uses. If
+    the ontology already links that class to that attribute (the class's own
+    predicate or its nearest ancestor's), the name becomes a sub-property of that
+    predicate: the data is then reached through it, and the class still links the
+    attribute through one predicate. Returns the predicates declared, and a
+    sentence for each one left alone because the ontology or the data is not
+    clear enough to say what it links."""
+    declared: List[URIRef] = []
+    skipped: List[str] = []
+    for p, (comps, attrs) in sorted(undeclared_links(view, data).items()):
+        name = local_name(p)
+        attrs = set(_attribute_classes(view, attrs, set()))
+        if len(attrs) != 1:
+            skipped.append(f"`{name}` reaches several attribute classes: "
+                           + ", ".join(f"`{local_name(a)}`" for a in sorted(attrs)))
+            continue
+        attribute = next(iter(attrs))
+        x = _nearest_common_class(view, comps)
+        try:
+            taken = link_predicate(view, x, attribute)
+            if taken is None:
+                declare_link(view, write, x, attribute, p)
+            else:
+                write.add((p, RDF.type, OWL.ObjectProperty))
+                write.add((p, RDFS.subPropertyOf, taken))
+        except ScaffoldError as exc:
+            skipped.append(f"`{name}`: {exc}")
+            continue
+        declared.append(p)
+    return declared, skipped
+
+
 # -- the invariant ------------------------------------------------------------
 
 def _undeclared_supers(g: Graph, p: URIRef) -> List[URIRef]:
