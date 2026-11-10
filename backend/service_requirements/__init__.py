@@ -51,6 +51,7 @@ from backend.service_requirements.template import (
     attribute_field,
     build_service_template,
     camel_case,
+    carry_over_unmodelled,
     entries_from_path_tree,
     entries_from_type_tree,
     extract_attributes_from_dict,
@@ -58,6 +59,7 @@ from backend.service_requirements.template import (
     parse_service_template,
     parse_yaml_to_components,
     pascal_case,
+    template_field_names,
 )
 from backend.service_requirements.validation import (
     get_validation_suggestions,
@@ -94,6 +96,7 @@ __all__ = [
     "attribute_field",
     "build_service_template",
     "camel_case",
+    "carry_over_unmodelled",
     "entries_from_path_tree",
     "entries_from_type_tree",
     "extract_attributes_from_dict",
@@ -101,6 +104,7 @@ __all__ = [
     "parse_service_template",
     "parse_yaml_to_components",
     "pascal_case",
+    "template_field_names",
     "get_validation_suggestions",
     "validate_component_attributes",
     "requirements_ttl",

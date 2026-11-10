@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from backend.service_requirements import (
     build_service_template,
+    carry_over_unmodelled,
     entries_from_path_tree,
     entries_from_type_tree,
     list_template_fields,
@@ -165,13 +166,14 @@ def template(spec: TemplateSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> di
     )
     sid = service_file_id(spec.service_name)
     sdir = ws_root(ctx) / "services"
+    if (sdir / f"{sid}.yaml").exists():
+        # The builder edits the request: what it does not model survives the edit.
+        previous = yaml.safe_load((sdir / f"{sid}.yaml").read_text(encoding="utf-8")) or {}
+        doc = carry_over_unmodelled(previous, doc)
+        if spec.outputs is None and doc.get(OUTPUTS_KEY) and output_problems(doc):
+            del doc[OUTPUTS_KEY]  # what came back no longer fits the request
     if spec.outputs is not None:
         doc[OUTPUTS_KEY] = spec.outputs
-    elif (sdir / f"{sid}.yaml").exists():
-        # The builder edits the request: what comes back survives the edit.
-        previous = yaml.safe_load((sdir / f"{sid}.yaml").read_text(encoding="utf-8")) or {}
-        if previous.get(OUTPUTS_KEY) and not output_problems({**doc, OUTPUTS_KEY: previous[OUTPUTS_KEY]}):
-            doc[OUTPUTS_KEY] = previous[OUTPUTS_KEY]
     problems = output_problems(doc)
     if problems:
         raise HTTPException(status_code=400, detail="; ".join(problems))
@@ -262,8 +264,10 @@ def parse(req: ParseReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, 
     """Parse an existing service template back into the builder's shape —
     the load→edit→save round trip. Both nesting conventions are accepted
     (children inside ``template:`` and children as siblings), and the
-    ``connection:`` block + description are preserved for re-save."""
-    from backend.service_requirements.template import parse_service_template
+    ``connection:`` block + description are preserved for re-save.
+    ``custom_field_names`` gives the fields' own names back, so a save
+    keeps the names the service reads."""
+    from backend.service_requirements.template import parse_service_template, template_field_names
 
     text = req.yaml
     if text is None:
@@ -275,6 +279,7 @@ def parse(req: ParseReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, 
         text = p.read_text(encoding="utf-8")
     try:
         service_name, entries, description, connection = parse_service_template(text)
+        custom_field_names = template_field_names(text)
     except Exception as bad_yaml:
         raise HTTPException(status_code=400, detail=f"Could not parse the template: {bad_yaml}")
 
@@ -283,6 +288,7 @@ def parse(req: ParseReq, ctx: WorkspaceContext = Depends(get_ctx)) -> dict[str, 
         "service_name": service_name,
         "description": description,
         "connection": connection,
+        "custom_field_names": custom_field_names,
         "entries": [{
             "component_type": e.component_type,
             "parent": type_by_path.get(e.parent_path) or None,

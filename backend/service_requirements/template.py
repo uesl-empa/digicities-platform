@@ -325,6 +325,15 @@ def entries_from_type_tree(
     return entries
 
 
+def _is_root_block(value: Any) -> bool:
+    """A block of its own: a `uri` beside a `name` or `label`, or a `uri` that
+    is a component's (`Location.URI`)."""
+    if not isinstance(value, dict) or 'uri' not in value:
+        return False
+    return ('label' in value or 'name' in value
+            or (isinstance(value['uri'], str) and value['uri'].endswith('.URI')))
+
+
 def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntry]]:
     """Parse a service-template YAML back into (service_name, component entries).
 
@@ -332,6 +341,34 @@ def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntr
     generator writes, or inside the template as hand-written services do).
     Raises ``ValueError`` on missing ``service_name`` or unparseable YAML.
     """
+    service_name, component_entries, _fields = _parse_template(yaml_content)
+    return service_name, component_entries
+
+
+def template_field_names(yaml_content: str) -> Dict[str, str]:
+    """The template's own field names, as ``custom_field_names`` for
+    :func:`build_service_template`: every field not named by the generator's
+    default (``co2_emissions`` for ``EnergyCarrier.EmissionFactor``), and the
+    field carrying an instance's own id (``pc6: PostcodeArea.label``). A load
+    that keeps these saves the payload under the names the service reads.
+    """
+    _name, entries, fields = _parse_template(yaml_content)
+    names: Dict[str, str] = {}
+    for entry in entries:
+        for (attr, flavor), key in fields.get((entry.parent_path, entry.path), {}).items():
+            if attr == "label" and flavor == "Static":
+                names[f"{entry.path}|label|Static"] = key
+                continue
+            default, _reference = attribute_field(entry.component_type, attr, flavor)
+            if key != default:
+                names[f"{entry.path}|{attr}|{flavor}"] = key
+    return names
+
+
+def _parse_template(yaml_content: str):
+    """(service_name, component entries, field names): the field names map
+    ``(parent_path, path)`` to ``{(attribute, flavor): field}``."""
+    fields: Dict[Tuple[str, str], Dict[Tuple[str, str], str]] = {}
     try:
         yaml_data = yaml.safe_load(yaml_content)
 
@@ -378,14 +415,18 @@ def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntr
                     if len(parts) >= 3:
                         entry.component_type = parts[2]
 
-                # Parse attributes from template
+                # A template that is a reference, not a block, is a field holding a
+                # linked instance (carrier: {link: ..., template: Carrier.URI}).
                 template = value.get('template', {})
+                if not isinstance(template, dict):
+                    return None
                 if 'uri' in template:
                     # Also try to get component type from URI if not found in link
                     if not entry.component_type:
                         entry.component_type = extract_component_type_from_reference(template['uri'])
 
-                entry.configured_attributes = extract_attributes_from_dict(template, entry.component_type)
+                entry.configured_attributes = extract_attributes_from_dict(
+                    template, entry.component_type, fields.setdefault((parent_path, key), {}))
 
                 # Nested child components can live either INSIDE the template
                 # (hand-written services like the demo energy simulator, where
@@ -407,7 +448,7 @@ def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntr
                             component_entries.append(child_entry)
 
             # Check if this is a root component (has 'uri' and either 'label' or 'name')
-            elif 'uri' in value and ('label' in value or 'name' in value):
+            elif _is_root_block(value):
                 # Root component
                 entry.level = 1
                 entry.link_pattern = ""
@@ -422,7 +463,8 @@ def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntr
                     entry.component_type = extract_component_type_from_reference(label_ref)
 
                 # Parse attributes from the component dict
-                entry.configured_attributes = extract_attributes_from_dict(value, entry.component_type)
+                entry.configured_attributes = extract_attributes_from_dict(
+                    value, entry.component_type, fields.setdefault((parent_path, key), {}))
 
                 # Process nested children
                 for child_key, child_value in value.items():
@@ -440,7 +482,7 @@ def parse_yaml_to_components(yaml_content: str) -> Tuple[str, List[ComponentEntr
                 if entry:
                     component_entries.append(entry)
 
-        return service_name, component_entries
+        return service_name, component_entries, fields
 
     except Exception as e:
         raise ValueError(f"Error parsing YAML: {str(e)}")
@@ -456,18 +498,22 @@ def time_series_flavor(reference_property: str) -> str:
     return "Static"
 
 
-def extract_attributes_from_dict(data_dict: Dict, component_type: str) -> Dict[str, List[str]]:
+def extract_attributes_from_dict(data_dict: Dict, component_type: str,
+                                 fields: Optional[Dict[Tuple[str, str], str]] = None,
+                                 ) -> Dict[str, List[str]]:
     """Attribute name -> flavor list, recovered from one component's YAML block.
 
     A field is an attribute of the block when its reference's class segment
     IS the block's component type (``<Type>.<attr>`` or
-    ``<Type>.<attr>.<referenceProperty>``). The flavor comes from the
+    ``<Type>.<attr>.<referenceProperty>``), written plainly or as
+    ``{ref: <reference>, unit: ...}``. The flavor comes from the
     reference property's place under the time-series reference properties,
     never from the field's name: ``WindSpeed_live:
     Weather.WindSpeed.hasHistoricTimeSeriesReference`` is Historic. A ``name``
     field referencing ``label`` is ``label``. Nested dicts that are themselves
     child components (link+template or uri+label/name) are left to the
-    component parser.
+    component parser. ``fields``, when given, receives the field each
+    ``(attribute, flavor)`` is written under.
     """
     attributes = {}
 
@@ -475,8 +521,9 @@ def extract_attributes_from_dict(data_dict: Dict, component_type: str) -> Dict[s
         if key in ['uri', 'link', 'template']:
             continue
 
-        if isinstance(value, str) and component_type:
-            parts = value.split('.')
+        reference = value.get('ref') if isinstance(value, dict) else value
+        if isinstance(reference, str) and component_type:
+            parts = reference.split('.')
             if len(parts) < 2 or parts[0] != component_type:
                 continue
             attr_name = parts[1]
@@ -485,14 +532,17 @@ def extract_attributes_from_dict(data_dict: Dict, component_type: str) -> Dict[s
                 attributes[attr_name] = []
             if attr_type not in attributes[attr_name]:
                 attributes[attr_name].append(attr_type)
+            # A block's name field is not a field the service named (the
+            # root's `name` marks it as a component).
+            if fields is not None and not (attr_name == 'label' and key in ('name', 'label')):
+                fields.setdefault((attr_name, attr_type), key)
 
         # A nested dict that is itself a child component (has link+template, or
         # uri+label/name) is parsed separately by parse_component — don't fold its
         # fields into this component's attributes. Recurse only into other nested
         # structures.
         elif isinstance(value, dict):
-            if ('link' in value and 'template' in value) or \
-                    ('uri' in value and ('label' in value or 'name' in value)):
+            if ('link' in value and 'template' in value) or _is_root_block(value):
                 continue
             nested_attrs = extract_attributes_from_dict(value, component_type)
             for attr_name, types in nested_attrs.items():
@@ -519,3 +569,104 @@ def parse_service_template(
     service_name, component_entries = parse_yaml_to_components(yaml_content)
     raw = yaml.safe_load(yaml_content) or {}
     return service_name, component_entries, raw.get('description'), raw.get('connection')
+
+
+# What the generator writes itself; everything else in a template is kept.
+_BUILDER_KEYS = ('service_name', 'description', 'connection', 'scenario_data')
+_BLOCK_STRUCTURE = ('uri', 'name', 'label', 'link', 'template')
+
+
+def _is_component(value: Any) -> bool:
+    return isinstance(value, dict) and (
+        ('link' in value and isinstance(value.get('template'), dict)) or _is_root_block(value))
+
+
+def _block_type(block: Dict[str, Any]) -> str:
+    link = block.get('link')
+    if isinstance(link, str) and link.startswith('CL.') and len(link.split('.')) >= 3:
+        return link.split('.')[2]
+    inner = block.get('template') if isinstance(block.get('template'), dict) else block
+    for key in ('uri', 'name', 'label'):
+        if isinstance(inner.get(key), str) and '.' in inner[key]:
+            return inner[key].split('.')[0]
+    return ""
+
+
+def _modelled(value: Any, component_type: str) -> bool:
+    """Whether the parser turns this field into the component model: an
+    attribute of the block, a child component, or a group of attributes."""
+    if _is_component(value):
+        return True
+    reference = value.get('ref') if isinstance(value, dict) else value
+    if isinstance(reference, str):
+        return bool(component_type) and reference.split('.')[0] == component_type and '.' in reference
+    if isinstance(value, dict):
+        return any(_modelled(v, component_type) for v in value.values())
+    return False
+
+
+_IDENTITY = ('uri', 'name', 'label')
+
+
+def _keep_block(previous: Dict[str, Any], new: Dict[str, Any], component_type: str) -> None:
+    """Give ``new`` back what ``previous`` (the same block as loaded) says
+    beyond the component model, in ``previous``'s order and nesting."""
+    new_template = new.get('template') if isinstance(new.get('template'), dict) else None
+    prev_template = previous.get('template') if isinstance(previous.get('template'), dict) else None
+
+    def find(key):
+        for holder in (new, new_template):
+            if holder is not None and key in holder:
+                return holder
+        return None
+
+    pairs = [(previous, new)]
+    if prev_template is not None:
+        pairs.append((prev_template, new_template if new_template is not None else new))
+    for prev_holder, new_holder in pairs:
+        for key, value in prev_holder.items():
+            if key in ('link', 'template'):
+                continue
+            holder = find(key)
+            if key in _IDENTITY:
+                if holder is None:
+                    new_holder[key] = value
+            elif _is_component(value):
+                if holder is not None and isinstance(holder[key], dict):
+                    child = holder.pop(key)
+                    new_holder[key] = child  # where the template had it, inside or beside its template
+                    _keep_block(value, child, _block_type(value))
+            elif (holder is not None and isinstance(value, dict)
+                    and isinstance(value.get('ref'), str) and holder[key] == value['ref']):
+                holder[key] = value          # the unit and currency the field asks for
+            elif holder is None and not _modelled(value, component_type):
+                new_holder[key] = value
+    # An identity field the generator writes by habit, where the template had none.
+    for prev_holder, new_holder in pairs:
+        for key in _IDENTITY:
+            if key in new_holder and key not in prev_holder:
+                del new_holder[key]
+        order = [k for k in prev_holder if k in new_holder] + [k for k in new_holder if k not in prev_holder]
+        items = [(k, new_holder[k]) for k in order]
+        new_holder.clear()
+        new_holder.update(items)
+
+
+def carry_over_unmodelled(previous: Optional[Dict[str, Any]], doc: Dict[str, Any]) -> Dict[str, Any]:
+    """``doc`` (a template the generator just built) with everything the
+    builder does not model taken from ``previous`` (the same template as it
+    was loaded): top-level keys such as ``optional_attributes``,
+    ``units_in_payload`` or ``outputs``; a field's ``{ref, unit, currency}``
+    when the field still asks for that reference; and fields the parser does
+    not read (a linked instance's URI, a reference to another component). What
+    the builder does model (components, attributes, field names) is ``doc``'s,
+    so removing an attribute in the builder removes it.
+    """
+    if not isinstance(previous, dict) or not doc:
+        return doc
+    for key, value in previous.items():
+        if key not in _BUILDER_KEYS and key not in doc:
+            doc[key] = value
+    if isinstance(previous.get('scenario_data'), dict) and isinstance(doc.get('scenario_data'), dict):
+        _keep_block(previous['scenario_data'], doc['scenario_data'], "")
+    return doc

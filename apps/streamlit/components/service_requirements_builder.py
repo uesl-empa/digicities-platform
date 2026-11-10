@@ -75,6 +75,9 @@ def initialize_session_state():
         # builder doesn't model it as a component, but preserves it verbatim so
         # loading and re-saving a service keeps its auto-registration block.
         st.session_state.service_connection = None
+    if 'service_loaded_template' not in st.session_state:
+        # The template as loaded: what the builder does not model is kept from it.
+        st.session_state.service_loaded_template = None
     if 'component_entries' not in st.session_state:
         st.session_state.component_entries = []
     if 'ontology_uploaded' not in st.session_state:
@@ -137,14 +140,16 @@ def get_current_ontology_data():
 
 def generate_yaml_structure(use_custom_names=True) -> Dict:
     """Generate the complete YAML structure with optional custom field names"""
-    return _sr_template.build_service_template(
-        service_name=st.session_state.service_name,
-        component_entries=st.session_state.component_entries,
-        description=st.session_state.get('service_description'),
-        connection=st.session_state.get('service_connection'),
-        custom_field_names=st.session_state.get('custom_field_names'),
-        use_custom_names=use_custom_names,
-    )
+    return _sr_template.carry_over_unmodelled(
+        st.session_state.get('service_loaded_template'),
+        _sr_template.build_service_template(
+            service_name=st.session_state.service_name,
+            component_entries=st.session_state.component_entries,
+            description=st.session_state.get('service_description'),
+            connection=st.session_state.get('service_connection'),
+            custom_field_names=st.session_state.get('custom_field_names'),
+            use_custom_names=use_custom_names,
+        ))
 
 
 def validate_component_attributes() -> Dict[str, Any]:
@@ -254,6 +259,10 @@ def load_yaml_configuration(yaml_content: str) -> bool:
         st.session_state.service_connection = connection
         if description:
             st.session_state.service_description = description
+        # The fields' own names, and everything else the builder does not model
+        # (optional attributes, units, outputs), are kept for the save.
+        st.session_state.custom_field_names = _sr_template.template_field_names(yaml_content)
+        st.session_state.service_loaded_template = yaml.safe_load(yaml_content)
 
         return True
 
@@ -740,6 +749,7 @@ def service_requirements_builder(client=None):
 
             if st.button("🗑️ Clear All Components"):
                 st.session_state.component_entries = []
+                st.session_state.service_loaded_template = None
                 st.rerun()
         else:
             st.info("Add some components to see the structure here")
