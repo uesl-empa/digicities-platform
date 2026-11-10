@@ -446,6 +446,10 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
     services_raw = rdflib.Graph()
     _parse_glob(services_raw, "services/*.ttl", "service")
 
+    # Every attribute link the data uses is declared, whichever route wrote it.
+    from backend.workspace.attribute_links import declare_attribute_links
+    declare_attribute_links(ctx.storage, schema_raw, instances_raw + scenarios, ctx.id)
+
     # --- Materialize the RDFS-Plus closure and keep it apart from what was
     #     asserted: each closed section is written as asserted, and what the
     #     closure adds goes to its inferred companion (graphs.INFERRED_OF), so
