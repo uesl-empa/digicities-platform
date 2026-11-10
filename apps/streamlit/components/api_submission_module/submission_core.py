@@ -14,6 +14,7 @@ import os
 import streamlit as st
 import pandas as pd
 import json
+import re
 import requests
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -36,6 +37,7 @@ class SubmissionResult:
     result_url: str = ""
     api_url: str = ""
     service_name: str = ""
+    result_files: List[Dict] = field(default_factory=list)
 
 
 def submit_to_api(data: Dict, api_config: ServiceAPI) -> SubmissionResult:
@@ -97,6 +99,28 @@ def submit_to_api(data: Dict, api_config: ServiceAPI) -> SubmissionResult:
         result.scenario_id = result.response_data.get("scenario_id", result.scenario_id)
         result.result_url = result.response_data.get("result_url", "")
     return result
+
+
+def keep_result_files(service_name: str, scenario_name: str, result: SubmissionResult) -> None:
+    """Fetch the files a response links to, while they are still this run's, and keep
+    them in the workspace beside the run's record."""
+    from backend.api_submission.result_files import fetch_result_files
+    from .api_config import get_service_template_content, load_service_requirements
+
+    ctx = st.session_state.get("workspace_context")
+    storage = getattr(ctx, "storage", None) if ctx is not None else None
+    info = load_service_requirements().get(service_name)
+    template = get_service_template_content(info) if info else None
+    if storage is None or not template:
+        return
+    clean_scenario = re.sub(r"[^A-Za-z0-9_.-]", "_", scenario_name)
+    folder = f"results/{service_name}/{clean_scenario}_{result.submission_time:%Y%m%d_%H%M%S}_files"
+
+    def save(name: str, data: bytes) -> str:
+        storage.write_bytes(f"{folder}/{name}", data)
+        return f"{folder}/{name}"
+
+    result.result_files = fetch_result_files(template, result.response_data, result.success, save)
 
 
 def render_api_submission_tab():
@@ -475,6 +499,11 @@ def execute_submission(
                                                 "result_detail": dr.json()}
             except Exception:
                 pass
+
+            try:
+                keep_result_files(selected_service, scenario_name, result)
+            except OSError as files_error:
+                st.warning(f"⚠️ Could not keep the result files: {files_error}")
 
             # Persist the result to the workspace storage (the workspace's
             # NextCloud when it is NextCloud-backed; local files otherwise).

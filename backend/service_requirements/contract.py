@@ -281,11 +281,13 @@ class OutputBlock:
     ``component`` (``Building``, or ``Location`` for a whole region), or for the
     whole run (``Scenario``). ``stream`` is where it is published, absent when it
     comes back in the response. ``identified_by`` is the result field that names
-    the instance."""
+    the instance. ``file_field`` is the response field holding a link to the file
+    the results are in, whose columns are then the block's fields."""
     component: str
     attributes: tuple = ()
     stream: Optional[str] = None
     identified_by: Optional[str] = None
+    file_field: Optional[str] = None
 
 
 def parse_outputs(contract: Any) -> list:
@@ -308,7 +310,7 @@ def parse_outputs(contract: Any) -> list:
             attrs.append(OutputAttribute(ref.members[0], str(field), spec.unit if spec else None,
                                          spec.currency if spec else None))
         out.append(OutputBlock(block["component"], tuple(attrs), block.get("stream"),
-                               block.get("identified_by")))
+                               block.get("identified_by"), block.get("file_field")))
     return out
 
 
@@ -342,6 +344,12 @@ def output_problems(contract: Any) -> list:
             problems.append(f"{OUTPUTS_KEY} block {i}: `{component}` is not an input of this "
                             f"service, so its results link to nothing. The inputs are: "
                             f"{', '.join(sorted(known))}")
+        if block.get("file_field") is not None and not isinstance(block["file_field"], str):
+            problems.append(f"{OUTPUTS_KEY} block {i}: `file_field` names the response field "
+                            f"holding the link, so it must be a name: {block['file_field']!r}")
+        if block.get("file_field") and block.get("stream"):
+            problems.append(f"{OUTPUTS_KEY} block {i} says its results are both on a stream and "
+                            "in a linked file (`stream` and `file_field`)")
         fields = block.get("attributes")
         if not isinstance(fields, dict) or not fields:
             problems.append(f"{OUTPUTS_KEY} block {i} does not say what comes back: `attributes` "

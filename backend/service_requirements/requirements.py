@@ -109,16 +109,18 @@ def requirements_ttl(
                            (DICI.providesOutputAttribute, OWL.ObjectProperty),
                            (DICI.atStreamAddress, OWL.DatatypeProperty),
                            (DICI.hasResultField, OWL.DatatypeProperty),
+                           (DICI.hasResultFileField, OWL.DatatypeProperty),
                            (DICI.identifiedByField, OWL.DatatypeProperty)):
             g.add((prop, RDF.type, kind))
     m = 0
     for item in outputs:
         if isinstance(item, OutputBlock):
             component, address, identified_by = item.component, item.stream, item.identified_by
+            file_field = item.file_field
             produced = list(item.attributes)
         else:
             component, attributes, address = item
-            identified_by = None
+            identified_by = file_field = None
             produced = [OutputAttribute(a) for a in attributes]
         comp = pascal_case(component)
         for output in produced or [OutputAttribute("")]:
@@ -132,6 +134,8 @@ def requirements_ttl(
                 g.add((out, DICI.providesOutputAttribute, DICI[pascal_case(attr)]))
             if address:
                 g.add((out, DICI.atStreamAddress, Literal(address)))
+            if file_field:
+                g.add((out, DICI.hasResultFileField, Literal(file_field)))
             if output.field:
                 g.add((out, DICI.hasResultField, Literal(output.field)))
             if output.unit:

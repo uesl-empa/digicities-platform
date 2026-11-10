@@ -31,7 +31,8 @@ class ServiceAPI:
     """Registered service: where it listens and how to reach it.
 
     ``transport`` selects how the payload is delivered:
-    - ``"http"``  (default): POST/PUT the JSON payload to ``api_url`` (with auth).
+    - ``"http"``  (default): POST/PUT the JSON payload to ``api_url``, or GET it
+      through the URL, one call per component (with auth).
     - ``"redis"``: publish the payload to a Redis request stream and optionally
       poll a result stream — see ``redis_config`` (keys: host, port,
       request_stream, result_stream, payload_field, request_id_field,
@@ -303,9 +304,9 @@ def _render_connection_editor(services: Dict[str, Dict]) -> None:
                     help="Full URL of the service endpoint",
                 )
                 api_method = st.selectbox(
-                    "HTTP Method", options=["POST", "PUT"],
-                    index=(["POST", "PUT"].index(existing_api.api_method)
-                           if existing_api and existing_api.api_method in ("POST", "PUT") else 0),
+                    "HTTP Method", options=["POST", "PUT", "GET"],
+                    index=(["POST", "PUT", "GET"].index(existing_api.api_method)
+                           if existing_api and existing_api.api_method in ("POST", "PUT", "GET") else 0),
                 )
             with col2:
                 timeout = st.number_input(
@@ -459,7 +460,11 @@ def _test_connection(transport, api_url, api_method, auth_type, auth_credentials
             elif auth_type == "api_key" and auth_credentials:
                 headers[auth_credentials.get("header_name", "X-API-Key")] = auth_credentials.get("api_key", "")
             # Probe with an empty body; <500 means the endpoint is reachable.
-            response = requests.request(api_method, api_url, json={}, headers=headers, timeout=5)
+            if api_method == "GET":
+                # HEAD before the first {field}: a real GET could start a run.
+                response = requests.request("HEAD", api_url.split("{", 1)[0], headers=headers, timeout=5)
+            else:
+                response = requests.request(api_method, api_url, json={}, headers=headers, timeout=5)
             if response.status_code < 500:
                 st.success(f"✅ Connection successful! Status: {response.status_code}")
             else:

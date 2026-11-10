@@ -124,8 +124,9 @@ def submit_via_connection(payload: Dict[str, Any], conn: Optional[Dict[str, Any]
 
 def test_connection(conn: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Reachability probe: Redis PING, or an empty-body request where any
-    status below 500 counts as reachable. Returns ``{ok, detail,
-    status_code?}`` — never raises."""
+    status below 500 counts as reachable. A GET service is probed with HEAD at
+    the url before its first ``{field}``, because a real GET could start a run.
+    Returns ``{ok, detail, status_code?}`` — never raises."""
     resolved = resolve_connection(conn)
     if resolved["transport"] == "redis":
         rc = resolved["redis"]
@@ -146,8 +147,12 @@ def test_connection(conn: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     headers, auth = auth_headers(resolved)
     try:
-        response = requests.request(resolved["method"], resolved["url"],
-                                    json={}, headers=headers, auth=auth, timeout=5)
+        if resolved["method"] == "GET":
+            response = requests.request("HEAD", resolved["url"].split("{", 1)[0],
+                                        headers=headers, auth=auth, timeout=5)
+        else:
+            response = requests.request(resolved["method"], resolved["url"],
+                                        json={}, headers=headers, auth=auth, timeout=5)
     except requests.exceptions.ConnectionError:
         return {"ok": False, "detail": "Connection failed — could not reach the server."}
     except requests.exceptions.Timeout:

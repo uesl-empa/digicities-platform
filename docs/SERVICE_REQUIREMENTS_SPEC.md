@@ -492,7 +492,7 @@ platform removes it before conversion, so it never reaches the payload. Values M
 connection:
   transport: http
   url: ${MODEL_URL:-http://host.docker.internal:8020/api/digicities/run}
-  method: POST          # POST or PUT
+  method: POST          # POST, PUT or GET (section 7.1)
   auth_type: none       # none | bearer | api_key | basic
   timeout: 120
 ```
@@ -524,6 +524,42 @@ component it describes, through that component's live time series attribute
 `expand_env`, `submit_via_connection`); `backend/api_submission/transports.py`
 (`submit_redis`); `ttl_converter.py` `process` (removes `connection`).
 
+### 7.1 A service that reads its request from the URL
+
+With `method: GET` the payload travels in the URL, not in a body.
+
+```yaml
+# example: fragment
+connection:
+  transport: http
+  url: ${MODEL_URL:-http://host.docker.internal:8000}/simulate/{pc6}
+  method: GET
+  timeout: 600
+```
+
+- The platform makes one call per component of the request. The fields outside the
+  component list go with every call.
+- A `{field}` in the URL is filled from the field of that name, and the other fields
+  become the query. A field's name is its own, whichever blocks hold it, and a field
+  nearer the component wins. So the contract should state only what the service reads:
+  a `uri` or `name` left in it is sent too.
+- `service_name`, `description` and `units` are not sent.
+- A URL holds single values. A request with two component lists, or a list inside a
+  component (a series), is refused before anything is sent, naming the field. So is a
+  component with no value for a `{field}` the URL needs.
+- A failed call does not stop the others, but a call that gets no answer does. The
+  outcome is `{"calls": [...]}`: for each call what it asked, its URL, its status and
+  what came back. The run counts as failed if any call failed.
+- Keep a `{field}` outside `${VAR:-default}`, as above. A brace inside the default ends
+  the variable early.
+- A link-local address (a cloud host's own metadata) is refused, directly or by
+  redirect, because a GET hands back what it reads.
+- **test connection** sends HEAD to the URL before its first `{field}`, because a real
+  GET could start a run.
+
+**Source:** `transports.py` (`submit_http`, `url_records`); `connection.py`
+(`test_connection`).
+
 ## 7A. What comes back: the outputs block
 
 A contract can say what the service returns, and which input component each result
@@ -550,6 +586,38 @@ the right a reference (section 4.3), or a value spec naming its unit and currenc
 (section 4.6). The fields of a nested result are written with dots, for example
 `months.summary.grid_import_kwh`.
 
+When the response holds a link to a file instead of the values, `file_field` names the
+response field holding it (with dots if nested), and `attributes` then names the file's
+columns:
+
+```yaml
+# example: fragment
+connection:
+  url: ${MODEL_URL:-http://host.docker.internal:8000}/simulate/{pc6}
+  method: GET
+  file_base_url: ${MODEL_FILES:-http://host.docker.internal:8080}
+outputs:
+  - component: PostcodeArea
+    file_field: url                # {"status": "success", "pc6": "1842EM", "url": "/files/a.csv"}
+    identified_by: pc6
+    attributes:
+      demand_kwh: {ref: PostcodeArea.ElectricityDemand, unit: KiloW-HR}
+```
+
+The platform fetches each file straight after its call and keeps it under
+`results/<service>/<run>_files/`, because the service may overwrite it on its next run. A
+relative link is read against the URL that was called, or `file_base_url` where another
+host serves the files. The run's record gets one `result_files` entry per block and call:
+the `component`, the `instance` (`identified_by`, from the response or else the request;
+without one, the `uri` the call sent),
+the `source`, where it was `saved`, and for a csv or tsv file its `columns`, `rows` and the
+declared `missing_columns`. A file that cannot be had is an `error` in its entry, up to
+200 MB. Credentials go only to the service's own host. A block has `stream` or
+`file_field`, not both.
+
+The values stay in the file: as with results in a response, they are kept with the run and
+are not written to the graph.
+
 `component` is the point of the block: a result for a building and a result for the
 region it belongs to are different things, and only this says which one a service
 returns. It must be a class the request reads, or `Scenario` for a result of the
@@ -560,8 +628,9 @@ The attribute is a class, declared in the core or an extension like any other.
 
 The platform records each output in the service's Turtle as a
 `ComponentAttributeOutput` (section 11): `providesOutputEntity` is the component,
-`providesOutputAttribute` the class, `atStreamAddress` the stream, `hasResultField`
-the field and `hasUnitLabel` the unit.
+`providesOutputAttribute` the class, `atStreamAddress` the stream, `hasResultFileField`
+the response field holding the link, `hasResultField` the field and `hasUnitLabel` the
+unit.
 
 ## 8. Field names
 
@@ -707,7 +776,8 @@ workspace's `<http://services>` graph:
   (`hasInputEntity` the class, `hasInputAttribute` the attribute class);
 - one `ComponentComponentRequirement` per required link (two `hasInputEntity`);
 - one `ComponentAttributeOutput` per output the model produces, with its result
-  stream as `atStreamAddress`.
+  stream as `atStreamAddress`, or the response field linking its file as
+  `hasResultFileField`.
 
 Configuration profiles (`ServiceConfiguration`, `hasConfigurationParameter`) live in
 the same graph. They are not part of the contract YAML and are not sent in the
