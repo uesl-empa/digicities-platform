@@ -81,6 +81,11 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
             :func:`backend.ontology_scaffold.link_predicate`); a column no
             declared predicate links is an error naming it. A predicate is
             never made up from the sheet and column names.
+
+    Returns:
+        list[str]: what was read but not written, one note per column (a link
+        whose target no row defines). Raises ValueError if an id is on more
+        than one row of a sheet.
     """
     import pandas as pd
     import math
@@ -403,15 +408,29 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
     # instance query. The replica must contain only what the workbook defines, so
     # collect the real ids up front and refuse to link to anything else.
     known_instances = defaultdict(set)          # sheet name -> {row id}
+    # An id names one record: its URI. Two rows with the same id wrote both rows'
+    # values onto that one URI (a cost of 400 AND 350 on the same attribute), and
+    # every reader then picked one. Which row is meant is the workbook's to say,
+    # so a repeated id stops the import, naming each one and its rows.
+    first_row = len(next(iter(sheets.values())).columns[0]) + 1 if sheets else 1
+    repeated = []
     for _name, _df in sheets.items():
-        if _name in ("Data Validation", "Reference"):  # debt-ok: workbook sheet names, not ontology terms
+        if _name == "Data Validation":  # debt-ok: workbook sheet name, not an ontology term
             continue
         _id_col = next((c for c in _df.columns if c[0] == "id"), None)
         if _id_col is None:
             continue
-        for _v in _df[_id_col]:
+        _rows = defaultdict(list)
+        for _i, _v in enumerate(_df[_id_col]):
             if is_nonempty(_v):
-                known_instances[_name].add(str(_v).strip())
+                _rows[str(_v).strip()].append(first_row + _i)
+        repeated += [f"{_name}: id '{_id}' is on rows {', '.join(map(str, _at))}"
+                     for _id, _at in _rows.items() if len(_at) > 1]
+        if _name != "Reference":  # debt-ok: the workbook's Reference sheet name
+            known_instances[_name] = set(_rows)
+    if repeated:
+        raise ValueError(f"{len(repeated)} id(s) are used on more than one row; an id "
+                         f"names one record, so each row needs its own: " + "; ".join(repeated))
     known_instances["Reference"] = set(ref_uri_map)
     unresolved_links = []
 
@@ -713,8 +732,8 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
                                     # via rdfs:range once the closure is materialized.
                                     if not resolves_in_workbook(value):
                                         unresolved_links.append(
-                                            f"{sheet_name}.{row_id}.{attr_name} -> "
-                                            f"'{str(value).strip()}'")
+                                            (f"{sheet_name}.{attr_name}", str(row_id).strip(),
+                                             str(value).strip()))
                                         continue
                                     link_sheet, _, link_id = str(value).strip().partition("/")
                                     target_uri = (f"<{project_uri}/{escape_iri(link_sheet.strip())}/"
@@ -1135,15 +1154,21 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
         f.write("\n".join(ttl_lines))
 
     # Say what was dropped. A skipped link is a real loss of information — quieter
-    # than an invented instance, but it must not be silent.
-    if unresolved_links:
-        print(f"Warning: {len(unresolved_links)} link(s) named a target this workbook "
-              f"does not define and were NOT written (they would have created instances "
-              f"with no data):")
-        for line in unresolved_links[:20]:
-            print(f"  - {line}")
-        if len(unresolved_links) > 20:
-            print(f"  …and {len(unresolved_links) - 20} more")
+    # than an invented instance, but it must not be silent: it is printed AND
+    # returned, one note per column, so the caller can show it to the user.
+    warnings_out = []
+    by_column = defaultdict(list)
+    for column, row_id, value in unresolved_links:
+        by_column[column].append((row_id, value))
+    for column, cells in by_column.items():
+        named = sorted({v for _, v in cells})
+        shown = ", ".join(f"'{v}'" for v in named[:5]) + (", …" if len(named) > 5 else "")
+        warnings_out.append(
+            f"{column}: {len(cells)} link(s) not written, because no row of this workbook "
+            f"is the record they name ({shown}). A link names a record as Sheet/id; give "
+            f"each target a row of its own, or the column a LinkedClassObjectType.")
+    for note in warnings_out:
+        print(f"Warning: {note}")
 
     # Validate with rdflib. A file that does not parse is skipped wholesale by
     # everything that loads it (provisioning, convert), so say so plainly.
@@ -1155,5 +1180,6 @@ def process_excel_to_ttl(project_uri, file_path, output_ttl_path, uri_mode="defa
     except Exception as e:
         print(f"ERROR: the generated TTL does not parse and will be skipped by "
               f"everything that loads it ({output_ttl_path}): {e}")
+    return warnings_out
 
 
