@@ -134,6 +134,40 @@ def test_populations_are_still_found_on_split_graphs(sections):
     assert (str(D.HubHeight), str(D.WindPark)) in pairs
 
 
+class _Counting(_Store):
+    """Counts the queries. ``closed=False`` leaves out the inferred companions,
+    as on a workspace built before the closure."""
+
+    def __init__(self, sections, closed=True):
+        super().__init__({g: graph for g, graph in sections.items()
+                          if closed or g not in INFERRED_OF.values()})
+        # the links the Replica Builder writes; none here, but the graph is read
+        self.ds.graph(rdflib.URIRef(SYSTEM_DESCRIPTION_GRAPH)).add(
+            (rdflib.URIRef("urn:test:links"), rdflib.RDFS.comment, rdflib.Literal("none")))
+        self.asked = 0
+
+    def sparql_api_query(self, query: str, out_format: str = "df") -> pd.DataFrame:
+        self.asked += 1
+        return super().sparql_api_query(query, out_format)
+
+
+@pytest.mark.parametrize("name, column, expected", [
+    ("workspace_attribute_types", "attrType", {str(D.HubHeight), str(D.PhysicalAttribute)}),
+    ("workspace_component_types", "componentType", {str(D.WindTurbine), str(D.WindPark)}),
+])
+def test_collection_options_read_the_closure_and_match_the_path_form(sections, name, column, expected):
+    """The Collections options read the closure's edges and the types each
+    record states, and give exactly what the property-path form gives on a
+    workspace built before the closure."""
+    from backend.collections import queries
+    closed, unclosed = _Counting(sections), _Counting(sections, closed=False)
+    got, before = getattr(queries, name)(closed), getattr(queries, name)(unclosed)
+    assert closed.asked == 2 and unclosed.asked == 2   # is it closed? then one query
+    assert set(got[column]) == expected
+    rows = lambda df: sorted(map(tuple, df.astype(str).values.tolist()))
+    assert rows(got) == rows(before)
+
+
 def test_refresh_recomputes_only_the_companions(sections, monkeypatch):
     import backend.graphdb.queries.graph_io as graph_io
     import backend.workspace.graphdb_provisioning as gp
@@ -176,7 +210,6 @@ def test_provisioning_writes_asserted_and_inferred_apart(tmp_path, monkeypatch):
                         lambda repo, g, ttl, replace=True: uploads.__setitem__(g, ttl) or True)
     monkeypatch.setattr(gp, "_collections_fingerprint", lambda repo, *pred: None)
     monkeypatch.setattr(gp, "_stamp_collections_fingerprint", lambda repo, fp, *pred: None)
-    monkeypatch.setattr(gp, "_materialize_populations", lambda ctx, repo, url: None)
     monkeypatch.setattr(gp, "clear_graph", lambda repo, g: True)
     import backend.workspace.deletion as deletion
     monkeypatch.setattr(deletion, "touch_workspace_activity", lambda storage: None)
