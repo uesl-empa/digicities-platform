@@ -622,8 +622,8 @@ def materialize_populations(client, workspace_id: str, limit: int = 50) -> List[
     """Materialize every linked population in the workspace as a
     component-grouped set: per container instance, the distribution of a
     numeric attribute over the components linked to it (the apple weights per
-    tree, the hub heights per park). Shown in Collections whether or not a
-    service asks for a statistic of it.
+    tree, the hub heights per park). Only on request: loading a workspace
+    creates no collection.
 
     Nothing is projected onto the containers: a projected ``<Attr><Stat>``
     attribute is what a SERVICE requests (``ensure_template_aggregates``). A

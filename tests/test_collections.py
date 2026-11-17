@@ -647,15 +647,21 @@ def test_population_discovery_failing_never_raises():
     assert materializer.materialize_populations(Broken({}), "ws") == []
 
 
-def test_provisioning_materializes_populations_once_per_replica_version(tmp_path, monkeypatch):
-    """On the first provisioning of a replica version the linked populations are
-    materialized and the version is stamped; reopening the same version does
-    not rebuild them (a population the user deleted stays deleted)."""
+def test_provisioning_creates_no_collection(tmp_path, monkeypatch):
+    """Loading a workspace creates no collection: they are made on request (the
+    Collections view, the agent's statistics) or because a service's
+    registration asks for a statistic. Not on the first load of a replica, not
+    on a reopen, not after the replica changes."""
+    from backend.collections import materializer
     from backend.workspace import WorkspaceContext, graphdb_provisioning as gp
     from backend.workspace.storage import WorkspaceStorage
 
-    marks: dict = {}
-    runs: list = []
+    made: list = []
+    for name in ("materialize_set", "materialize_grouped_set",
+                 "materialize_component_grouped_set", "materialize_populations"):
+        monkeypatch.setattr(materializer, name,
+                            lambda *a, _name=name, **k: made.append(_name))
+    written: list = []
 
     class _Backend:
         def dataset_exists(self, repo):
@@ -664,13 +670,11 @@ def test_provisioning_materializes_populations_once_per_replica_version(tmp_path
     monkeypatch.setattr(gp, "get_backend", lambda: _Backend())
     monkeypatch.setattr(gp, "_publish_local_working_copy", lambda ctx: None)
     monkeypatch.setattr(gp, "clear_default_graph", lambda repo: True)
-    monkeypatch.setattr(gp, "upload_ttl_to_graph", lambda repo, g, ttl, replace=True: True)
-    monkeypatch.setattr(gp, "clear_graph", lambda repo, g: marks.clear() or True)
-    monkeypatch.setattr(gp, "_collections_fingerprint",
-                        lambda repo, pred=gp._COLLECTIONS_META_PRED: marks.get(pred))
-    monkeypatch.setattr(gp, "_stamp_collections_fingerprint",
-                        lambda repo, fp, pred=gp._COLLECTIONS_META_PRED: marks.__setitem__(pred, fp))
-    monkeypatch.setattr(gp, "_materialize_populations", lambda ctx, repo, url: runs.append(repo))
+    monkeypatch.setattr(gp, "upload_ttl_to_graph",
+                        lambda repo, g, ttl, replace=True: written.append(g) or True)
+    monkeypatch.setattr(gp, "clear_graph", lambda repo, g: True)
+    monkeypatch.setattr(gp, "_collections_fingerprint", lambda repo, *pred: None)
+    monkeypatch.setattr(gp, "_stamp_collections_fingerprint", lambda repo, fp, *pred: None)
     import backend.workspace.deletion as deletion
     monkeypatch.setattr(deletion, "touch_workspace_activity", lambda storage: None)
 
@@ -680,12 +684,11 @@ def test_provisioning_materializes_populations_once_per_replica_version(tmp_path
     ctx = WorkspaceContext(id="ws", name="ws", storage=WorkspaceStorage.local(str(tmp_path)),
                            graphdb_repository="ws")
     assert gp.ensure_workspace_repo(ctx)
-    assert runs == ["ws"]
-    assert gp.ensure_workspace_repo(ctx)                 # same replica: not again
-    assert runs == ["ws"]
+    assert gp.ensure_workspace_repo(ctx)                 # reopen
     (out / "replica.ttl").write_text("# edited", encoding="utf-8")
-    assert gp.ensure_workspace_repo(ctx)                 # changed: cleared, rebuilt
-    assert runs == ["ws", "ws"]
+    assert gp.ensure_workspace_repo(ctx)                 # changed replica
+    assert made == []
+    assert gp.COLLECTIONS_GRAPH not in written
 
 
 def test_component_grouping_with_no_links_fails_loudly():

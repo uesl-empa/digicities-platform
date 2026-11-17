@@ -325,12 +325,43 @@ def workspace_component_types(client) -> pd.DataFrame:
     grouping options for the Collections builder. Only classes whose instances
     actually take part in a component link are offered (grouping by an
     unlinked class would always yield nothing). Columns: componentType, label,
-    instanceCount."""
+    instanceCount.
+
+    The provisioning closure asserts every ``linksComponent`` / ``hasAttribute``
+    super-edge and every superclass, so the query matches those directly, as
+    ``component_grouped_member_values`` does. The property-path form took
+    minutes on an energy model of a few thousand records (ehubX, 2026-11-13);
+    it is kept as the fallback for a workspace built before the closure."""
+    cols = ["componentType", "label", "instanceCount"]
+    graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SYSTEM_DESCRIPTION_GRAPH)
+    closure = f"""
+    {_PREFIXES}
+    SELECT ?componentType ?label (COUNT(DISTINCT ?inst) AS ?instanceCount)
+    {graphs}WHERE {{
+      ?inst a ?componentType .
+      ?componentType rdfs:subClassOf dici_onto:Component .
+      {{ ?inst dici_onto:linksComponent ?other . }}
+      UNION
+      {{ ?other dici_onto:linksComponent ?inst . }}
+      FILTER(?other != ?inst)
+      OPTIONAL {{ ?componentType rdfs:label ?label . }}
+      FILTER NOT EXISTS {{
+        ?inst a ?moreSpecific .
+        ?moreSpecific rdfs:subClassOf ?componentType .
+        FILTER(?moreSpecific != ?componentType)   # closure has reflexive subClassOf
+      }}
+      FILTER NOT EXISTS {{ ?attrOwner dici_onto:hasAttribute ?inst . }}
+    }}
+    GROUP BY ?componentType ?label
+    ORDER BY ?componentType
+    """
+    df = run_df(client, closure, cols)
+    if not df.empty:
+        return df
     query = f"""
     {_PREFIXES}
     SELECT ?componentType ?label (COUNT(DISTINCT ?inst) AS ?instanceCount)
-    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH,
-                 SYSTEM_DESCRIPTION_GRAPH)}WHERE {{
+    {graphs}WHERE {{
       ?inst a ?componentType .
       ?componentType rdfs:subClassOf+ dici_onto:Component .
       {{ ?inst ?link ?other . ?link rdfs:subPropertyOf* dici_onto:linksComponent . }}
@@ -351,7 +382,7 @@ def workspace_component_types(client) -> pd.DataFrame:
     GROUP BY ?componentType ?label
     ORDER BY ?componentType
     """
-    return run_df(client, query, ["componentType", "label", "instanceCount"])
+    return run_df(client, query, cols)
 
 
 def workspace_attribute_types(client) -> pd.DataFrame:
@@ -361,11 +392,42 @@ def workspace_attribute_types(client) -> pd.DataFrame:
     Keeps only each node's most specific Attribute class (closure also types
     every node with its base value-type, which would otherwise flood the list).
     Columns: attrType, label, instanceCount.
+
+    Matches the closure's asserted ``hasAttribute`` edges and superclasses
+    directly; the property-path form took up to three minutes on an energy model
+    (ehubX, 2026-11-13) and is kept as the fallback for a workspace built before
+    the closure.
     """
+    cols = ["attrType", "label", "instanceCount"]
+    graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)
+    closure = f"""
+    {_PREFIXES}
+    SELECT ?attrType ?label (COUNT(DISTINCT ?attr) AS ?instanceCount)
+    {graphs}WHERE {{
+      ?comp dici_onto:hasAttribute ?attr .
+      ?attr a ?attrType .
+      ?attrType rdfs:subClassOf dici_onto:Attribute .
+      OPTIONAL {{ ?attrType rdfs:label ?label . }}
+      # A model's settings (boundary conditions of its runs) are not data
+      # about the components: no statistics over them.
+      FILTER NOT EXISTS {{ ?attrType rdfs:subClassOf dici_onto:ConfigurationAttribute . }}
+      FILTER NOT EXISTS {{
+        ?attr a ?moreSpecific .
+        ?moreSpecific rdfs:subClassOf ?attrType .
+        ?moreSpecific rdfs:subClassOf dici_onto:Attribute .
+        FILTER(?moreSpecific != ?attrType)   # closure has reflexive subClassOf
+      }}
+    }}
+    GROUP BY ?attrType ?label
+    ORDER BY ?attrType
+    """
+    df = run_df(client, closure, cols)
+    if not df.empty:
+        return df
     query = f"""
     {_PREFIXES}
     SELECT ?attrType ?label (COUNT(DISTINCT ?attr) AS ?instanceCount)
-    {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
+    {graphs}WHERE {{
       ?comp ?edge ?attr .
       ?edge rdfs:subPropertyOf* dici_onto:hasAttribute .
       ?attr a ?attrType .
@@ -384,7 +446,7 @@ def workspace_attribute_types(client) -> pd.DataFrame:
     GROUP BY ?attrType ?label
     ORDER BY ?attrType
     """
-    return run_df(client, query, ["attrType", "label", "instanceCount"])
+    return run_df(client, query, cols)
 
 
 def workspace_datasets(client) -> pd.DataFrame:
