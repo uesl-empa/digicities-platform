@@ -135,20 +135,19 @@ def test_populations_are_still_found_on_split_graphs(sections):
 
 
 class _Counting(_Store):
-    """Counts the queries; with ``closure_unanswered`` its first query returns
-    no rows, as on a workspace built before the closure."""
+    """Counts the queries. ``closed=False`` leaves out the inferred companions,
+    as on a workspace built before the closure."""
 
-    def __init__(self, sections, closure_unanswered=False):
-        super().__init__(sections)
+    def __init__(self, sections, closed=True):
+        super().__init__({g: graph for g, graph in sections.items()
+                          if closed or g not in INFERRED_OF.values()})
         # the links the Replica Builder writes; none here, but the graph is read
         self.ds.graph(rdflib.URIRef(SYSTEM_DESCRIPTION_GRAPH)).add(
             (rdflib.URIRef("urn:test:links"), rdflib.RDFS.comment, rdflib.Literal("none")))
-        self.asked, self.closure_unanswered = 0, closure_unanswered
+        self.asked = 0
 
     def sparql_api_query(self, query: str, out_format: str = "df") -> pd.DataFrame:
         self.asked += 1
-        if self.closure_unanswered and self.asked == 1:
-            return pd.DataFrame()
         return super().sparql_api_query(query, out_format)
 
 
@@ -157,16 +156,16 @@ class _Counting(_Store):
     ("workspace_component_types", "componentType", {str(D.WindTurbine), str(D.WindPark)}),
 ])
 def test_collection_options_read_the_closure_and_match_the_path_form(sections, name, column, expected):
-    """The Collections options read the closure's edges in one query, and give
-    exactly what the property-path form gives (kept for a workspace built
-    before the closure)."""
+    """The Collections options read the closure's edges and the types each
+    record states, and give exactly what the property-path form gives on a
+    workspace built before the closure."""
     from backend.collections import queries
-    fast, paths = _Counting(sections), _Counting(sections, closure_unanswered=True)
-    got, fallback = getattr(queries, name)(fast), getattr(queries, name)(paths)
-    assert fast.asked == 1 and paths.asked == 2
+    closed, unclosed = _Counting(sections), _Counting(sections, closed=False)
+    got, before = getattr(queries, name)(closed), getattr(queries, name)(unclosed)
+    assert closed.asked == 2 and unclosed.asked == 2   # is it closed? then one query
     assert set(got[column]) == expected
     rows = lambda df: sorted(map(tuple, df.astype(str).values.tolist()))
-    assert rows(got) == rows(fallback)
+    assert rows(got) == rows(before)
 
 
 def test_refresh_recomputes_only_the_companions(sections, monkeypatch):

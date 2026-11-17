@@ -22,6 +22,7 @@ from backend.graphdb.graphs import (
     CLASSES_AND_ATTRIBUTES_GRAPH,
     SYSTEM_DESCRIPTION_GRAPH,
     COLLECTIONS_GRAPH,
+    INFERRED_OF,
     from_clause,
 )
 from backend.graphdb.queries._exec import run_df
@@ -320,6 +321,22 @@ def linked_populations(client) -> pd.DataFrame:
     return out.sort_values(["containerType", "attrType"])[cols].reset_index(drop=True)
 
 
+def _closed(client) -> bool:
+    """Whether provisioning wrote this workspace's closure (the inferred
+    companion of its records). A workspace built before the closure has none,
+    and its options are read with property paths instead."""
+    df = run_df(client, f"""
+    SELECT ?s WHERE {{ GRAPH <{INFERRED_OF[CLASSES_AND_ATTRIBUTES_GRAPH]}> {{ ?s ?p ?o }} }} LIMIT 1
+    """, ["s"])
+    return not df.empty
+
+
+# The types a record states (the asserted graph). The closure only adds their
+# superclasses, so a record's most specific types are always among these, and
+# comparing them alone gives the same answer as comparing every type.
+_STATED = f"FROM NAMED <{CLASSES_AND_ATTRIBUTES_GRAPH}>\n"
+
+
 def workspace_component_types(client) -> pd.DataFrame:
     """Component classes with instances in this workspace — the component-
     grouping options for the Collections builder. Only classes whose instances
@@ -331,33 +348,33 @@ def workspace_component_types(client) -> pd.DataFrame:
     super-edge and every superclass, so the query matches those directly, as
     ``component_grouped_member_values`` does. The property-path form took
     minutes on an energy model of a few thousand records (ehubX, 2026-11-13);
-    it is kept as the fallback for a workspace built before the closure."""
+    it is kept for a workspace built before the closure."""
     cols = ["componentType", "label", "instanceCount"]
     graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH, SYSTEM_DESCRIPTION_GRAPH)
-    closure = f"""
+    if _closed(client):
+        return run_df(client, f"""
     {_PREFIXES}
     SELECT ?componentType ?label (COUNT(DISTINCT ?inst) AS ?instanceCount)
-    {graphs}WHERE {{
-      ?inst a ?componentType .
-      ?componentType rdfs:subClassOf dici_onto:Component .
-      {{ ?inst dici_onto:linksComponent ?other . }}
-      UNION
-      {{ ?other dici_onto:linksComponent ?inst . }}
-      FILTER(?other != ?inst)
-      OPTIONAL {{ ?componentType rdfs:label ?label . }}
-      FILTER NOT EXISTS {{
-        ?inst a ?moreSpecific .
+    {graphs}{_STATED}WHERE {{
+      {{
+        GRAPH <{CLASSES_AND_ATTRIBUTES_GRAPH}> {{ ?inst a ?componentType . }}
+        ?componentType rdfs:subClassOf dici_onto:Component .
+        {{ ?inst dici_onto:linksComponent ?other . }}
+        UNION
+        {{ ?other dici_onto:linksComponent ?inst . }}
+        FILTER(?other != ?inst)
+        FILTER NOT EXISTS {{ ?attrOwner dici_onto:hasAttribute ?inst . }}
+      }}
+      MINUS {{
+        GRAPH <{CLASSES_AND_ATTRIBUTES_GRAPH}> {{ ?inst a ?moreSpecific . }}
         ?moreSpecific rdfs:subClassOf ?componentType .
         FILTER(?moreSpecific != ?componentType)   # closure has reflexive subClassOf
       }}
-      FILTER NOT EXISTS {{ ?attrOwner dici_onto:hasAttribute ?inst . }}
+      OPTIONAL {{ ?componentType rdfs:label ?label . }}
     }}
     GROUP BY ?componentType ?label
     ORDER BY ?componentType
-    """
-    df = run_df(client, closure, cols)
-    if not df.empty:
-        return df
+    """, cols)
     query = f"""
     {_PREFIXES}
     SELECT ?componentType ?label (COUNT(DISTINCT ?inst) AS ?instanceCount)
@@ -394,36 +411,36 @@ def workspace_attribute_types(client) -> pd.DataFrame:
     Columns: attrType, label, instanceCount.
 
     Matches the closure's asserted ``hasAttribute`` edges and superclasses
-    directly; the property-path form took up to three minutes on an energy model
-    (ehubX, 2026-11-13) and is kept as the fallback for a workspace built before
-    the closure.
+    directly, and compares only the types a node states; the property-path form
+    took up to three minutes on an energy model (ehubX, 2026-11-13) and is kept
+    for a workspace built before the closure.
     """
     cols = ["attrType", "label", "instanceCount"]
     graphs = from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)
-    closure = f"""
+    if _closed(client):
+        return run_df(client, f"""
     {_PREFIXES}
     SELECT ?attrType ?label (COUNT(DISTINCT ?attr) AS ?instanceCount)
-    {graphs}WHERE {{
-      ?comp dici_onto:hasAttribute ?attr .
-      ?attr a ?attrType .
-      ?attrType rdfs:subClassOf dici_onto:Attribute .
-      OPTIONAL {{ ?attrType rdfs:label ?label . }}
-      # A model's settings (boundary conditions of its runs) are not data
-      # about the components: no statistics over them.
-      FILTER NOT EXISTS {{ ?attrType rdfs:subClassOf dici_onto:ConfigurationAttribute . }}
-      FILTER NOT EXISTS {{
-        ?attr a ?moreSpecific .
+    {graphs}{_STATED}WHERE {{
+      {{
+        ?comp dici_onto:hasAttribute ?attr .
+        GRAPH <{CLASSES_AND_ATTRIBUTES_GRAPH}> {{ ?attr a ?attrType . }}
+        ?attrType rdfs:subClassOf dici_onto:Attribute .
+        # A model's settings (boundary conditions of its runs) are not data
+        # about the components: no statistics over them.
+        FILTER NOT EXISTS {{ ?attrType rdfs:subClassOf dici_onto:ConfigurationAttribute . }}
+      }}
+      MINUS {{
+        GRAPH <{CLASSES_AND_ATTRIBUTES_GRAPH}> {{ ?attr a ?moreSpecific . }}
         ?moreSpecific rdfs:subClassOf ?attrType .
         ?moreSpecific rdfs:subClassOf dici_onto:Attribute .
         FILTER(?moreSpecific != ?attrType)   # closure has reflexive subClassOf
       }}
+      OPTIONAL {{ ?attrType rdfs:label ?label . }}
     }}
     GROUP BY ?attrType ?label
     ORDER BY ?attrType
-    """
-    df = run_df(client, closure, cols)
-    if not df.empty:
-        return df
+    """, cols)
     query = f"""
     {_PREFIXES}
     SELECT ?attrType ?label (COUNT(DISTINCT ?attr) AS ?instanceCount)
@@ -451,12 +468,16 @@ def workspace_attribute_types(client) -> pd.DataFrame:
 
 def workspace_datasets(client) -> pd.DataFrame:
     """The data sources (References) components cite via hasReference, for the
-    optional dataset filter. Columns: dataset, label, componentCount."""
+    optional dataset filter. Columns: dataset, label, componentCount.
+
+    With the closure every citing subproperty also asserts ``hasReference``."""
+    cited = ("  ?comp dici_onto:hasReference ?dataset .\n" if _closed(client)
+             else _cites("?comp", "?dataset"))
     query = f"""
     {_PREFIXES}
     SELECT ?dataset ?label (COUNT(DISTINCT ?comp) AS ?componentCount)
     {from_clause(ONTOLOGY_GRAPH, CLASSES_AND_ATTRIBUTES_GRAPH)}WHERE {{
-{_cites("?comp", "?dataset")}      OPTIONAL {{ ?dataset rdfs:label ?label . }}
+{cited}      OPTIONAL {{ ?dataset rdfs:label ?label . }}
     }}
     GROUP BY ?dataset ?label
     ORDER BY ?dataset
