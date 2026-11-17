@@ -29,7 +29,6 @@ Layout inside each workspace's dataset:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Optional
 
@@ -155,10 +154,6 @@ def upload_ttl_to_graph(
 # ontology terms — internal invalidation state, never domain vocabulary.
 _COLLECTIONS_META_SUBJECT = "urn:digicities:collections"
 _COLLECTIONS_META_PRED = "urn:digicities:replicaFingerprint"
-# Which replica version the linked populations were materialized for: once per
-# version, so a population collection the user deletes is not rebuilt on every
-# open (a changed replica clears the graph, this marker with it).
-_POPULATIONS_META_PRED = "urn:digicities:populationsFingerprint"
 
 
 def _replica_fingerprint(ctx, core_path) -> str:
@@ -213,22 +208,6 @@ def _stamp_collections_fingerprint(repo_id: str, fingerprint: str,
                       auth=getattr(backend, "auth", None), timeout=30)
     except requests.RequestException as exc:
         print(f"[graphdb_provisioning] fingerprint stamp on {repo_id} failed: {exc}")
-
-
-def _materialize_populations(ctx, repo_id: str, base_url: Optional[str]) -> None:
-    try:
-        from backend.collections import materialize_populations
-        from backend.graphdb.client import UnifiedGraphDBClient
-        url = (base_url or getattr(get_backend(), "base_url", None)
-               or os.getenv("FUSEKI_URL") or os.getenv("GRAPHDB_URL") or "http://localhost:3030")
-        client = UnifiedGraphDBClient(token="local", selected_repo=repo_id, base_url=url)
-        client.max_retries = 0          # a slow store skips this, never stalls the load
-        made = materialize_populations(client, ctx.id)
-        if made:
-            print(f"[graphdb_provisioning] {ctx.id}: {len(made)} linked population(s) "
-                  f"materialized in <{COLLECTIONS_GRAPH}>")
-    except Exception as exc:
-        print(f"[graphdb_provisioning] {ctx.id}: linked populations skipped: {exc}")
 
 
 def clear_graph(repo_id: str, graph_iri: str, base_url: Optional[str] = None) -> bool:
@@ -499,13 +478,6 @@ def ensure_workspace_repo(ctx: WorkspaceContext, base_url: Optional[str] = None)
             print(f"[graphdb_provisioning] {ctx.id}: cleared derived "
                   f"<{COLLECTIONS_GRAPH}> (authored replica changed)")
         _stamp_collections_fingerprint(repo_id, fingerprint)
-
-    # Every linked population (the apples per tree, the turbines per park) is
-    # visible in Collections from the start, not only the statistics a service
-    # asks for. Once per replica version; never blocks provisioning.
-    if _collections_fingerprint(repo_id, _POPULATIONS_META_PRED) != fingerprint:
-        _materialize_populations(ctx, repo_id, base_url)
-        _stamp_collections_fingerprint(repo_id, fingerprint, _POPULATIONS_META_PRED)
 
     # Opening/provisioning IS working on the workspace — record it so the
     # landing page's last-updated stamp reflects graph-only sessions too.
