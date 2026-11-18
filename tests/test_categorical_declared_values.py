@@ -257,3 +257,46 @@ def test_the_explorer_lists_every_value_by_its_label():
     data = {"properties": {}, "type_uris": set(),
             "category_values": {str(SOUTH): "South-facing", str(NORTH): "North-facing"}}
     assert p._process_categorical_attribute(data, "Orientation") == "North-facing, South-facing"
+
+
+def _numeric_codes(tmp_path: Path) -> rdflib.Graph:
+    """Lamp with a categorical Shape whose data codes are whole numbers."""
+    ops = [{"op": "add_component", "name": "Lamp"},
+           {"op": "add_attribute", "name": "Shape", "type": "Categorical"},
+           {"op": "link_attribute", "component": "Lamp", "attribute": "Shape"}]
+    ops += [{"op": "add_named_individual", "name": f"Shape{c}", "attribute": "Shape",
+             "annotations": {"label": f"Shape {c}", "notation": [c]}} for c in ("0", "1", "4")]
+    report = apply_extension_instructions(
+        {"extension": "ext.ttl", "instructions": ops},
+        storage=WorkspaceStorage.local(str(tmp_path)), workspace_id="ws")
+    assert not [r for r in report["results"] if r["status"] == "error"], report["results"]
+    return rdflib.Graph().parse(tmp_path / "ontology" / "extensions" / "ext.ttl", format="turtle")
+
+
+def test_a_whole_number_read_as_a_decimal_names_its_code(tmp_path):
+    """A code column with empty cells is read as decimals: the code 4 arrives as 4.0."""
+    g = with_core(_numeric_codes(tmp_path))
+    four = value_iri(D.Shape, "Shape4")
+    assert resolve_category(g, D.Shape, "4") == four
+    assert resolve_category(g, D.Shape, 4.0) == four
+    assert resolve_category(g, D.Shape, "4.00") == four
+    assert resolve_category(g, D.Shape, 4.5) is None
+    assert resolve_category(g, D.Shape, "40") is None
+
+
+def test_a_code_column_with_an_empty_cell_builds(tmp_path):
+    ext = _numeric_codes(tmp_path)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Lamp"
+    ws.cell(row=1, column=1, value="id")
+    ws.cell(row=1, column=2, value="Shape")
+    ws.cell(row=2, column=2, value="Categorical")
+    for i, value in enumerate([4, None, 1], start=7):
+        ws.cell(row=i, column=1, value=f"L{i}")
+        ws.cell(row=i, column=2, value=value)
+    wb.save(tmp_path / "w.xlsx")
+    out = tmp_path / "out.ttl"
+    process_excel_to_ttl(PROJ, str(tmp_path / "w.xlsx"), str(out), ontology=ext)
+    g = rdflib.Graph().parse(out, format="turtle")
+    assert set(g.objects(URIRef(f"{PROJ}/Lamp/L7/Shape"), D.hasCategoricalValue)) == {value_iri(D.Shape, "Shape4")}
