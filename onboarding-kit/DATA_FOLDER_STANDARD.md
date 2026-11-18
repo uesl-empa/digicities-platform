@@ -147,6 +147,6 @@ A term (a class or an attribute) is at most 31 characters long. The keys of
 A converter reads one tool's or one sector's format and writes a folder that meets this
 standard, ideally level 2. It lives outside the platform, with the tool or with the data's
 owner, so the platform never grows a reader per tool. Its output is checked like any other
-folder. Converters written so far (the `digicities-adapters` repository,
-`python -m digicities_adapters.to_datapackage`): EPANET network models (`.inp`), OSeMOSYS
-models in a clicSAND workbook, and wide tables of readings (one sensor per column).
+folder. Converters written so far (in the energy modelling study, outside the platform): EPANET
+network models (`.inp`), OSeMOSYS models in a clicSAND workbook, and wide tables of
+readings (one sensor per column).
