@@ -96,10 +96,13 @@ the package.
 | package | `licenses`, `sources` | the licence and where the data comes from (required) |
 | package | `timezone` | the IANA time zone (`Europe/Zurich`) of times written without an offset |
 | resource | `rdfType` | the class of its rows, a Digicities ontology IRI |
+| resource | `subClassOf` | the core class a class of its own sits under, when the core has no class for it (`Pump` under `EnergyConverter`) |
 | field | `rdfType` | the attribute or link the column is, an ontology IRI |
 | field | `unit` | the QUDT unit code of a quantity (`KiloW`, `M3-PER-HR`) |
 | field | `currency` | the ISO 4217 code of a cost (`CHF`) |
-| field | `profile` | `true` when the cell names a series file (shape S1) |
+| field | `profile` | `true` when the cell names a series file (shape S1); with no `unit` it is read as dimensionless |
+| field | `curve`, `unitY` | `true` when the cell names a curve file of x and y; `unit` is the x axis, `unitY` the y axis |
+| field | `categories` | the values a code may take (Frictionless), read as the attribute's declared values |
 | field | `refersTo` | the resources a link may point into, when more than one |
 | schema | `primaryKey` | the id column |
 | schema | `foreignKeys` | links into one other resource |
@@ -135,9 +138,15 @@ the package.
 }
 ```
 
+A term (a class or an attribute) is at most 31 characters long. The keys of
+`run/settings.yaml` are terms too: a key that is not one (`control 1`) is read as one
+(`Control1`).
+
 ## Converting other formats
 
 A converter reads one tool's or one sector's format and writes a folder that meets this
 standard, ideally level 2. It lives outside the platform, with the tool or with the data's
 owner, so the platform never grows a reader per tool. Its output is checked like any other
-folder.
+folder. Converters written so far (the `digicities-adapters` repository,
+`python -m digicities_adapters.to_datapackage`): EPANET network models (`.inp`), OSeMOSYS
+models in a clicSAND workbook, and wide tables of readings (one sensor per column).
