@@ -95,9 +95,17 @@ def validate_payload(payload: Any, template: Any) -> ValidationResult:
             # A link node: the converter expands it into a list of components.
             if is_link_block(t):
                 if not isinstance(p, list) or len(p) == 0:
-                    result.errors.append(
-                        f"{path or 'scenario'}: no components found for link '{t[LINK_KEY]}'"
-                    )
+                    # A registration that serves several scenarios lists the classes
+                    # some of them do not have: their list may then be empty.
+                    target = str(t[LINK_KEY]).rsplit(".", 1)[-1]
+                    if target in exempt:
+                        result.warnings.append(
+                            f"{path or 'scenario'}: no {target} in this scenario (the "
+                            "registration lists the class as optional)")
+                    else:
+                        result.errors.append(
+                            f"{path or 'scenario'}: no components found for link '{t[LINK_KEY]}'"
+                        )
                 else:
                     for i, item in enumerate(p):
                         walk(t[TEMPLATE_KEY], item, f"{path}[{i + 1}]")

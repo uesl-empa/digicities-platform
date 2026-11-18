@@ -133,13 +133,14 @@ def import_workbook(
 
     ontology = _workspace_ontology(ctx)
     try:
-        process_excel_to_ttl(_project_uri(ctx), str(xlsx_path), str(ttl_path), uri_mode="default",
-                             ontology=ontology)
+        warnings = process_excel_to_ttl(_project_uri(ctx), str(xlsx_path), str(ttl_path),
+                                        uri_mode="default", ontology=ontology)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Conversion failed: {exc}") from exc
 
     ttl = ttl_path.read_text(encoding="utf-8") if ttl_path.exists() else ""
-    return {"file": ttl_path.name, "triples_preview": ttl[:4000], "ttl": ttl, "chars": len(ttl)}
+    return {"file": ttl_path.name, "triples_preview": ttl[:4000], "ttl": ttl, "chars": len(ttl),
+            "warnings": warnings}
 
 
 # ── in-app builder: a replica model (classes + typed attribute columns + instance
@@ -191,9 +192,9 @@ def generate(spec: ReplicaSpec, ctx: WorkspaceContext = Depends(get_ctx)) -> dic
 
     ontology = _workspace_ontology(ctx)
     try:
-        process_excel_to_ttl(_project_uri(ctx), str(xlsx), str(ttl_path), uri_mode="default",
-                             ontology=ontology)
+        warnings = process_excel_to_ttl(_project_uri(ctx), str(xlsx), str(ttl_path),
+                                        uri_mode="default", ontology=ontology)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Generation failed: {exc}") from exc
     ttl = ttl_path.read_text(encoding="utf-8") if ttl_path.exists() else ""
-    return {"ttl": ttl, "chars": len(ttl), "persisted": spec.persist}
+    return {"ttl": ttl, "chars": len(ttl), "persisted": spec.persist, "warnings": warnings}

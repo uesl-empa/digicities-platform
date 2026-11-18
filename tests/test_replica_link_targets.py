@@ -167,3 +167,42 @@ def test_an_instance_is_named_by_its_record_id(graph):
 def test_a_label_the_sheet_gives_is_kept_alone(graph):
     labels = set(graph.objects(rdflib.URIRef(f"{PROJ}/WindPark/ParkA"), rdflib.RDFS.label))
     assert {str(x) for x in labels} == {"Park A"}
+
+
+def test_what_is_dropped_is_returned_one_note_per_column(tmp_path):
+    """A dropped link is told to the caller (the API, the agent), not only printed."""
+    xlsx = _workbook(tmp_path / "wb.xlsx", seven_row=True)
+    notes = process_excel_to_ttl(PROJ, str(xlsx), str(tmp_path / "wb.ttl"),
+                                 ontology=declare_workbook(xlsx, tmp_path / "ws"))
+    assert sorted(n.split(":")[0] for n in notes) == ["WindTurbine.bare", "WindTurbine.typo"]
+    assert "'WindPark/NOPE'" in next(n for n in notes if n.startswith("WindTurbine.typo"))
+
+
+def test_a_workbook_with_nothing_dropped_returns_no_notes(tmp_path):
+    xlsx = _workbook(tmp_path / "wb.xlsx", seven_row=True)
+    wb = openpyxl.load_workbook(xlsx)
+    ws = wb["WindTurbine"]
+    ws.cell(row=8, column=3, value="WindPark/ParkA")
+    ws.cell(row=8, column=4, value="WindPark/ParkA")
+    wb.save(xlsx)
+    assert process_excel_to_ttl(PROJ, str(xlsx), str(tmp_path / "wb.ttl"),
+                                ontology=declare_workbook(xlsx, tmp_path / "ws")) == []
+
+
+@pytest.mark.parametrize("seven_row", [False, True])
+def test_an_id_on_two_rows_stops_the_import_naming_it_and_its_rows(tmp_path, seven_row):
+    """Two rows with one id wrote both rows' values onto one URI; which row is meant
+    is the workbook's to say, so the import stops and names the rows."""
+    xlsx = _workbook(tmp_path / "wb.xlsx", seven_row=seven_row)
+    wb = openpyxl.load_workbook(xlsx)
+    ws = wb["WindPark"]
+    first = 8 if seven_row else 7
+    ws.cell(row=first + 1, column=1, value="ParkB")
+    ws.cell(row=first + 2, column=1, value="ParkA")
+    ws.cell(row=first + 2, column=2, value="Park A, again")
+    wb.save(xlsx)
+    ttl = tmp_path / "wb.ttl"
+    with pytest.raises(ValueError, match=rf"WindPark: id 'ParkA' is on rows {first}, {first + 2}"):
+        process_excel_to_ttl(PROJ, str(xlsx), str(ttl),
+                             ontology=declare_workbook(xlsx, tmp_path / "ws"))
+    assert not ttl.exists()

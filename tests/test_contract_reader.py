@@ -187,3 +187,21 @@ def test_the_bundled_demo_is_complete_and_sends_its_categories():
         (building,) = raw["scenario_data"]["location"][0]["buildings"]
         assert (building["HeatingSupply"], building["DHWSupply"]) == (heating, dhw), name
         assert building["SIA2024BuildingType"] == "MFH"
+
+
+def test_a_class_listed_as_optional_may_have_no_instances():
+    """A registration that serves several scenarios reads classes some of them
+    lack (a storage case has no generators): listed as optional, the class's
+    empty list is noted, not an error. An unlisted class's empty list still is."""
+    contract = {"service_name": "Plant", "optional_attributes": ["EnergyGenerator"],
+                "scenario_data": {
+                    "generators": {"link": "CL.Scenario.EnergyGenerator",
+                                   "template": {"uri": "EnergyGenerator.URI"}},
+                    "storages": {"link": "CL.Scenario.EnergyStorage",
+                                 "template": {"uri": "EnergyStorage.URI"}}}}
+    vr = validate_payload({"scenario_data": {"generators": [], "storages": [{"uri": "s1"}]}},
+                          contract)
+    assert vr.is_valid and any("no EnergyGenerator in this scenario" in w for w in vr.warnings)
+    vr = validate_payload({"scenario_data": {"generators": [{"uri": "g1"}], "storages": []}},
+                          contract)
+    assert not vr.is_valid and "no components found for link 'CL.Scenario.EnergyStorage'" in vr.errors[0]

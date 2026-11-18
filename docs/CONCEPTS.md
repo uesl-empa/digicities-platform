@@ -185,16 +185,17 @@ placeholders (`${ENV}`) are listed as "set at deployment" and never stored.
 
 A collection is a set of attribute values and its statistics: for example the
 hub heights of the turbines in each park, with mean, standard deviation and
-count. The platform builds one for every population of linked records, so the
-**Collections** view always shows the distributions. When a contract asks for
-a statistic (`Tree.WeightMean`), that value is attached to each container and
-delivered with the scenario. A scenario never carries the collection's own
+count. A collection is made only on request: someone builds it in the
+**Collections** view or asks the agent for statistics, or a contract asks for
+a statistic (`Tree.WeightMean`) and Convert computes it. That value is
+attached to each container and delivered with the scenario. A scenario never carries the collection's own
 bookkeeping.
 
-- **Lives in:** the graph `http://collections`. It is derived and recomputed on
-  every data reload.
-- **Created by:** provisioning (population collections) and Convert (the
-  statistics a contract asks for); the **Collections** module.
+- **Lives in:** the graph `http://collections`. It is derived: when the
+  replica changes the graph is cleared, and a collection is made again when it
+  is next asked for. Loading a workspace creates none.
+- **Created by:** the **Collections** module, the agent's statistics, and
+  Convert (the statistics a contract asks for).
 
 ### Payload
 

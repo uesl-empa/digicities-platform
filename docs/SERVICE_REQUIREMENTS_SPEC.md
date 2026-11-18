@@ -112,7 +112,7 @@ top-level-key   = "service_name"          (* MUST, a non-empty string *)
                 | "description"           (* MAY, free text *)
                 | "connection"            (* MAY, see section 7 *)
                 | "scenario_data"         (* MUST to produce a payload, a block *)
-                | "optional_attributes"   (* MAY, list of attribute-ref *)
+                | "optional_attributes"   (* MAY, list of attribute-ref or class *)
                 | "derived_attributes"    (* MAY, list of attribute-ref *)
                 | "required_attributes" ; (* deprecated, ignored: see section 6 *)
 
@@ -391,6 +391,10 @@ function.
 
 - `optional_attributes: [T.A, ...]`: the data may lack `T.A`. The field stays in the
   payload template; an instance without a value is sent without that field.
+  An entry that is a class (`T`) says a scenario may have no `T` at all: a link block
+  whose class it is may come out empty, and the payload check notes it instead of
+  failing. A registration that serves several scenarios lists the classes some of them
+  do not have (a storage case with no generators).
 - `derived_attributes: [T.A, ...]`: values the platform computes at convert time
   (section 6.3), exempt in the same way.
 

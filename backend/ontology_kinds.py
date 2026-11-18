@@ -21,6 +21,7 @@ code then dispatches on the enum member, never on a class name.
 from __future__ import annotations
 
 import os
+import re
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -269,17 +270,23 @@ def resolve_category(g: Graph, attr_class: URIRef, value) -> Optional[URIRef]:
     value, or more than one, carries it. Record values are data, so exact
     equality on a stated notation or label is the match; the IRI is never read
     for it. A cell may also hold the value itself, its whole IRI (a replica
-    loaded from a graph and written back to a workbook carries its values so)."""
+    loaded from a graph and written back to a workbook carries its values so).
+    A whole number read as a decimal names the same code: a code column with
+    empty cells is read as decimals, so the code ``4`` arrives as ``4.0``."""
     text = str(value).strip()
     candidates = categorical_individuals(g, attr_class)
-    if URIRef(text) in candidates:
+    # Only text shaped like an IRI is tried as one: rdflib warns that a value with
+    # a space (`Bahnhof Wiedikon`) "will break" when it is merely tested.
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*:\S+", text) and URIRef(text) in candidates:
         return URIRef(text)
-    for prop in (SKOS.notation, RDFS.label):
-        hits = {i for i in candidates if any(str(o) == text for o in g.objects(i, prop))}
-        if len(hits) == 1:
-            return hits.pop()
-        if hits:
-            return None
+    whole = re.fullmatch(r"(-?\d+)\.0+", text)
+    for written in (text, whole.group(1)) if whole else (text,):
+        for prop in (SKOS.notation, RDFS.label):
+            hits = {i for i in candidates if any(str(o) == written for o in g.objects(i, prop))}
+            if len(hits) == 1:
+                return hits.pop()
+            if hits:
+                return None
     return None
 
 
