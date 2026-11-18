@@ -300,3 +300,21 @@ def test_a_code_column_with_an_empty_cell_builds(tmp_path):
     process_excel_to_ttl(PROJ, str(tmp_path / "w.xlsx"), str(out), ontology=ext)
     g = rdflib.Graph().parse(out, format="turtle")
     assert set(g.objects(URIRef(f"{PROJ}/Lamp/L7/Shape"), D.hasCategoricalValue)) == {value_iri(D.Shape, "Shape4")}
+
+
+def test_a_value_with_a_space_is_matched_without_an_iri_warning(tmp_path, caplog):
+    """A data value is tried as an IRI only when it looks like one: rdflib
+    warned that `Hall North` "will break" each time a cell was matched."""
+    ops = [{"op": "add_component", "name": "Lamp"},
+           {"op": "add_attribute", "name": "Place", "type": "Categorical"},
+           {"op": "link_attribute", "component": "Lamp", "attribute": "Place"},
+           {"op": "add_named_individual", "name": "Hall North", "attribute": "Place",
+            "annotations": {"label": "Hall North"}}]
+    apply_extension_instructions({"extension": "ext.ttl", "instructions": ops},
+                                 storage=WorkspaceStorage.local(str(tmp_path)), workspace_id="ws")
+    g = with_core(rdflib.Graph().parse(tmp_path / "ontology" / "extensions" / "ext.ttl", format="turtle"))
+    with caplog.at_level("WARNING"):
+        found = resolve_category(g, D.Place, "Hall North")
+    assert found is not None and " " not in str(found)
+    assert not [r for r in caplog.records if "valid URI" in r.getMessage()]
+    assert resolve_category(g, D.Place, str(found)) == found

@@ -275,7 +275,9 @@ def resolve_category(g: Graph, attr_class: URIRef, value) -> Optional[URIRef]:
     empty cells is read as decimals, so the code ``4`` arrives as ``4.0``."""
     text = str(value).strip()
     candidates = categorical_individuals(g, attr_class)
-    if URIRef(text) in candidates:
+    # Only text shaped like an IRI is tried as one: rdflib warns that a value with
+    # a space (`Bahnhof Wiedikon`) "will break" when it is merely tested.
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9+.-]*:\S+", text) and URIRef(text) in candidates:
         return URIRef(text)
     whole = re.fullmatch(r"(-?\d+)\.0+", text)
     for written in (text, whole.group(1)) if whole else (text,):
