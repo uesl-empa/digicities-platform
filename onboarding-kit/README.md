@@ -5,6 +5,17 @@ Digicities with an agent. It is two files — [`AGENTS.md`](AGENTS.md) (the agen
 brief) and this README — that you drop into a **working folder** (a folder holding
 a model and the data it consumes). Nothing in the kit is specific to any usecase.
 
+## Before you start: the data folder standard
+
+Digicities reads a short list of open formats (CSV, Excel, JSON, YAML, GeoJSON, IFC) in a
+short list of shapes, and recommends a Frictionless data package that states what each
+table and column is. [`DATA_FOLDER_STANDARD.md`](DATA_FOLDER_STANDARD.md) lists them.
+Check your folder before uploading it:
+
+```bash
+python -m onboarding_agent.folder_check <your folder>
+```
+
 ## The pipeline
 
 1. **Copy the kit into your working folder.** Copy `AGENTS.md` (and this README)
