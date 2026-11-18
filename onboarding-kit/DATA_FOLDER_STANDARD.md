@@ -72,6 +72,11 @@ Series, values over time:
 | S3 | Wide: one time column, one column per thing, headed by the thing's id | `time, n54, n57` |
 | S4 | One row per thing, one column per year or date | `Technology, 2025, 2030, 2035` |
 
+A row is told apart by at most two columns besides time: the thing, or the thing and
+the attribute. A table whose rows need a third (an OSeMOSYS parameter sheet: parameter,
+technology and timeslice) has more dimensions than any shape and is not compatible:
+convert it, or write one table per kind of thing and the extra dimension as a series (S1).
+
 ## Values
 
 - One value per cell. A unit written in the cell (`890 CHF/kW`) is read only when every
